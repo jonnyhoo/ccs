@@ -26,7 +26,7 @@ One command. Zero downtime. No file editing. Right model, right task.
 
 **Install** (one-liner):
 ```bash
-curl -fsSL https://raw.githubusercontent.com/kaitranntt/ccs/main/install.sh | bash
+curl -fsSL kaitran.ca/ccs/install | bash
 ```
 
 **Configure**:
@@ -36,7 +36,7 @@ cat > ~/.ccs.json << 'EOF'
 {
   "profiles": {
     "glm": "~/.claude/glm.settings.json",
-    "sonnet": "~/.claude/sonnet.settings.json",
+    "son": "~/.claude/sonnet.settings.json",
     "default": "~/.claude/settings.json"
   }
 }
