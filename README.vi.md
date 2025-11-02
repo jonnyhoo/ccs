@@ -209,33 +209,65 @@ Nếu cần tùy chỉnh:
 }
 ```
 
-**Lưu ý**: Config dùng Unix-style paths (`~/`) để tương thích đa nền tảng. Phiên bản Windows tự động chuyển đổi paths.
+### Cấu Hình macOS / Linux
 
-Mỗi profile trỏ đến một file settings JSON của Claude. Tạo file settings theo [tài liệu Claude CLI](https://docs.claude.com/en/docs/claude-code/installation).
-
-### Cấu Hình GLM Profile
-
-Installer tự động cấu hình GLM profiles với các biến môi trường nâng cao:
+Dùng file paths trỏ đến settings files:
 
 ```json
 {
-  "env": {
-    "ANTHROPIC_BASE_URL": "https://api.z.ai/api/anthropic",
-    "ANTHROPIC_AUTH_TOKEN": "GLM_API_KEY_CUA_BAN",
-    "ANTHROPIC_MODEL": "glm-4.6",
-    "ANTHROPIC_DEFAULT_OPUS_MODEL": "glm-4.6",
-    "ANTHROPIC_DEFAULT_SONNET_MODEL": "glm-4.6",
-    "ANTHROPIC_DEFAULT_HAIKU_MODEL": "glm-4.6"
+  "profiles": {
+    "glm": "~/.ccs/glm.settings.json",
+    "sonnet": "~/.ccs/sonnet.settings.json",
+    "default": "~/.claude/settings.json"
   }
 }
 ```
 
-**Các biến môi trường**:
-- `ANTHROPIC_DEFAULT_OPUS_MODEL`: Model mặc định cho requests Opus-class
-- `ANTHROPIC_DEFAULT_SONNET_MODEL`: Model mặc định cho requests Sonnet-class
-- `ANTHROPIC_DEFAULT_HAIKU_MODEL`: Model mặc định cho requests Haiku-class
+Mỗi profile trỏ đến một file settings JSON của Claude. Tạo file settings theo [tài liệu Claude CLI](https://docs.claude.com/en/docs/claude-code/installation).
 
-Các biến này đảm bảo GLM được dùng làm provider mặc định khi chuyển profiles.
+### Cấu Hình Windows
+
+**Quan trọng**: Claude CLI trên Windows dùng **biến môi trường** thay vì --settings flag.
+
+Windows dùng cùng cấu trúc file như Linux, nhưng settings files chứa environment variables:
+
+**Config format** (`~/.ccs/config.json`):
+```json
+{
+  "profiles": {
+    "glm": "~/.ccs/glm.settings.json",
+    "son": "~/.ccs/sonnet.settings.json",
+    "default": "~/.claude/settings.json"
+  }
+}
+```
+
+**GLM profile** (`~/.ccs/glm.settings.json`):
+```json
+{
+  "ANTHROPIC_BASE_URL": "https://api.z.ai/api/anthropic",
+  "ANTHROPIC_AUTH_TOKEN": "GLM_API_KEY_CUA_BAN",
+  "ANTHROPIC_MODEL": "glm-4.6",
+  "ANTHROPIC_DEFAULT_OPUS_MODEL": "glm-4.6",
+  "ANTHROPIC_DEFAULT_SONNET_MODEL": "glm-4.6",
+  "ANTHROPIC_DEFAULT_HAIKU_MODEL": "glm-4.6"
+}
+```
+
+**Claude profile** (`~/.ccs/sonnet.settings.json`):
+```json
+{
+  "env": {}
+}
+```
+
+**Cách hoạt động**:
+- CCS đọc settings file của profile được chọn
+- Tạm thời set biến môi trường từ settings file
+- Chạy Claude CLI với các biến đó
+- Khôi phục biến môi trường gốc sau khi thực thi
+
+**Tương thích**: Settings files hỗ trợ cả format trực tiếp (Windows) và wrapper `{"env": {...}}` (tương thích Linux).
 
 ## Sử Dụng
 

@@ -224,39 +224,47 @@ Each profile points to a Claude settings JSON file. Create settings files per [C
 
 ### Windows Configuration
 
-**Important**: Windows Claude CLI uses **environment variables** instead of settings files.
+**Important**: Windows Claude CLI uses **environment variables** instead of --settings flag.
 
-Config format:
+Windows uses the same file structure as Linux, but settings files contain environment variables:
 
+**Config format** (`~/.ccs/config.json`):
 ```json
 {
   "profiles": {
-    "glm": {
-      "ANTHROPIC_BASE_URL": "https://api.z.ai/api/anthropic",
-      "ANTHROPIC_AUTH_TOKEN": "your_glm_api_key",
-      "ANTHROPIC_MODEL": "glm-4.6",
-      "ANTHROPIC_DEFAULT_OPUS_MODEL": "glm-4.6",
-      "ANTHROPIC_DEFAULT_SONNET_MODEL": "glm-4.6",
-      "ANTHROPIC_DEFAULT_HAIKU_MODEL": "glm-4.6"
-    },
-    "son": {},
-    "default": {}
+    "glm": "~/.ccs/glm.settings.json",
+    "son": "~/.ccs/sonnet.settings.json",
+    "default": "~/.claude/settings.json"
   }
 }
 ```
 
-**Profile types**:
-- **With env vars** (GLM): Sets environment variables for API providers
-- **Empty object** `{}` (Claude): Uses Claude subscription (no API key needed)
-- **Empty object** `{}` (default): Uses current environment variables
+**GLM profile** (`~/.ccs/glm.settings.json`):
+```json
+{
+  "ANTHROPIC_BASE_URL": "https://api.z.ai/api/anthropic",
+  "ANTHROPIC_AUTH_TOKEN": "your_glm_api_key",
+  "ANTHROPIC_MODEL": "glm-4.6",
+  "ANTHROPIC_DEFAULT_OPUS_MODEL": "glm-4.6",
+  "ANTHROPIC_DEFAULT_SONNET_MODEL": "glm-4.6",
+  "ANTHROPIC_DEFAULT_HAIKU_MODEL": "glm-4.6"
+}
+```
 
-**Environment Variables**:
-- `ANTHROPIC_BASE_URL`: API endpoint URL
-- `ANTHROPIC_AUTH_TOKEN`: Your API key
-- `ANTHROPIC_MODEL`: Default model
-- `ANTHROPIC_DEFAULT_OPUS_MODEL`: Model for Opus-class requests
-- `ANTHROPIC_DEFAULT_SONNET_MODEL`: Model for Sonnet-class requests
-- `ANTHROPIC_DEFAULT_HAIKU_MODEL`: Model for Haiku-class requests
+**Claude profile** (`~/.ccs/sonnet.settings.json`):
+```json
+{
+  "env": {}
+}
+```
+
+**How it works**:
+- CCS reads the settings file for the selected profile
+- Temporarily sets environment variables from the settings file
+- Executes Claude CLI with those variables
+- Restores original environment variables after execution
+
+**Compatibility**: Settings files support both direct format (Windows) and `{"env": {...}}` wrapper (Linux compatibility).
 
 ## Usage
 
