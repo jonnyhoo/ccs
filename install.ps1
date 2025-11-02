@@ -74,7 +74,7 @@ function New-GlmProfile {
     $GlmSettings = "$CcsDir\glm.settings.json"
 
     if ($Provider -eq "glm" -and (Test-Path $CurrentSettings)) {
-        Write-Host "✓ Copying current GLM config to profile..."
+        Write-Host "[OK] Copying current GLM config to profile..."
 
         try {
             $Config = Get-Content $CurrentSettings -Raw | ConvertFrom-Json
@@ -88,14 +88,14 @@ function New-GlmProfile {
             $Config | ConvertTo-Json -Depth 10 | Set-Content $GlmSettings
             Write-Host "  Created: $GlmSettings (with your existing API key + enhanced settings)"
         } catch {
-            Write-Host "  ℹ️  Copying current settings failed, using template"
+            Write-Host "  [i]  Copying current settings failed, using template"
             New-GlmTemplate | Set-Content $GlmSettings
         }
     } else {
         Write-Host "Creating GLM profile template at $GlmSettings"
         New-GlmTemplate | Set-Content $GlmSettings
         Write-Host "  Created: $GlmSettings"
-        Write-Host "  ⚠️  Edit this file and replace YOUR_GLM_API_KEY_HERE with your actual GLM API key"
+        Write-Host "  [!]  Edit this file and replace YOUR_GLM_API_KEY_HERE with your actual GLM API key"
     }
 }
 
@@ -106,7 +106,7 @@ function New-SonnetProfile {
     $SonnetSettings = "$CcsDir\sonnet.settings.json"
 
     if ($Provider -eq "claude" -and (Test-Path $CurrentSettings)) {
-        Write-Host "✓ Copying current Claude config to profile..."
+        Write-Host "[OK] Copying current Claude config to profile..."
         Copy-Item $CurrentSettings $SonnetSettings
         Write-Host "  Created: $SonnetSettings"
     } else {
@@ -130,7 +130,7 @@ function New-SonnetProfile {
         }
 
         Write-Host "  Created: $SonnetSettings"
-        Write-Host "  ℹ️  This uses your Claude subscription (no API key needed)"
+        Write-Host "  [i]  This uses your Claude subscription (no API key needed)"
     }
 }
 
@@ -144,22 +144,22 @@ New-Item -ItemType Directory -Force -Path $CcsDir | Out-Null
 # Install main executable
 if ($InstallMethod -eq "standalone") {
     # Standalone install - download from GitHub
-    Write-Host "│  Downloading CCS from GitHub..."
+    Write-Host "|  Downloading CCS from GitHub..."
 
     try {
         $BaseUrl = "https://raw.githubusercontent.com/kaitranntt/ccs/main"
         Invoke-WebRequest -Uri "$BaseUrl/ccs.ps1" -OutFile "$CcsDir\ccs.ps1" -UseBasicParsing
-        Write-Host "│  ✓ Downloaded ccs.ps1"
+        Write-Host "|  [OK] Downloaded ccs.ps1"
     } catch {
-        Write-Host "│"
-        Write-Host "✗ Error: Failed to download ccs.ps1 from GitHub" -ForegroundColor Red
+        Write-Host "|"
+        Write-Host "[X] Error: Failed to download ccs.ps1 from GitHub" -ForegroundColor Red
         Write-Host "  $_"
         exit 1
     }
 } else {
     # Git install - copy local file
     Copy-Item "$ScriptDir\ccs.ps1" "$CcsDir\ccs.ps1" -Force
-    Write-Host "│  ✓ Installed ccs.ps1"
+    Write-Host "|  [OK] Installed ccs.ps1"
 }
 
 # Install uninstall script
@@ -168,18 +168,18 @@ if ($ScriptDir -and (Test-Path "$ScriptDir\uninstall.ps1")) {
     if ($ScriptDir -ne $CcsDir) {
         Copy-Item "$ScriptDir\uninstall.ps1" "$CcsDir\uninstall.ps1" -Force
     }
-    Write-Host "│  ✓ Installed uninstaller"
+    Write-Host "|  [OK] Installed uninstaller"
 } elseif ($InstallMethod -eq "standalone") {
     try {
         $BaseUrl = "https://raw.githubusercontent.com/kaitranntt/ccs/main"
         Invoke-WebRequest -Uri "$BaseUrl/uninstall.ps1" -OutFile "$CcsDir\uninstall.ps1" -UseBasicParsing
-        Write-Host "│  ✓ Installed uninstaller"
+        Write-Host "|  [OK] Installed uninstaller"
     } catch {
-        Write-Host "│  ⚠️  Could not download uninstaller (optional)"
+        Write-Host "|  [!]  Could not download uninstaller (optional)"
     }
 }
 
-Write-Host "│  ✓ Created directories"
+Write-Host "|  [OK] Created directories"
 Write-Host "└─"
 Write-Host ""
 
@@ -202,13 +202,13 @@ $NeedsGlmKey = $false
 
 if (-not (Test-Path $GlmSettings)) {
     New-GlmProfile -Provider $CurrentProvider | Out-Null
-    Write-Host "│  ✓ GLM profile → $env:USERPROFILE\.ccs\glm.settings.json"
+    Write-Host "|  [OK] GLM profile -> $env:USERPROFILE\.ccs\glm.settings.json"
     if ($CurrentProvider -ne "glm") { $NeedsGlmKey = $true }
 }
 
 if (-not (Test-Path $SonnetSettings)) {
     New-SonnetProfile -Provider $CurrentProvider | Out-Null
-    Write-Host "│  ✓ Sonnet profile → $env:USERPROFILE\.ccs\sonnet.settings.json"
+    Write-Host "|  [OK] Sonnet profile -> $env:USERPROFILE\.ccs\sonnet.settings.json"
 }
 
 # Create ccs config (using Unix-style paths for cross-platform compatibility)
@@ -223,7 +223,7 @@ if (-not (Test-Path $ConfigFile)) {
     }
 
     $ConfigContent | ConvertTo-Json -Depth 10 | Set-Content $ConfigFile
-    Write-Host "│  ✓ Config → $env:USERPROFILE\.ccs\config.json"
+    Write-Host "|  [OK] Config -> $env:USERPROFILE\.ccs\config.json"
 }
 
 Write-Host "└─"
@@ -232,7 +232,7 @@ Write-Host ""
 # Check and update PATH
 $UserPath = [Environment]::GetEnvironmentVariable("Path", "User")
 if ($UserPath -notlike "*$CcsDir*") {
-    Write-Host "⚠️  PATH Configuration Required"
+    Write-Host "[!]  PATH Configuration Required"
     Write-Host ""
     Write-Host "   Adding $CcsDir to your PATH..."
 
@@ -240,10 +240,10 @@ if ($UserPath -notlike "*$CcsDir*") {
         $NewPath = if ($UserPath) { "$UserPath;$CcsDir" } else { $CcsDir }
         [Environment]::SetEnvironmentVariable("Path", $NewPath, "User")
 
-        Write-Host "   ✓ PATH updated. Restart your terminal for changes to take effect."
+        Write-Host "   [OK] PATH updated. Restart your terminal for changes to take effect."
         Write-Host ""
     } catch {
-        Write-Host "   ✗ Could not update PATH automatically." -ForegroundColor Yellow
+        Write-Host "   [X] Could not update PATH automatically." -ForegroundColor Yellow
         Write-Host "   Please add manually: $CcsDir"
         Write-Host ""
     }
@@ -251,14 +251,14 @@ if ($UserPath -notlike "*$CcsDir*") {
 
 # Show API key warning if needed
 if ($NeedsGlmKey) {
-    Write-Host "⚠️  ACTION REQUIRED"
+    Write-Host "[!]  ACTION REQUIRED"
     Write-Host ""
     Write-Host "   Edit $env:USERPROFILE\.ccs\glm.settings.json and add your GLM API key"
     Write-Host "   Replace: YOUR_GLM_API_KEY_HERE"
     Write-Host ""
 }
 
-Write-Host "✅ CCS installed successfully!"
+Write-Host "[SUCCESS] CCS installed successfully!"
 Write-Host ""
 
 # Build quick start based on current provider

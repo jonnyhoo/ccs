@@ -11,9 +11,9 @@ $CcsDir = "$env:USERPROFILE\.ccs"
 # Remove ccs.ps1
 if (Test-Path "$CcsDir\ccs.ps1") {
     Remove-Item "$CcsDir\ccs.ps1" -Force
-    Write-Host "✅ Removed: $CcsDir\ccs.ps1"
+    Write-Host "[OK] Removed: $CcsDir\ccs.ps1"
 } else {
-    Write-Host "ℹ️  No ccs.ps1 found at $CcsDir"
+    Write-Host "[i]  No ccs.ps1 found at $CcsDir"
 }
 
 # Remove uninstall script itself (will be last)
@@ -25,10 +25,10 @@ if ($UserPath -like "*$CcsDir*") {
     try {
         $NewPath = ($UserPath -split ';' | Where-Object { $_ -ne $CcsDir }) -join ';'
         [Environment]::SetEnvironmentVariable("Path", $NewPath, "User")
-        Write-Host "✅ Removed from PATH: $CcsDir"
+        Write-Host "[OK] Removed from PATH: $CcsDir"
         Write-Host "   Restart your terminal for changes to take effect."
     } catch {
-        Write-Host "⚠️  Could not remove from PATH automatically. Please remove manually: $CcsDir" -ForegroundColor Yellow
+        Write-Host "[!]  Could not remove from PATH automatically. Please remove manually: $CcsDir" -ForegroundColor Yellow
     }
 }
 
@@ -38,19 +38,19 @@ if (Test-Path $CcsDir) {
     $Response = Read-Host "Remove CCS directory $CcsDir`? This includes config and profiles. (y/N)"
     if ($Response -match '^[Yy]$') {
         Remove-Item $CcsDir -Recurse -Force
-        Write-Host "✅ Removed: $CcsDir"
+        Write-Host "[OK] Removed: $CcsDir"
     } else {
         # If keeping directory, remove uninstall script
         if (Test-Path $UninstallScript) {
             Remove-Item $UninstallScript -Force
-            Write-Host "✅ Removed: $UninstallScript"
+            Write-Host "[OK] Removed: $UninstallScript"
         }
-        Write-Host "ℹ️  Kept: $CcsDir"
+        Write-Host "[i]  Kept: $CcsDir"
     }
 } else {
-    Write-Host "ℹ️  No CCS directory found at $CcsDir"
+    Write-Host "[i]  No CCS directory found at $CcsDir"
 }
 
 Write-Host ""
-Write-Host "✅ Uninstall complete!"
+Write-Host "[SUCCESS] Uninstall complete!"
 Write-Host ""
