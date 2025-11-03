@@ -239,19 +239,6 @@ if ($InstallMethod -eq "standalone") {
     }
     Copy-Item $CcsPs1Path "$CcsDir\ccs.ps1" -Force
     Write-Host "|  [OK] Installed ccs.ps1"
-
-    # Copy VERSION file if available (for proper version display)
-    $VersionPath = if (Test-Path "$ScriptDir\VERSION") {
-        "$ScriptDir\VERSION"
-    } elseif (Test-Path "$ScriptDir\..\VERSION") {
-        "$ScriptDir\..\VERSION"
-    } else {
-        $null
-    }
-    if ($VersionPath) {
-        Copy-Item $VersionPath "$CcsDir\VERSION" -Force
-        Write-Host "|  [OK] Installed VERSION file"
-    }
 }
 
 # Install uninstall script as ccs-uninstall.ps1

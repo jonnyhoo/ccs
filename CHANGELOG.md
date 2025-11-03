@@ -4,6 +4,35 @@ All notable changes to CCS will be documented here.
 
 Format based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [2.2.1] - 2025-11-03
+
+### Changed
+- **Version Management Simplified**: Executables now use hardcoded versions instead of reading VERSION file
+  - `ccs` and `ccs.ps1` have hardcoded `CCS_VERSION` variable
+  - `bump-version.sh` updates all files atomically (5 locations)
+  - No runtime file I/O for version display (~1-2ms faster startup)
+  - Removed VERSION file copying from installers
+- **Selective Uninstall Cleanup**: When keeping ~/.ccs directory, only config files preserved
+  - Removes: `ccs`, `uninstall.sh`, `VERSION` (executables and metadata)
+  - Keeps: `config.json`, `*.settings.json`, `.claude/` (user configuration)
+  - Clear reporting of removed vs kept files
+
+### Fixed
+- **Uninstall Issue**: Executables no longer left in ~/.ccs when choosing to keep directory
+- **Version Display**: No longer requires VERSION file in ~/.ccs
+
+### Technical Details
+- **Files Modified**:
+  - `ccs`: Hardcoded version, removed VERSION file reading
+  - `ccs.ps1`: Hardcoded version, removed VERSION file reading
+  - `scripts/bump-version.sh`: Updates 5 files (VERSION, executables, installers)
+  - `installers/install.sh`: Removed VERSION file copying
+  - `installers/install.ps1`: Removed VERSION file copying
+  - `installers/uninstall.sh`: Added selective_cleanup() function
+  - `installers/uninstall.ps1`: Added Invoke-SelectiveCleanup function
+- **Security**: No new vulnerabilities introduced
+- **Cross-platform**: Full parity maintained (Unix/Linux/macOS/Windows)
+
 ## [2.2.0] - 2025-11-03
 
 ### Added

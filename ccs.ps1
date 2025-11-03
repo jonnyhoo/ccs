@@ -24,14 +24,9 @@ function Write-ErrorMsg {
     Write-Host ""
 }
 
-# Version - Read from VERSION file
+# Version (updated by scripts/bump-version.sh)
+$CcsVersion = "2.2.0"
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-$VersionFile = Join-Path $ScriptDir "VERSION"
-$CCS_VERSION = if (Test-Path $VersionFile) {
-    (Get-Content $VersionFile -Raw).Trim()
-} else {
-    "unknown"
-}
 
 # Installation function for commands and skills
 function Install-CommandsAndSkills {
@@ -133,7 +128,7 @@ function Install-CommandsAndSkills {
 # Check both $ProfileOrFlag and first element of $RemainingArgs
 $FirstArg = if ($ProfileOrFlag -ne "default") { $ProfileOrFlag } elseif ($RemainingArgs.Count -gt 0) { $RemainingArgs[0] } else { $null }
 if ($FirstArg -eq "version" -or $FirstArg -eq "--version" -or $FirstArg -eq "-v") {
-    Write-Host "CCS (Claude Code Switch) version $CCS_VERSION"
+    Write-Host "CCS (Claude Code Switch) version $CcsVersion"
 
     # Show install location
     $InstallLocation = (Get-Command ccs -ErrorAction SilentlyContinue).Source

@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Version - Read from VERSION file
+# Version (updated by scripts/bump-version.sh)
+CCS_VERSION="2.2.0"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-CCS_VERSION="$(cat "$SCRIPT_DIR/VERSION" 2>/dev/null || echo "unknown")"
 
 # --- Color/Format Functions ---
 setup_colors() {

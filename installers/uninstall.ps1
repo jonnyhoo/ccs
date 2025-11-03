@@ -14,21 +14,52 @@ function Write-Info {
     Write-Host "[i] $Message" -ForegroundColor Cyan
 }
 
+# --- Selective Cleanup Function ---
+function Invoke-SelectiveCleanup {
+    param([string]$CcsDir)
+
+    $Removed = @()
+    $Kept = @()
+
+    # Remove executables and version metadata
+    $FilesToRemove = @("ccs.ps1", "VERSION")
+
+    # Also remove the uninstall script itself
+    $UninstallScript = $PSCommandPath
+    if ($UninstallScript -and (Test-Path $UninstallScript)) {
+        $FilesToRemove += $UninstallScript
+    }
+
+    foreach ($File in $FilesToRemove) {
+        $FilePath = if ([System.IO.Path]::IsPathRooted($File)) { $File } else { Join-Path $CcsDir $File }
+        if (Test-Path $FilePath) {
+            Remove-Item $FilePath -Force
+            $Removed += Split-Path $FilePath -Leaf
+        }
+    }
+
+    # Track kept files
+    if (Test-Path "$CcsDir\config.json") { $Kept += "config.json" }
+    if (Test-Path "$CcsDir\config.json.backup") { $Kept += "config.json.backup" }
+    Get-ChildItem "$CcsDir\*.settings.json" -ErrorAction SilentlyContinue | ForEach-Object {
+        $Kept += $_.Name
+    }
+    if (Test-Path "$CcsDir\.claude") { $Kept += ".claude/" }
+
+    # Report results
+    if ($Removed.Count -gt 0) {
+        Write-Info "Cleaned up: $($Removed -join ', ')"
+    }
+
+    if ($Kept.Count -gt 0) {
+        Write-Info "Kept config files: $($Kept -join ', ')"
+    }
+}
+
 Write-Host "Uninstalling ccs..."
 Write-Host ""
 
 $CcsDir = "$env:USERPROFILE\.ccs"
-
-# Remove ccs.ps1
-if (Test-Path "$CcsDir\ccs.ps1") {
-    Remove-Item "$CcsDir\ccs.ps1" -Force
-    Write-Success "Removed: $CcsDir\ccs.ps1"
-} else {
-    Write-Info "No ccs.ps1 found at $CcsDir"
-}
-
-# Get this script's path for self-removal (works whether named uninstall.ps1 or ccs-uninstall.ps1)
-$UninstallScript = $PSCommandPath
 
 # Remove from PATH
 $UserPath = [Environment]::GetEnvironmentVariable("Path", [System.EnvironmentVariableTarget]::User)
@@ -51,12 +82,8 @@ if (Test-Path $CcsDir) {
         Remove-Item $CcsDir -Recurse -Force
         Write-Success "Removed: $CcsDir"
     } else {
-        # If keeping directory, remove this uninstall script
-        if (Test-Path $UninstallScript) {
-            Remove-Item $UninstallScript -Force
-            Write-Success "Removed: $UninstallScript"
-        }
-        Write-Info "Kept: $CcsDir"
+        Write-Host ""
+        Invoke-SelectiveCleanup -CcsDir $CcsDir
     }
 } else {
     Write-Info "No CCS directory found at $CcsDir"

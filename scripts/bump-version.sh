@@ -56,10 +56,12 @@ NEW_VERSION="$MAJOR.$MINOR.$PATCH"
 
 echo "New version: $NEW_VERSION"
 echo ""
-echo "This will:"
-echo "  1. Update VERSION file"
-echo "  2. Update installers/install.sh (hardcoded version)"
-echo "  3. Update installers/install.ps1 (hardcoded version)"
+echo "This will update hardcoded versions in:"
+echo "  1. VERSION file"
+echo "  2. ccs (bash executable)"
+echo "  3. ccs.ps1 (PowerShell executable)"
+echo "  4. installers/install.sh"
+echo "  5. installers/install.ps1"
 echo ""
 read -p "Continue? (y/N) " -n 1 -r
 echo
@@ -72,6 +74,26 @@ fi
 # Update VERSION file
 echo "$NEW_VERSION" > "$VERSION_FILE"
 echo "✓ Updated VERSION file to $NEW_VERSION"
+
+# Update ccs (bash executable)
+CCS_BASH="$CCS_DIR/ccs"
+if [[ -f "$CCS_BASH" ]]; then
+    sed -i.bak "s/^CCS_VERSION=\".*\"/CCS_VERSION=\"$NEW_VERSION\"/" "$CCS_BASH"
+    rm -f "$CCS_BASH.bak"
+    echo "✓ Updated ccs (bash executable)"
+else
+    echo "⚠  ccs not found, skipping"
+fi
+
+# Update ccs.ps1 (PowerShell executable)
+CCS_PS1="$CCS_DIR/ccs.ps1"
+if [[ -f "$CCS_PS1" ]]; then
+    sed -i.bak "s/^\$CcsVersion = \".*\"/\$CcsVersion = \"$NEW_VERSION\"/" "$CCS_PS1"
+    rm -f "$CCS_PS1.bak"
+    echo "✓ Updated ccs.ps1 (PowerShell executable)"
+else
+    echo "⚠  ccs.ps1 not found, skipping"
+fi
 
 # Update installers/install.sh
 INSTALL_SH="$CCS_DIR/installers/install.sh"

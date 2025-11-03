@@ -20,6 +20,38 @@ msg_info() {
   echo -e "${CYAN}[i] $1${RESET}"
 }
 
+# --- Selective Cleanup Function ---
+selective_cleanup() {
+  local ccs_dir="$1"
+  local removed=()
+  local kept=()
+
+  # Remove executables and version metadata
+  for file in "ccs" "uninstall.sh" "VERSION"; do
+    if [[ -f "$ccs_dir/$file" ]]; then
+      rm "$ccs_dir/$file"
+      removed+=("$file")
+    fi
+  done
+
+  # Track kept files
+  [[ -f "$ccs_dir/config.json" ]] && kept+=("config.json")
+  [[ -f "$ccs_dir/config.json.backup" ]] && kept+=("config.json.backup")
+  for settings in "$ccs_dir"/*.settings.json; do
+    [[ -f "$settings" ]] && kept+=("$(basename "$settings")")
+  done
+  [[ -d "$ccs_dir/.claude" ]] && kept+=(".claude/")
+
+  # Report results
+  if [[ ${#removed[@]} -gt 0 ]]; then
+    msg_info "Cleaned up: ${removed[*]}"
+  fi
+
+  if [[ ${#kept[@]} -gt 0 ]]; then
+    msg_info "Kept config files: ${kept[*]}"
+  fi
+}
+
 setup_colors
 
 echo "Uninstalling ccs..."
@@ -47,7 +79,8 @@ if [[ -d "$HOME/.ccs" ]]; then
     rm -rf "$HOME/.ccs"
     msg_success "Removed: $HOME/.ccs"
   else
-    msg_info "Kept: $HOME/.ccs"
+    echo ""
+    selective_cleanup "$HOME/.ccs"
   fi
 else
   msg_info "No CCS directory found at $HOME/.ccs"

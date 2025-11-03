@@ -422,15 +422,6 @@ else
     exit 1
   fi
   echo "|  [OK] Installed executable"
-
-  # Copy VERSION file if available (for proper version display)
-  if [[ -f "$SCRIPT_DIR/VERSION" ]]; then
-    cp "$SCRIPT_DIR/VERSION" "$CCS_DIR/VERSION"
-    echo "|  [OK] Installed VERSION file"
-  elif [[ -f "$SCRIPT_DIR/../VERSION" ]]; then
-    cp "$SCRIPT_DIR/../VERSION" "$CCS_DIR/VERSION"
-    echo "|  [OK] Installed VERSION file"
-  fi
 fi
 
 if [[ ! -L "$INSTALL_DIR/ccs" ]]; then
