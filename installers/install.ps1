@@ -226,7 +226,7 @@ if ($InstallMethod -eq "standalone") {
         Write-Host "|"
         Write-Host "[X] Error: Failed to download ccs.ps1 from GitHub" -ForegroundColor Red
         Write-Host "  $_"
-        exit 1
+        return
     }
 } else {
     # Git install - copy local file
