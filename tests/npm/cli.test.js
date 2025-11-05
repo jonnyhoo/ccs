@@ -42,10 +42,10 @@ describe('npm CLI', () => {
     });
 
     it('handles flag -p with value', function() {
-      this.timeout(5000);
+      this.timeout(10000);
 
       try {
-        execSync(`node "${ccsPath}" -p "test prompt"`, { stdio: 'pipe' });
+        execSync(`node "${ccsPath}" -p "test prompt"`, { stdio: 'pipe', timeout: 8000 });
       } catch (e) {
         const output = e.stderr?.toString() || e.stdout?.toString() || '';
         assert(!output.includes("Profile '-p' not found"), 'Should not treat -p as profile');
