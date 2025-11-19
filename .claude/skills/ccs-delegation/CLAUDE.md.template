@@ -1,0 +1,7 @@
+# CCS Auto-Delegation
+
+Activate `ccs-delegation` skill for automatic delegation of eligible tasks.
+
+**Auto-delegates:** typo fixes, test additions, refactoring, JSDoc, docs updates
+**Override:** Say "don't delegate" to bypass automation
+**Commands:** `/ccs:glm "task"` or `/ccs:kimi "task"` for explicit delegation

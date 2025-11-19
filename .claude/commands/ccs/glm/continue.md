@@ -1,7 +1,6 @@
 ---
 description: Continue last GLM delegation session [AUTO ENHANCE]
 argument-hint: [follow-up instruction]
-allowed-tools: Read, Grep, Glob, Bash
 ---
 
 Continue last GLM delegation session for iterative refinement.

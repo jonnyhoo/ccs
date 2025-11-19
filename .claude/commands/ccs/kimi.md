@@ -1,7 +1,6 @@
 ---
 description: Delegate task to Kimi (long-context model) [AUTO ENHANCE]
 argument-hint: [task description]
-allowed-tools: Read, Grep, Glob, Bash
 ---
 
 Delegate long-context, multi-file tasks to Kimi for comprehensive analysis.

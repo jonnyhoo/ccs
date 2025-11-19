@@ -1,7 +1,6 @@
 ---
 description: Continue last Kimi delegation session [AUTO ENHANCE]
 argument-hint: [follow-up instruction]
-allowed-tools: Read, Grep, Glob, Bash
 ---
 
 Continue last Kimi delegation session for multi-turn analysis.

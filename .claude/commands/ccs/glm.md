@@ -1,7 +1,6 @@
 ---
 description: Delegate task to GLM-4.6 (cost-optimized model) [AUTO ENHANCE]
 argument-hint: [task description]
-allowed-tools: Read, Grep, Glob, Bash
 ---
 
 Delegate simple, deterministic tasks to GLM-4.6 for token optimization.

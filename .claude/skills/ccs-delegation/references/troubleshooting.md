@@ -2,267 +2,205 @@
 
 AI-oriented error resolution guide for CCS delegation issues.
 
-## Error Pattern Matching
+**Structure**: Quick Reference → Error Catalog → Common Resolutions → Diagnostics → Recovery
 
-### Profile Configuration Errors
+**Cross-references**:
+- Technical details: `headless-workflow.md`
+- Decision framework: `delegation-guidelines.md`
 
-**Pattern:** `Profile 'X' is not configured for delegation`
-```
-Root cause: Missing ~/.ccs/{profile}.settings.json
-Resolution:
-  1. Check file exists: ls ~/.ccs/{profile}.settings.json
-  2. Run diagnostics: ccs doctor
-  3. If missing, user must configure profile manually
-```
+## Quick Reference
 
-**Pattern:** `Invalid API key` (401 error)
-```
-Root cause: API token expired or invalid
-Resolution:
-  1. Verify token exists in settings.json
-  2. Test with simple command: ccs {profile} "test"
-  3. If fails, user must regenerate token from provider
-```
+**Profile/Config Issues:**
+- E-001: "Profile 'X' not configured" → `ccs doctor`
+- E-002: "Invalid API key" (401) → Check `~/.ccs/{profile}.settings.json`
+- E-003: "Settings file not found" → `ccs doctor` to configure
+- E-004: JSON parse error (settings) → Validate with `jq . ~/.ccs/{profile}.settings.json`
 
-**Pattern:** `Settings file not found`
-```
-Root cause: ~/.ccs/{profile}.settings.json doesn't exist
-Resolution:
-  1. Run: ccs doctor
-  2. Shows missing profiles
-  3. User must configure manually
+**Delegation Issues:**
+- D-001: "No previous session" → Run `ccs {profile} -p "task"` first
+- D-002: "Missing prompt" → Syntax: `ccs {profile} -p "prompt"`
+- D-003: "No profile specified" → Syntax: `ccs <profile> -p "task"`
+- D-005: File not found → Verify CWD (delegation runs in current directory)
+
+**Session Issues:**
+- S-001: Session corrupted → `rm ~/.ccs/delegation-sessions.json`
+- S-002: Session expired → Start new: `ccs {profile} -p "task"`
+
+**Network Issues:**
+- N-001: Connection timeout → Check internet/endpoint → Retry
+- N-002: Rate limit (429) → Wait 60s → Retry
+
+**CLI Issues:**
+- C-001: Claude CLI not found → Install from code.claude.com
+- C-002: Outdated version → Update: `ccs sync` or `ccs update`
+
+**See Error Catalog below for detailed troubleshooting.**
+
+## Error Catalog
+
+### Environment/Config Errors
+
+| Code | Pattern | Root Cause | Resolution |
+|------|---------|------------|------------|
+| E-001 | Profile 'X' not configured | Missing settings file | `ccs doctor` → configure manually |
+| E-002 | Invalid API key (401) | Token expired/invalid | Verify token in settings.json → regenerate if needed |
+| E-003 | Settings file not found | File doesn't exist | `ccs doctor` → shows missing profiles |
+| E-004 | JSON parse error (settings) | Malformed JSON | Validate: `jq . ~/.ccs/{profile}.settings.json` |
+
+**Examples:**
+```bash
+[X] ccs glm -p "task"  # E-001: Profile not configured
+[OK] ccs doctor        # Shows: glm.settings.json missing
 ```
 
 ### Delegation Execution Errors
 
-**Pattern:** `No previous session found for {profile}`
-```
-Root cause: Using :continue without initial session
-Resolution:
-  - Cannot use ccs {profile}:continue without prior session
-  - Must run: ccs {profile} -p "initial task" first
-  - Then can continue with: ccs {profile}:continue -p "follow-up"
-Example:
-  [X] ccs glm:continue -p "task"  # ERROR: no session
-  [OK] ccs glm -p "task"          # Creates session
-  [OK] ccs glm:continue -p "more" # Uses session
-```
+| Code | Pattern | Root Cause | Resolution |
+|------|---------|------------|------------|
+| D-001 | No previous session | Using :continue without init | Run `ccs {profile} -p "init"` first |
+| D-002 | Missing prompt after -p | No argument provided | Quote prompt: `ccs {profile} -p "text"` |
+| D-003 | No profile specified | Missing profile name | Syntax: `ccs <profile> -p "task"` |
+| D-004 | Invalid profile name | Profile doesn't exist | Check: `ccs doctor` for available profiles |
+| D-005 | File not found | CWD mismatch | Verify: delegation runs in current directory |
 
-**Pattern:** `Missing prompt after -p flag`
-```
-Root cause: No argument provided after -p
-Resolution:
-  - Syntax: ccs {profile} -p "prompt text"
-  - Quote prompt if contains spaces
-Example:
-  [X] ccs glm -p                    # ERROR
-  [OK] ccs glm -p "add tests"       # Correct
-```
-
-**Pattern:** `No profile specified`
-```
-Root cause: Command missing profile name
-Resolution:
-  - Syntax: ccs <profile> -p "task"
-  - Available profiles: glm, kimi
-Example:
-  [X] ccs -p "task"           # ERROR: no profile
-  [OK] ccs glm -p "task"      # Correct
-```
-
-**Pattern:** Exit code 1 with JSON parse error
-```
-Root cause: Claude CLI returned non-stream-JSON output
-Resolution:
-  1. Check if --output-format stream-json is supported
-  2. Verify Claude CLI version (need recent version with stream-json support)
-  3. Test manually: claude -p "test" --output-format stream-json
-  4. If not supported, delegation won't work
+**Examples:**
+```bash
+[X] ccs glm:continue -p "task"     # D-001: No session
+[OK] ccs glm -p "task"             # Creates session
+[OK] ccs glm:continue -p "more"    # Uses session
 ```
 
 ### Session Management Errors
 
-**Pattern:** Session file corrupted
-```
-Root cause: ~/.ccs/delegation-sessions.json malformed
-Resolution:
-  1. Backup file: cp ~/.ccs/delegation-sessions.json ~/.ccs/delegation-sessions.json.bak
-  2. Delete corrupted file: rm ~/.ccs/delegation-sessions.json
-  3. New file created on next delegation
-  4. Previous sessions lost but fresh start
-```
+| Code | Pattern | Root Cause | Resolution |
+|------|---------|------------|------------|
+| S-001 | Session file corrupted | Malformed JSON | `rm ~/.ccs/delegation-sessions.json` → fresh start |
+| S-002 | Session expired | >30 days old | Start new: `ccs {profile} -p "task"` |
+| S-003 | Session ID mismatch | ID not found | Check: `jq '.{profile}' ~/.ccs/delegation-sessions.json` |
+| S-004 | Cost aggregation error | Calculation failure | Reset session or ignore (doesn't affect execution) |
 
-**Pattern:** Session expired
-```
-Root cause: Session older than 30 days
-Resolution:
-  - Sessions auto-expire after 30 days
-  - Start new session: ccs {profile} -p "task"
-  - Cannot resume expired sessions
-```
+### Network/API Errors
 
-### Network & API Errors
-
-**Pattern:** Connection timeout
-```
-Root cause: Network issue or API endpoint unreachable
-Resolution:
-  1. Check internet: ping 8.8.8.8
-  2. Verify API endpoint in settings.json
-  3. Check firewall/proxy settings
-  4. Retry delegation
-```
-
-**Pattern:** Rate limiting (429)
-```
-Root cause: Too many API requests
-Resolution:
-  1. Wait 60 seconds before retry
-  2. Reduce concurrent delegations
-  3. Check API quota limits
-```
+| Code | Pattern | Root Cause | Resolution |
+|------|---------|------------|------------|
+| N-001 | Connection timeout | Network/API unreachable | Check: internet, endpoint, firewall → Retry |
+| N-002 | Rate limiting (429) | Too many requests | Wait 60s → Retry |
+| N-003 | API endpoint unreachable | Wrong URL in settings | Verify ANTHROPIC_BASE_URL in settings.json |
+| N-004 | SSL/TLS error | Certificate issue | Check system certs, firewall SSL inspection |
 
 ### File Operation Errors
 
-**Pattern:** File not found during delegation
-```
-Root cause: Path doesn't exist or wrong working directory
-Resolution:
-  1. Delegation runs in cwd where command executed
-  2. Verify file exists: ls <file>
-  3. Use absolute paths in prompt if needed
-Example:
-  Prompt: "refactor src/auth.js"
-  Check: ls src/auth.js  # Must exist in cwd
-```
+| Code | Pattern | Root Cause | Resolution |
+|------|---------|------------|------------|
+| F-001 | File not found during delegation | Path doesn't exist in CWD | Verify: `ls <file>` from current directory |
+| F-002 | Permission denied (write) | Insufficient permissions | Check: `ls -la` directory permissions |
+| F-003 | Relative path failure | Path resolution issue | Use absolute paths in prompts if needed |
+| F-004 | Workspace confusion (monorepo) | Wrong package targeted | Specify workspace: "in packages/{name}, {task}" |
 
-**Pattern:** Permission denied writing files
-```
-Root cause: Insufficient permissions in target directory
-Resolution:
-  1. Check directory permissions: ls -la
-  2. Verify cwd is writable
-  3. Don't delegate in read-only directories
-```
-
-## Diagnostic Commands
-
-**Profile validation:**
+**Example:**
 ```bash
-ccs doctor                              # Check all profiles
-cat ~/.ccs/glm.settings.json            # Verify settings
-ccs glm "echo test" 2>&1                # Test execution
+# Delegation runs in CWD where command executed
+ccs glm -p "refactor src/auth.js"
+# Verify: ls src/auth.js  # Must exist in current directory
+```
+
+### Claude CLI Compatibility Errors
+
+| Code | Pattern | Root Cause | Resolution |
+|------|---------|------------|------------|
+| C-001 | Claude CLI not found | Not installed | Install from code.claude.com |
+| C-002 | Outdated CLI version | Old version | Update: `ccs sync` or `ccs update` |
+| C-003 | stream-json not supported | Version < required | Upgrade CLI: check `claude --version` |
+| C-004 | Permission mode unsupported | Old CLI version | Upgrade to support --permission-mode |
+
+**Check version:**
+```bash
+claude --version  # Need recent version with --output-format stream-json
+```
+
+### Timeout/Resource Errors
+
+| Code | Pattern | Root Cause | Resolution |
+|------|---------|------------|------------|
+| T-001 | Execution timeout (10 min) | Task too complex/slow | Simplify task or split into smaller tasks |
+| T-002 | Memory limit exceeded | Large file processing | Reduce scope, process in batches |
+| T-003 | Process killed (SIGTERM) | External termination | Check system resources, retry |
+
+### Output Format Errors
+
+| Code | Pattern | Root Cause | Resolution |
+|------|---------|------------|------------|
+| O-001 | JSON parse error (exit 1) | Non-stream-JSON output | Verify: `claude -p "test" --output-format stream-json` |
+| O-002 | Malformed JSONL | Corrupted stream | Enable debug: `export CCS_DEBUG=1` → check logs |
+| O-003 | Missing session_id | Incomplete response | Check CLI version, retry delegation |
+| O-004 | Type mismatch in response | Unexpected data type | Enable debug mode, report issue |
+
+## Common Resolution Patterns
+
+**Profile Validation:**
+```bash
+ccs doctor                          # Check all profiles
+cat ~/.ccs/{profile}.settings.json  # Verify settings
+ccs {profile} "test" 2>&1           # Test execution
+```
+
+**Session Management:**
+```bash
+jq . ~/.ccs/delegation-sessions.json              # View all sessions
+jq '.{profile}' ~/.ccs/delegation-sessions.json   # Check specific profile
+rm ~/.ccs/delegation-sessions.json                # Reset (loses all sessions)
+```
+
+**Debug Mode:**
+```bash
+export CCS_DEBUG=1
+ccs {profile} -p "task" 2>&1 | tee debug.log  # Capture full output
+```
+
+## Diagnostic Toolkit
+
+**Profile diagnostics:**
+````bash
+ccs doctor        # All profiles status
+ccs --version     # CCS version + delegation status
+claude --version  # CLI version (check stream-json support)
 ```
 
 **Session inspection:**
 ```bash
-cat ~/.ccs/delegation-sessions.json     # View sessions
-jq '.glm' ~/.ccs/delegation-sessions.json  # Check specific profile
-```
-
-**Delegation test:**
-```bash
-ccs glm -p "create test.txt file with 'hello'"  # Simple test
-cat test.txt                            # Verify result
-```
-
-**Debug mode:**
-```bash
-export CCS_DEBUG=1
-ccs glm -p "task" 2>&1 | tee debug.log  # Capture full output
-```
-
-## Decision Tree
-
-```
-Delegation fails?
-  │
-  ├─→ "Profile not configured"
-  │     └─→ Run: ccs doctor
-  │           └─→ Configure missing profile
-  │
-  ├─→ "No previous session"
-  │     └─→ Using :continue?
-  │           ├─→ YES: Run initial task first
-  │           └─→ NO: Different error
-  │
-  ├─→ "Missing prompt"
-  │     └─→ Check syntax: ccs {profile} -p "prompt"
-  │
-  ├─→ Exit code 1
-  │     └─→ Check error message
-  │           ├─→ JSON parse: Claude CLI version issue
-  │           ├─→ File not found: Verify paths
-  │           └─→ API error: Check network/token
-  │
-  └─→ Silent failure
-        └─→ Enable debug: export CCS_DEBUG=1
-```
-
-## Common Patterns to Avoid
-
-**Anti-pattern:** Delegating without profile validation
-```
-[X] Assume profile exists
-[OK] Run ccs doctor first to verify
-```
-
-**Anti-pattern:** Using :continue immediately
-```
-[X] ccs glm:continue -p "task"  # No initial session
-[OK] ccs glm -p "task" && ccs glm:continue -p "more"
-```
-
-**Anti-pattern:** Delegating complex tasks
-```
-[X] ccs glm -p "implement OAuth2"  # Too complex
-[OK] ccs glm -p "add tests for login function"
-```
-
-**Anti-pattern:** Vague prompts
-```
-[X] ccs glm -p "fix the bug"  # No context
-[OK] ccs glm -p "fix typo in src/auth.js line 42"
-```
-
-## Recovery Procedures
-
-**Reset session state:**
-```bash
-rm ~/.ccs/delegation-sessions.json
-# Fresh start, all sessions lost
-```
-
-**Reconfigure profile:**
-```bash
-ccs doctor  # Shows issues
-# Edit ~/.ccs/{profile}.settings.json manually
-# Verify: ccs {profile} "test"
+jq . ~/.ccs/delegation-sessions.json                    # All sessions
+jq '.glm.sessionId' ~/.ccs/delegation-sessions.json     # GLM session ID
+jq '.glm.totalCost' ~/.ccs/delegation-sessions.json     # Total cost
 ```
 
 **Test delegation flow:**
 ```bash
 # 1. Simple task
-ccs glm -p "create test.txt with content 'hello'"
+ccs glm -p "create test.txt with 'hello'"
 
-# 2. Verify session created
-cat ~/.ccs/delegation-sessions.json | jq '.glm.sessionId'
+# 2. Verify session
+jq '.glm.sessionId' ~/.ccs/delegation-sessions.json
 
-# 3. Test continue
+# 3. Continue
 ccs glm:continue -p "append 'world' to test.txt"
 
-# 4. Verify aggregation
-cat ~/.ccs/delegation-sessions.json | jq '.glm.turns'
+# 4. Check aggregation
+jq '.glm.turns' ~/.ccs/delegation-sessions.json
 ```
 
-## Emergency Fallback
+## Emergency Recovery
 
-If delegation completely broken:
+**Reset session state:**
 ```bash
-# Use Claude CLI directly
-claude -p "task" --settings ~/.ccs/glm.settings.json
+rm ~/.ccs/delegation-sessions.json  # Fresh start (loses all sessions)
+```
 
-# Bypass delegation (no -p flag)
-ccs glm
-# Then work interactively
+**Bypass delegation (use CLI directly):**
+```bash
+claude -p "task" --settings ~/.ccs/{profile}.settings.json
+```
+
+**Interactive mode (no -p flag):**
+```bash
+ccs {profile}  # Opens interactive session
 ```
