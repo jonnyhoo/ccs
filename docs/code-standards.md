@@ -740,4 +740,10 @@ These code standards ensure the CCS codebase remains:
 - **Subsystem organization**: Clear separation (auth, delegation, glmt, management, utils)
 - **Naming conventions**: handler, executor, manager, validator, formatter, parser suffixes
 
+**v4.5.0 Installation Standards**:
+- **Bootstrap-based installers**: Native shell wrappers delegate to Node.js via npx
+- **Node.js requirement**: 14+ required (checked during install)
+- **No shell dependencies**: error-codes.sh, progress-indicator.sh, prompt.sh removed
+- **First-run bootstrap**: Auto-installs @kaitranntt/ccs npm package globally
+
 Following these standards helps maintain the quality, modularity, and extensibility of the v4.x architecture while enabling future development with AI delegation, shared data management, and comprehensive diagnostics.

@@ -1,21 +1,23 @@
-# CCS Codebase Summary (v4.3.2)
+# CCS Codebase Summary (v4.5.0)
 
 ## Overview
 
-CCS (Claude Code Switch) v4.3.2 is a lightweight CLI wrapper enabling instant profile switching between Claude Sonnet 4.5, GLM 4.6, GLMT (GLM with Thinking), and Kimi for Coding models. Version 4.x introduces AI-powered delegation, selective .claude/ directory symlinking, stream-JSON output, and enhanced shell completion.
+CCS (Claude Code Switch) v4.5.0 is a lightweight CLI wrapper enabling instant profile switching between Claude Sonnet 4.5, GLM 4.6, GLMT (GLM with Thinking), and Kimi for Coding models. Version 4.x introduces AI-powered delegation, selective .claude/ directory symlinking, stream-JSON output, and enhanced shell completion. v4.5.0 completes transition to Node.js-first architecture with bootstrap-based installers.
 
 ## Version Evolution
 
-### v4.3.2 Architecture (Current)
+### v4.5.0 Architecture (Current)
 - **Total LOC**: ~8,477 lines (JavaScript only)
 - **Key Features**: AI delegation, stream-JSON output, shell completion, doctor diagnostics, sync command
 - **New Components**: delegation/, utils/claude-symlink-manager.js, utils/delegation-validator.js, utils/update-checker.js
 - **Architecture**: Modular design with clear separation: auth/, delegation/, glmt/, management/, utils/
+- **Installation**: Bootstrap-based native installers (requires Node.js 14+, no shell dependencies)
 
 ### Evolution Summary
 - **v2.x**: Vault-based credential encryption (~1,700 LOC)
 - **v3.0**: Vault removal, login-per-profile (~1,100 LOC, 40% reduction)
-- **v4.0-4.3.2**: Delegation system, .claude/ sharing, stream-JSON (~8,477 LOC including tests/utils)
+- **v4.0-4.4.x**: Delegation system, .claude/ sharing, stream-JSON (~8,477 LOC including tests/utils)
+- **v4.5.0**: Bootstrap-based installers, TypeScript npm package with quality gates
 
 ## Core Components (v4.3.2)
 

@@ -169,6 +169,11 @@ function handleHelpCommand(): void {
   console.log('  with auto-recovery. Zero downtime.');
   console.log('');
 
+  console.log(colored('Requirements:', 'cyan'));
+  console.log('  Node.js 14+   (detected automatically by bootstrap)');
+  console.log('  npm 5.2+      (for npx, comes with Node.js 8.2+)');
+  console.log('');
+
   console.log(colored('Model Switching:', 'cyan'));
   console.log(`  ${colored('ccs', 'yellow')}                         Use default Claude account`);
   console.log(`  ${colored('ccs glm', 'yellow')}                     Switch to GLM 4.6 model`);

@@ -1,4 +1,6 @@
-# CCS Installation Script (Windows PowerShell)
+# CCS Installation Script (v4.5.0) - Windows PowerShell
+# Bootstrap-based: Installs lightweight shell wrappers that delegate to Node.js
+# Requires: Node.js 14+ (checked during install, enforced by bootstrap)
 # https://github.com/kaitranntt/ccs
 
 param(
@@ -83,6 +85,42 @@ function Write-Section {
     Write-Host ""
     Write-Host "===== $Title =====" -ForegroundColor Cyan
     Write-Host ""
+}
+
+# --- Node.js Detection (v4.5) ---
+function Test-NodeJs {
+    $MIN_VERSION = 14
+
+    if (-not (Get-Command node -ErrorAction SilentlyContinue)) {
+        Write-WarningMsg @"
+Node.js not found
+
+CCS v4.5+ requires Node.js 14+ to run.
+The bootstrap scripts will check and install the npm package on first use.
+
+Install Node.js: https://nodejs.org (LTS recommended)
+
+Installation will continue, but 'ccs' will not work until Node.js is installed.
+"@
+        return $false
+    }
+
+    $nodeVersion = (node -v) -replace 'v', ''
+    $nodeMajor = [int]($nodeVersion -split '\.')[0]
+    if ($nodeMajor -lt $MIN_VERSION) {
+        Write-WarningMsg @"
+Node.js 14+ required (found: $(node -v))
+
+CCS v4.5+ requires Node.js 14 or newer.
+Upgrade from: https://nodejs.org
+
+Installation will continue, but 'ccs' may not work correctly.
+"@
+        return $false
+    }
+
+    Write-Success "Node.js $(node -v) detected"
+    return $true
 }
 
 # Helper Functions
@@ -261,6 +299,9 @@ function Install-ClaudeFolder {
 
 # Main Installation
 
+# Check Node.js requirement (warn if missing, continue anyway)
+$null = Test-NodeJs
+
 Write-Host '===== Installing CCS (Windows) ====='
 
 # Create directories
@@ -276,32 +317,8 @@ if ($InstallMethod -eq "standalone") {
         Invoke-WebRequest -Uri "$BaseUrl/lib/ccs.ps1" -OutFile "$CcsDir\ccs.ps1" -UseBasicParsing
         Write-Host "|  [OK] Downloaded ccs.ps1"
 
-        # Download required dependencies
-        $LibDir = "$CcsDir\lib"
-        if (-not (Test-Path $LibDir)) {
-            New-Item -ItemType Directory -Path $LibDir -Force | Out-Null
-        }
-
-        try {
-            Invoke-WebRequest -Uri "$BaseUrl/lib/error-codes.ps1" -OutFile "$LibDir\error-codes.ps1" -UseBasicParsing
-            Write-Host "|  [OK] Downloaded error-codes.ps1"
-        } catch {
-            Write-Host "|  [!]  Warning: Failed to download error-codes.ps1"
-        }
-
-        try {
-            Invoke-WebRequest -Uri "$BaseUrl/lib/progress-indicator.ps1" -OutFile "$LibDir\progress-indicator.ps1" -UseBasicParsing
-            Write-Host "|  [OK] Downloaded progress-indicator.ps1"
-        } catch {
-            Write-Host "|  [!]  Warning: Failed to download progress-indicator.ps1"
-        }
-
-        try {
-            Invoke-WebRequest -Uri "$BaseUrl/lib/prompt.ps1" -OutFile "$LibDir\prompt.ps1" -UseBasicParsing
-            Write-Host "|  [OK] Downloaded prompt.ps1"
-        } catch {
-            Write-Host "|  [!]  Warning: Failed to download prompt.ps1"
-        }
+        # Note: Shell dependencies (error-codes.ps1, progress-indicator.ps1, prompt.ps1) no longer needed
+        # Bootstrap delegates all functionality to Node.js via npx
 
         # Download shell completion files
         $CompletionsDir = "$CcsDir\completions"
@@ -333,36 +350,8 @@ if ($InstallMethod -eq "standalone") {
     Copy-Item $CcsPs1Path "$CcsDir\ccs.ps1" -Force
     Write-Host "|  [OK] Installed ccs.ps1"
 
-    # Copy required dependencies
-    $LibDir = "$CcsDir\lib"
-    if (-not (Test-Path $LibDir)) {
-        New-Item -ItemType Directory -Path $LibDir -Force | Out-Null
-    }
-
-    $SourceLibDir = if (Test-Path "$ScriptDir\lib") {
-        "$ScriptDir\lib"
-    } elseif (Test-Path "$ScriptDir\..\lib") {
-        "$ScriptDir\..\lib"
-    } else {
-        $null
-    }
-
-    if ($SourceLibDir) {
-        if (Test-Path "$SourceLibDir\error-codes.ps1") {
-            Copy-Item "$SourceLibDir\error-codes.ps1" "$LibDir\error-codes.ps1" -Force
-            Write-Host "|  [OK] Copied error-codes.ps1"
-        }
-
-        if (Test-Path "$SourceLibDir\progress-indicator.ps1") {
-            Copy-Item "$SourceLibDir\progress-indicator.ps1" "$LibDir\progress-indicator.ps1" -Force
-            Write-Host "|  [OK] Copied progress-indicator.ps1"
-        }
-
-        if (Test-Path "$SourceLibDir\prompt.ps1") {
-            Copy-Item "$SourceLibDir\prompt.ps1" "$LibDir\prompt.ps1" -Force
-            Write-Host "|  [OK] Copied prompt.ps1"
-        }
-    }
+    # Note: Shell dependencies (error-codes.ps1, progress-indicator.ps1, prompt.ps1) no longer needed
+    # Bootstrap delegates all functionality to Node.js via npx
 
     # Copy shell completion files
     $CompletionsDir = "$CcsDir\completions"
@@ -751,11 +740,19 @@ Write-Host "     * glm profile        -> $CcsDir\glm.settings.json"
 Write-Host "     * kimi profile       -> $CcsDir\kimi.settings.json"
 Write-Host "     * .claude/ folder    -> $CcsDir\.claude\"
 Write-Host ""
+Write-Host "   Requirements:"
+$nodeVer = if (Get-Command node -ErrorAction SilentlyContinue) { node -v } else { "NOT FOUND" }
+Write-Host "     * Node.js 14+        (detected: $nodeVer)"
+Write-Host "     * npm 5.2+           (for npx, comes with Node.js 8.2+)"
+Write-Host ""
+Write-Host "   First Run:"
+Write-Host "     The first time you run 'ccs', it will automatically install"
+Write-Host "     the @kaitranntt/ccs npm package globally via npx."
+Write-Host ""
 Write-Host "   Quick start:"
 Write-Host "     ccs           # Use Claude subscription (default)"
 Write-Host "     ccs glm       # Use GLM fallback"
 Write-Host "     ccs kimi      # Use Kimi for Coding"
-Write-Host ""
 Write-Host ""
 Write-Host "   To uninstall: ccs-uninstall"
 Write-Host ""

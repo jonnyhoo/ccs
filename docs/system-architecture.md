@@ -2,7 +2,7 @@
 
 ## Overview
 
-CCS (Claude Code Switch) is a lightweight CLI wrapper that provides instant profile switching between Claude Sonnet 4.5, GLM 4.6, GLMT (GLM with Thinking), and Kimi for Coding models. Current version **v4.3.2** features AI-powered delegation system, selective .claude/ directory symlinking, stream-JSON output, shell completion (4 shells), and comprehensive diagnostics (doctor, sync, update commands).
+CCS (Claude Code Switch) is a lightweight CLI wrapper that provides instant profile switching between Claude Sonnet 4.5, GLM 4.6, GLMT (GLM with Thinking), and Kimi for Coding models. Current version **v4.5.0** features AI-powered delegation system, selective .claude/ directory symlinking, stream-JSON output, shell completion (4 shells), and comprehensive diagnostics (doctor, sync, update commands). v4.5.0 completes transition to Node.js-first architecture with bootstrap-based installers.
 
 ## Core Architecture Principles
 
@@ -997,6 +997,9 @@ graph LR
 
 ### Installation Process
 
+**Two installation methods available:**
+
+**Method 1: npm Package (Recommended)**
 1. **Package Download**: User installs via npm/yarn/pnpm/bun
 2. **Post-install Script** (`scripts/postinstall.js`):
    - Creates `~/.ccs/` directory structure
@@ -1012,6 +1015,19 @@ graph LR
    - Shows API key setup instructions
 3. **Path Configuration**: npm automatically adds to PATH
 4. **Ready State**: System ready for profile switching
+
+**Method 2: Native Installers (v4.5.0)**
+1. **Requirements Check**: Validates Node.js 14+ available
+2. **Bootstrap Installation**:
+   - Installs lightweight shell wrappers (lib/ccs, lib/ccs.ps1)
+   - Shell wrappers delegate to Node.js via npx on first run
+   - No shell dependencies (error-codes, progress-indicator, prompt removed)
+3. **First Run**: Bootstrap auto-installs @kaitranntt/ccs npm package globally
+4. **Completion Message**: Shows requirements section with Node.js version
+
+**Requirements (v4.5.0+)**:
+- Node.js 14+ (checked during install, enforced by bootstrap)
+- npm 5.2+ (for npx, comes with Node.js 8.2+)
 
 **Idempotency**: Safe to run multiple times, preserves existing configs
 

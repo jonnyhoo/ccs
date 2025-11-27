@@ -2,7 +2,9 @@
 set -euo pipefail
 
 # ============================================================================
-# CCS Installation Script
+# CCS Installation Script (v4.5.0)
+# Bootstrap-based: Installs lightweight shell wrappers that delegate to Node.js
+# Requires: Node.js 14+ (checked during install, enforced by bootstrap)
 # ============================================================================
 
 # --- Configuration ---
@@ -138,6 +140,36 @@ msg_section() {
 }
 
 setup_colors
+
+# --- Node.js Detection (v4.5) ---
+check_nodejs() {
+  if ! command -v node &> /dev/null; then
+    msg_warning "Node.js not found
+
+    CCS v4.5+ requires Node.js 14+ to run.
+    The bootstrap scripts will check and install the npm package on first use.
+
+    Install Node.js: https://nodejs.org (LTS recommended)
+
+    Installation will continue, but 'ccs' will not work until Node.js is installed."
+    return 1
+  fi
+
+  local node_major
+  node_major=$(node -v | cut -d'v' -f2 | cut -d'.' -f1)
+  if [[ $node_major -lt 14 ]]; then
+    msg_warning "Node.js 14+ required (found: $(node -v))
+
+    CCS v4.5+ requires Node.js 14 or newer.
+    Upgrade from: https://nodejs.org
+
+    Installation will continue, but 'ccs' may not work correctly."
+    return 1
+  fi
+
+  msg_success "Node.js $(node -v) detected"
+  return 0
+}
 
 # --- Shell Profile Management ---
 
@@ -456,6 +488,9 @@ create_kimi_profile() {
 
 # --- Main Installation ---
 
+# Check Node.js requirement (warn if missing, continue anyway)
+check_nodejs || true
+
 echo "┌─ Installing CCS"
 
 # Create directories
@@ -482,25 +517,8 @@ if [[ "$INSTALL_METHOD" == "standalone" ]]; then
     exit 1
   fi
 
-  # Download required dependencies
-  mkdir -p "$CCS_DIR/lib"
-  if curl -fsSL "$BASE_URL/lib/error-codes.sh" -o "$CCS_DIR/lib/error-codes.sh" 2>/dev/null; then
-    echo "|  [OK] Downloaded error-codes.sh"
-  else
-    echo "|  [!]  Warning: Failed to download error-codes.sh"
-  fi
-
-  if curl -fsSL "$BASE_URL/lib/progress-indicator.sh" -o "$CCS_DIR/lib/progress-indicator.sh" 2>/dev/null; then
-    echo "|  [OK] Downloaded progress-indicator.sh"
-  else
-    echo "|  [!]  Warning: Failed to download progress-indicator.sh"
-  fi
-
-  if curl -fsSL "$BASE_URL/lib/prompt.sh" -o "$CCS_DIR/lib/prompt.sh" 2>/dev/null; then
-    echo "|  [OK] Downloaded prompt.sh"
-  else
-    echo "|  [!]  Warning: Failed to download prompt.sh"
-  fi
+  # Note: Shell dependencies (error-codes.sh, progress-indicator.sh, prompt.sh) no longer needed
+  # Bootstrap delegates all functionality to Node.js via npx
 
   # Download shell completion files
   mkdir -p "$CCS_DIR/completions"
@@ -528,22 +546,8 @@ else
   fi
   echo "|  [OK] Installed executable"
 
-  # Copy required dependencies
-  mkdir -p "$CCS_DIR/lib"
-  if [[ -f "$LIB_DIR/error-codes.sh" ]]; then
-    cp "$LIB_DIR/error-codes.sh" "$CCS_DIR/lib/error-codes.sh"
-    echo "|  [OK] Copied error-codes.sh"
-  fi
-
-  if [[ -f "$LIB_DIR/progress-indicator.sh" ]]; then
-    cp "$LIB_DIR/progress-indicator.sh" "$CCS_DIR/lib/progress-indicator.sh"
-    echo "|  [OK] Copied progress-indicator.sh"
-  fi
-
-  if [[ -f "$LIB_DIR/prompt.sh" ]]; then
-    cp "$LIB_DIR/prompt.sh" "$CCS_DIR/lib/prompt.sh"
-    echo "|  [OK] Copied prompt.sh"
-  fi
+  # Note: Shell dependencies (error-codes.sh, progress-indicator.sh, prompt.sh) no longer needed
+  # Bootstrap delegates all functionality to Node.js via npx
 
   # Copy shell completion files
   mkdir -p "$CCS_DIR/completions"
@@ -856,11 +860,18 @@ echo "     * glm profile        -> ~/.ccs/glm.settings.json"
 echo "     * kimi profile       -> ~/.ccs/kimi.settings.json"
 echo "     * .claude/ folder    -> ~/.ccs/.claude/"
 echo ""
+echo "   Requirements:"
+echo "     * Node.js 14+        (detected: $(node -v 2>/dev/null || echo 'NOT FOUND'))"
+echo "     * npm 5.2+           (for npx, comes with Node.js 8.2+)"
+echo ""
+echo "   First Run:"
+echo "     The first time you run 'ccs', it will automatically install"
+echo "     the @kaitranntt/ccs npm package globally via npx."
+echo ""
 echo "   Quick start:"
 echo "     ccs           # Use Claude subscription (default)"
 echo "     ccs glm       # Use GLM fallback"
 echo "     ccs kimi      # Use Kimi for Coding"
-echo ""
 echo ""
 echo "   To uninstall: ccs-uninstall"
 echo ""
