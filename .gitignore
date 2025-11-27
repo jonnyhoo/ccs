@@ -23,6 +23,10 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 
+# TypeScript build output
+dist/
+*.tsbuildinfo
+
 # Package lock files (keep package-lock.json but ignore others)
 yarn.lock
 pnpm-lock.yaml
