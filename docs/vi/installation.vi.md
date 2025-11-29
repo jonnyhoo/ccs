@@ -1,5 +1,9 @@
 # Hướng Dẫn Cài Đặt CCS
 
+> [!WARNING]
+> **Trình cài đặt shell gốc (curl/irm) đã lỗi thời.**
+> Sử dụng cài đặt npm cho tất cả các nền tảng. Trình cài đặt cũ sẽ bị xóa trong v5.0.
+
 ## Cài Đặt npm Package (Được khuyến nghị)
 
 ### Cài Đặt Đa Nền Tảng
@@ -34,7 +38,11 @@ npm install -g @kaitranntt/ccs
 npm install -g @kaitranntt/ccs --force
 ```
 
-## Cài Đặt Một Dòng Lệnh (Truyền thống)
+## [!] LỖI THỜI: Cài Đặt Một Dòng Lệnh (Cũ)
+
+> [!WARNING]
+> **Các trình cài đặt này đã lỗi thời và sẽ bị xóa trong v5.0.**
+> Hiện tại chúng tự động chuyển hướng đến cài đặt npm. Vui lòng sử dụng npm trực tiếp.
 
 ### macOS / Linux
 
@@ -46,8 +54,7 @@ curl -fsSL ccs.kaitran.ca/install | bash
 curl -fsSL https://raw.githubusercontent.com/kaitranntt/ccs/main/installers/install.sh | bash
 ```
 
-**Vị Trí Cài Đặt**:
-- **Tất Cả Hệ Thống Unix**: `~/.local/bin/ccs` (tự động cấu hình PATH cho bash, zsh, fish)
+**Lưu ý**: Script hiển thị cảnh báo lỗi thời và tự động chạy cài đặt npm nếu Node.js khả dụng.
 
 ### Windows PowerShell
 
@@ -59,16 +66,7 @@ irm ccs.kaitran.ca/install.ps1 | iex
 irm https://raw.githubusercontent.com/kaitranntt/ccs/main/installers/install.ps1 | iex
 ```
 
-**Cấu Hình PATH Tự Động**:
-- Installer tự động phát hiện shell của bạn (bash, zsh, fish)
-- Thêm `~/.local/bin` vào PATH trong shell profile nếu cần
-- Idempotent: an toàn khi chạy nhiều lần
-- Hiển thị hướng dẫn reload sau khi cài đặt
-
-**Lưu ý**:
-- Installer Unix hỗ trợ cả chạy trực tiếp (`./install.sh`) và cài đặt qua pipe (`curl | bash`)
-- Installer Windows yêu cầu PowerShell 5.1+ (đã cài sẵn trên Windows 10+)
-- Không cần sudo trên bất kỳ nền tảng nào
+**Lưu ý**: Script hiển thị cảnh báo lỗi thời và tự động chạy cài đặt npm nếu Node.js khả dụng.
 
 ## Cài Đặt qua Git Clone
 

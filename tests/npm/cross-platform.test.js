@@ -2,10 +2,10 @@ const assert = require('assert');
 const path = require('path');
 const os = require('os');
 
-// Import the expandPath function from bin/utils/helpers.js
+// Import the expandPath function from dist/utils/helpers.js
 let expandPath;
 try {
-  expandPath = require('../../bin/utils/helpers').expandPath;
+  expandPath = require('../../dist/utils/helpers').expandPath;
 } catch (e) {
   // If helpers module doesn't exist or doesn't export expandPath, create a mock
   expandPath = function(p) {
@@ -110,9 +110,9 @@ describe('cross-platform', () => {
   describe('npm package structure', () => {
     it('has required executable files', () => {
       const fs = require('fs');
-      const binDir = path.join(__dirname, '..', '..', 'bin');
+      const distDir = path.join(__dirname, '..', '..', 'dist');
 
-      assert(fs.existsSync(path.join(binDir, 'ccs.js')), 'ccs.js should exist in bin directory');
+      assert(fs.existsSync(path.join(distDir, 'ccs.js')), 'ccs.js should exist in dist directory');
     });
 
     it('has required script files', () => {

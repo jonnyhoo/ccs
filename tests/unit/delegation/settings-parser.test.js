@@ -4,7 +4,7 @@
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
-const { SettingsParser } = require('../../../bin/delegation/settings-parser');
+const { SettingsParser } = require('../../../dist/delegation/settings-parser');
 
 /**
  * Test runner

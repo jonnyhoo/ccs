@@ -2,6 +2,115 @@
 
 Format: [Keep a Changelog](https://keepachangelog.com/)
 
+## [5.0.0] - 2025-11-28
+
+### Added
+- **CLIProxy OAuth Profiles**: Three new zero-config profiles powered by CLIProxyAPI
+  - `ccs gemini` - Google Gemini via OAuth (zero config)
+  - `ccs codex` - OpenAI Codex via OAuth (zero config)
+  - `ccs agy` - Antigravity (AGY) via OAuth (zero config)
+
+- **Download-on-Demand Binary**: CLIProxyAPI binary (~15MB) downloads automatically on first use
+  - Supports 6 platforms: darwin/linux/windows × amd64/arm64
+  - SHA256 checksum verification
+  - 3x retry with exponential backoff
+  - No npm package size impact
+
+- **OAuth Authentication System** (`src/cliproxy/auth-handler.ts`):
+  - Browser-based OAuth flow with automatic token storage
+  - Headless mode fallback (`ccs gemini --auth --headless`)
+  - Token storage in `~/.ccs/cliproxy-auth/<provider>/`
+  - 2-minute OAuth timeout protection
+
+- **CLIProxy Diagnostics** in `ccs doctor`:
+  - Binary installation status + version
+  - Config file validation
+  - OAuth status per provider (gemini/codex/agy)
+  - Port 8317 availability check
+
+- **Enhanced Error Messages** (`src/utils/error-manager.ts`):
+  - OAuth timeout troubleshooting
+  - Port conflict resolution
+  - Binary download failure with manual URL
+
+- **New CLIProxy Module** (`src/cliproxy/`):
+  - `binary-manager.ts` - Download, verify, extract binary
+  - `platform-detector.ts` - OS/arch detection for 6 platforms
+  - `cliproxy-executor.ts` - Spawn/kill proxy pattern
+  - `config-generator.ts` - Generate config.yaml per provider
+  - `auth-handler.ts` - OAuth token management
+  - `types.ts` - TypeScript type definitions
+  - `index.ts` - Central exports
+
+### Changed
+- **Profile Detection**: New priority order
+  1. CLIProxy profiles (gemini, codex, agy)
+  2. Settings-based profiles (glm, glmt, kimi)
+  3. Account-based profiles (work, personal)
+  4. Default Claude CLI
+- **Help Text**: Updated with new OAuth profiles (alphabetically sorted)
+- **Profile Detector**: Added `cliproxy` profile type
+
+### Technical Details
+- **Binary Version**: CLIProxyAPI v6.5.27
+- **Default Port**: 8317 (TCP polling for readiness, no PROXY_READY signal)
+- **Model Mappings**:
+  - Gemini: gemini-2.0-flash (opus: thinking-exp, haiku: flash-lite)
+  - Codex: gpt-4o (opus: o1, haiku: gpt-4o-mini)
+  - Antigravity: agy (sonnet: agy-pro, haiku: agy-turbo)
+- **Storage**:
+  - Binary: `~/.ccs/bin/cliproxyapi`
+  - Tokens: `~/.ccs/cliproxy-auth/<provider>/`
+  - Config: `~/.ccs/cliproxy.config.yaml`
+
+### Migration
+- **No breaking changes**: All existing profiles (glm, glmt, kimi, accounts) work unchanged
+- **Zero configuration**: OAuth profiles work out-of-box after browser login
+- **Backward compatible**: v4.x commands and workflows unchanged
+
+---
+
+## [4.5.0] - 2025-11-27 (Phase 02 Complete)
+
+### Changed
+- **Modular Command Architecture**: Complete refactoring of command handling system
+  - Main entry point (src/ccs.ts) reduced from 1,071 to 593 lines (**44.6% reduction**)
+  - 6 command handlers extracted to dedicated modules in `src/commands/`
+  - Enhanced maintainability through single responsibility principle
+  - Command handlers can now be developed and tested independently
+
+### Added
+- **Modular Command Handlers** (`src/commands/`):
+  - `version-command.ts` (3.0KB) - Version display functionality
+  - `help-command.ts` (4.9KB) - Comprehensive help system
+  - `install-command.ts` (957B) - Installation/uninstallation workflows
+  - `doctor-command.ts` (415B) - System diagnostics
+  - `sync-command.ts` (1.0KB) - Configuration synchronization
+  - `shell-completion-command.ts` (2.1KB) - Shell completion management
+
+- **New Utility Modules** (`src/utils/`):
+  - `shell-executor.ts` (1.5KB) - Cross-platform shell command execution
+  - `package-manager-detector.ts` (3.8KB) - Package manager detection (npm, yarn, pnpm, bun)
+
+- **TypeScript Type System**:
+  - `src/types/` directory with comprehensive type definitions
+  - Standardized `CommandHandler` interface for all commands
+  - 100% TypeScript coverage across all new modules
+
+### Improved
+- **Maintainability**: Each command now has focused, dedicated module
+- **Testing Independence**: Command handlers can be unit tested in isolation
+- **Development Workflow**: Multiple developers can work on different commands simultaneously
+- **Code Navigation**: Developers can quickly locate specific command logic
+- **Future Extension**: New commands can be added without modifying main orchestrator
+
+### Technical Details
+- **Zero Breaking Changes**: All existing functionality preserved
+- **Performance**: No degradation, minor improvement due to smaller main file
+- **Quality Gates**: All Phase 01 ESLint strictness rules maintained
+- **Type Safety**: Comprehensive TypeScript coverage with zero `any` types
+- **Interface Consistency**: All commands follow standardized `CommandHandler` interface
+
 ## [4.4.0] - 2025-11-23
 
 ### Changed

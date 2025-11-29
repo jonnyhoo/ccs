@@ -2,7 +2,7 @@
 
 ## Overview
 
-CCS (Claude Code Switch) is a lightweight CLI wrapper that provides instant profile switching between Claude Sonnet 4.5, GLM 4.6, GLMT (GLM with Thinking), and Kimi for Coding models. Current version **v4.3.2** features AI-powered delegation system, selective .claude/ directory symlinking, stream-JSON output, shell completion (4 shells), and comprehensive diagnostics (doctor, sync, update commands).
+CCS (Claude Code Switch) is a lightweight CLI wrapper that provides instant profile switching between Claude Sonnet 4.5, GLM 4.6, GLMT (GLM with Thinking), and Kimi for Coding models. Current version **v4.5.0** features AI-powered delegation system, selective .claude/ directory symlinking, stream-JSON output, shell completion (4 shells), and comprehensive diagnostics (doctor, sync, update commands). v4.5.0 completes transition to Node.js-first architecture with bootstrap-based installers.
 
 ## Core Architecture Principles
 
@@ -71,19 +71,25 @@ graph TB
 
 ## Component Architecture
 
-### 1. Main Entry Point (`bin/ccs.js` - ~800 lines)
+### 1. Main Entry Point (`src/ccs.ts` - 593 lines, Phase 02 Refactored)
 
-**Role**: Central orchestrator for all CCS operations
+**Role**: Central orchestrator for all CCS operations (Post-Phase 02 modular architecture)
 
 **Key Responsibilities**:
 - Argument parsing and profile detection
-- Special command handling (--version, --help, --shell-completion, auth, doctor, sync, update)
+- **Command routing to modular handlers** (Phase 02 enhancement)
 - Delegation detection (`-p` / `--prompt` flag routing)
 - Profile type routing (settings-based vs account-based)
 - GLMT proxy lifecycle management
 - Unified process execution through `execClaude()`
 - Error propagation and exit code management
 - Auto-recovery for missing configuration
+
+**Phase 02 Refactoring Achievement**:
+- **Size reduction**: 1,071 → 593 lines (**44.6% reduction**)
+- **Modularization**: 6 command handlers extracted to dedicated modules
+- **Maintainability**: Single responsibility principle applied to all commands
+- **Focus**: Now contains only core routing, profile detection, and GLMT proxy logic
 
 **Architecture with Delegation Support (v4.3.2)**:
 ```mermaid
@@ -277,6 +283,135 @@ graph TD
   "default": "work"
 }
 ```
+## Modular Command Architecture (Phase 02, 2025-11-27)
+
+### Overview
+
+The modular command architecture separates command handling logic from the main orchestrator, achieving significant improvements in maintainability, testability, and code organization.
+
+### Components
+
+**Command Handler Modules** (`src/commands/`):
+
+**1. Version Command Handler (`src/commands/version-command.ts` - 3.0KB)**
+- Handles `--version` flag display
+- Shows version number, build location, and platform information
+- Delegates version formatting and display logic from main file
+
+**2. Help Command Handler (`src/commands/help-command.ts` - 4.9KB)**
+- Handles `--help` flag display
+- Provides comprehensive help including profile listings
+- Supports delegation help with usage examples
+- Dynamically generates help content based on available profiles
+
+**3. Install Command Handler (`src/commands/install-command.ts` - 957B)**
+- Handles `--install` flag for setup instructions
+- Manages installation and uninstallation workflows
+- Cross-platform compatibility support
+
+**4. Doctor Command Handler (`src/commands/doctor-command.ts` - 415B)**
+- Handles `doctor` subcommand for system diagnostics
+- Validates installation, configuration, and profile status
+- Provides health check functionality
+
+**5. Sync Command Handler (`src/commands/sync-command.ts` - 1.0KB)**
+- Handles `sync` subcommand for configuration synchronization
+- Repairs broken symlinks and directory structures
+- Maintains shared data consistency
+
+**6. Shell Completion Command Handler (`src/commands/shell-completion-command.ts` - 2.1KB)**
+- Handles `--shell-completion` flag and `-sc` alias
+- Installs shell completion scripts for Bash, Zsh, Fish, PowerShell
+- Manages shell-specific completion logic
+
+**New Utility Modules** (`src/utils/`):
+
+**1. Shell Executor (`src/utils/shell-executor.ts` - 1.5KB)**
+- Cross-platform shell command execution utilities
+- Handles process spawning, signal management, and output capture
+- Provides consistent shell interface across platforms
+
+**2. Package Manager Detector (`src/utils/package-manager-detector.ts` - 3.8KB)**
+- Detects available package managers (npm, yarn, pnpm, bun)
+- Cross-platform package manager identification
+- Supports installation and update workflows
+
+### Modular Architecture Flow
+
+```mermaid
+graph TD
+    subgraph "Main Entry Point (src/ccs.ts)"
+        ARGS[Parse Arguments]
+        ROUTE[Command Router]
+        SPECIAL{Special Command?}
+    end
+
+    subgraph "Modular Command Handlers (src/commands/)"
+        VERSION[version-command.ts]
+        HELP[help-command.ts]
+        INSTALL[install-command.ts]
+        DOCTOR[doctor-command.ts]
+        SYNC[sync-command.ts]
+        COMPLETION[shell-completion-command.ts]
+    end
+
+    subgraph "Utility Modules (src/utils/)"
+        SHELL_EXEC[shell-executor.ts]
+        PKG_MGR[package-manager-detector.ts]
+    end
+
+    ARGS --> ROUTE
+    ROUTE --> SPECIAL
+    SPECIAL -->|--version| VERSION
+    SPECIAL -->|--help| HELP
+    SPECIAL -->|--install| INSTALL
+    SPECIAL -->|doctor| DOCTOR
+    SPECIAL -->|sync| SYNC
+    SPECIAL -->|--shell-completion| COMPLETION
+
+    VERSION --> SHELL_EXEC
+    HELP --> SHELL_EXEC
+    INSTALL --> PKG_MGR
+```
+
+### Phase 02 Benefits Achieved
+
+**Maintainability Improvements:**
+- **Single Responsibility**: Each command has focused, dedicated module
+- **Code Navigation**: Developers can quickly locate specific command logic
+- **Testing Independence**: Command handlers can be unit tested in isolation
+- **Reduced Complexity**: Main file focuses on orchestration only
+
+**Development Workflow Enhancements:**
+- **Parallel Development**: Multiple developers can work on different commands simultaneously
+- **Feature Isolation**: Changes to one command don't affect others
+- **Code Review Efficiency**: Smaller, focused pull requests for command modifications
+- **Debugging Simplification**: Issues can be isolated to specific command modules
+
+**Architecture Scalability:**
+- **Easy Extension**: New commands can be added without modifying main orchestrator
+- **Consistent Patterns**: All command handlers follow established patterns
+- **Type Safety**: Comprehensive TypeScript coverage across all modules
+- **Performance**: No performance degradation, minor improvement due to smaller main file
+
+### Command Handler Interface Pattern
+
+All command handlers follow a consistent interface pattern:
+
+```typescript
+interface CommandHandler {
+  handle(args: string[]): Promise<void>;
+  requiresProfile?: boolean;
+  description?: string;
+}
+```
+
+This standardized interface ensures:
+- **Consistent API**: All commands can be called uniformly
+- **Type Safety**: TypeScript ensures proper argument handling
+- **Future Extension**: New commands can easily conform to the pattern
+- **Testing**: Mock interfaces can be created for unit testing
+
 ## Delegation Architecture (v4.0+)
 
 ### Overview
@@ -764,45 +899,57 @@ sequenceDiagram
         ├── .anthropic/
         └── .credentials.json
 
-bin/                         # CCS source files (v4.3.2)
-├── ccs.js                   # Main entry point (~800 lines)
-├── auth/                    # Auth system (~800 lines)
-│   ├── auth-create.js
-│   ├── auth-delete.js
-│   ├── auth-list.js
-│   └── auth-switch.js
-├── delegation/              # Delegation system (~1,200 lines)
-│   ├── delegation-handler.js
-│   ├── headless-executor.js
-│   ├── session-manager.js
-│   ├── result-formatter.js
-│   └── settings-parser.js
-├── glmt/                    # GLMT system (~700 lines)
-│   ├── glmt-proxy.js
-│   ├── glmt-transformer.js
-│   ├── locale-enforcer.js
-│   ├── reasoning-enforcer.js
-│   ├── sse-parser.js
-│   └── delta-accumulator.js
-├── management/              # Management system (~600 lines)
-│   ├── config-manager.js
-│   ├── instance-manager.js
-│   ├── profile-detector.js
-│   ├── profile-registry.js
-│   ├── shared-manager.js
-│   ├── doctor.js
-│   ├── sync.js
-│   └── recovery-manager.js
-├── utils/                   # Utilities (~1,500 lines)
-│   ├── claude-detector.js
-│   ├── claude-dir-installer.js
-│   ├── claude-symlink-manager.js
-│   ├── delegation-validator.js
-│   ├── shell-completion.js
-│   ├── update-checker.js
-│   ├── helpers.js
-│   └── error-manager.js
-└── ...
+src/                         # TypeScript source files (Phase 02 Modular Architecture)
+├── ccs.ts                   # Main entry point (593 lines, 44.6% reduction)
+├── commands/                # Modular command handlers (Phase 02)
+│   ├── version-command.ts          # 3.0KB - Version display
+│   ├── help-command.ts            # 4.9KB - Help system
+│   ├── install-command.ts         # 957B - Install/uninstall
+│   ├── doctor-command.ts          # 415B - System diagnostics
+│   ├── sync-command.ts            # 1.0KB - Configuration sync
+│   └── shell-completion-command.ts # 2.1KB - Shell completion
+├── auth/                    # Authentication system
+│   ├── auth-commands.ts
+│   ├── profile-detector.ts
+│   └── profile-registry.ts
+├── delegation/              # AI delegation system
+│   ├── delegation-handler.ts
+│   ├── headless-executor.ts
+│   ├── session-manager.ts
+│   ├── result-formatter.ts
+│   └── settings-parser.ts
+├── glmt/                    # GLMT thinking mode system
+│   ├── glmt-proxy.ts
+│   ├── glmt-transformer.ts
+│   ├── locale-enforcer.ts
+│   ├── reasoning-enforcer.ts
+│   ├── sse-parser.ts
+│   └── delta-accumulator.ts
+├── management/              # System management
+│   ├── doctor.ts
+│   ├── instance-manager.ts
+│   ├── shared-manager.ts
+│   ├── sync.ts
+│   └── recovery-manager.ts
+├── utils/                   # Cross-platform utilities
+│   ├── claude-detector.ts
+│   ├── claude-dir-installer.ts
+│   ├── claude-symlink-manager.ts
+│   ├── delegation-validator.ts
+│   ├── shell-executor.ts            # 1.5KB - Phase 02 NEW
+│   ├── package-manager-detector.ts # 3.8KB - Phase 02 NEW
+│   ├── shell-completion.ts
+│   ├── update-checker.ts
+│   ├── helpers.ts
+│   └── error-manager.ts
+├── types/                   # TypeScript type definitions
+│   ├── cli.ts
+│   ├── config.ts
+│   ├── delegation.ts
+│   ├── glmt.ts
+│   ├── utils.ts
+│   └── index.ts
+└── scripts/                 # Build and utility scripts
 
 config/
 └── base-glmt.settings.json  # GLMT template (v3.3.0)
@@ -997,6 +1144,9 @@ graph LR
 
 ### Installation Process
 
+**Two installation methods available:**
+
+**Method 1: npm Package (Recommended)**
 1. **Package Download**: User installs via npm/yarn/pnpm/bun
 2. **Post-install Script** (`scripts/postinstall.js`):
    - Creates `~/.ccs/` directory structure
@@ -1012,6 +1162,19 @@ graph LR
    - Shows API key setup instructions
 3. **Path Configuration**: npm automatically adds to PATH
 4. **Ready State**: System ready for profile switching
+
+**Method 2: Native Installers (v4.5.0)**
+1. **Requirements Check**: Validates Node.js 14+ available
+2. **Bootstrap Installation**:
+   - Installs lightweight shell wrappers (lib/ccs, lib/ccs.ps1)
+   - Shell wrappers delegate to Node.js via npx on first run
+   - No shell dependencies (error-codes, progress-indicator, prompt removed)
+3. **First Run**: Bootstrap auto-installs @kaitranntt/ccs npm package globally
+4. **Completion Message**: Shows requirements section with Node.js version
+
+**Requirements (v4.5.0+)**:
+- Node.js 14+ (checked during install, enforced by bootstrap)
+- npm 5.2+ (for npx, comes with Node.js 8.2+)
 
 **Idempotency**: Safe to run multiple times, preserves existing configs
 
@@ -1125,7 +1288,8 @@ The architecture provides clean extension points:
 The CCS system architecture successfully balances simplicity with enhanced functionality:
 
 **Core Architecture Strengths**:
-- **Modular Design**: Clear subsystem separation (auth, delegation, glmt, management, utils)
+- **Modular Design**: Clear subsystem separation (auth, delegation, glmt, management, utils, commands)
+- **Phase 02 Command Modularity**: 6 specialized command handlers with single responsibility principle
 - **Unified spawn logic** eliminates code duplication
 - **Dual-path execution** supports settings-based and account-based profiles
 - **Isolated Claude instances** enable concurrent sessions via CLAUDE_CONFIG_DIR
@@ -1147,16 +1311,24 @@ The CCS system architecture successfully balances simplicity with enhanced funct
 - **Configuration migration**: Auto-upgrade configs with new fields
 - **Enhanced settings**: Temperature, max tokens, thinking controls, API timeout
 
+**Phase 02 Architecture Highlights** (2025-11-27):
+1. **Modular Command Architecture**: 6 specialized command handlers with single responsibility
+2. **44.6% Main File Reduction**: src/ccs.ts reduced from 1,071 to 593 lines
+3. **Enhanced Maintainability**: Focused modules for version, help, install, doctor, sync, shell-completion
+4. **New Utility Modules**: Cross-platform shell execution and package manager detection
+5. **TypeScript Excellence**: 100% type coverage across all new modules
+
 **v4.3.2 Architecture Highlights**:
 1. **Delegation Architecture**: Stream-JSON parsing, session management, result formatting
 2. **Symlinking Architecture**: Selective sharing with Windows fallback
 3. **Shell Completion**: Dynamic profile-aware completions with color-coding
 4. **Diagnostics Infrastructure**: Doctor validation, sync repairs, update checking
-5. **Modular Subsystems**: 7 clear subsystems (~8,477 LOC total)
+5. **Modular Subsystems**: 8 clear subsystems including Phase 02 commands
 
 **Evolution Path**:
 - **v2.x → v3.0**: 40% reduction through vault removal, login-per-profile model
 - **v3.0 → v4.x**: Enhanced capabilities with delegation, symlinking, diagnostics (zero breaking changes)
+- **v4.x → Phase 02**: Modular command architecture with 44.6% main file reduction
 - **Future (v5.0+)**: AI-powered features, enterprise capabilities, ecosystem expansion
 
 The architecture demonstrates how thoughtful design can add sophisticated AI delegation capabilities, shared data management, and comprehensive diagnostics while maintaining simplicity, backward compatibility, and cross-platform support.

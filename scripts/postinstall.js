@@ -12,14 +12,24 @@ const os = require('os');
  * Runs when: npm install -g @kaitranntt/ccs
  * Idempotent: Safe to run multiple times (won't overwrite existing configs)
  * Cross-platform: Works on Unix, macOS, Windows
+ *
+ * Test isolation: Set CCS_HOME env var to redirect all operations to a test directory
  */
+
+/**
+ * Get the CCS home directory (respects CCS_HOME env var for test isolation)
+ * @returns {string} Home directory path
+ */
+function getCcsHome() {
+  return process.env.CCS_HOME || os.homedir();
+}
 
 /**
  * Validate created configuration files
  * @returns {object} { success: boolean, errors: string[], warnings: string[] }
  */
 function validateConfiguration() {
-  const homedir = os.homedir();
+  const homedir = getCcsHome();
   const errors = [];
   const warnings = [];
 
@@ -63,8 +73,8 @@ function validateConfiguration() {
 
 function createConfigFiles() {
   try {
-    // Get user home directory (cross-platform)
-    const homedir = os.homedir();
+    // Get user home directory (cross-platform, respects CCS_HOME for test isolation)
+    const homedir = getCcsHome();
     const ccsDir = path.join(homedir, '.ccs');
 
     // Create ~/.ccs/ directory if missing
@@ -93,7 +103,7 @@ function createConfigFiles() {
     // Migrate from v3.1.1 to v3.2.0 (symlink architecture)
     console.log('');
     try {
-      const SharedManager = require('../bin/management/shared-manager');
+      const SharedManager = require('../dist/management/shared-manager').default;
       const sharedManager = new SharedManager();
       sharedManager.migrateFromV311();
       sharedManager.ensureSharedDirectories();
@@ -106,32 +116,13 @@ function createConfigFiles() {
     }
     console.log('');
 
-    // Copy .claude/ directory from package to ~/.ccs/.claude/ (v4.1.1)
-    try {
-      const ClaudeDirInstaller = require('../bin/utils/claude-dir-installer');
-      const installer = new ClaudeDirInstaller();
-      const packageDir = path.join(__dirname, '..');
-      installer.install(packageDir);
-
-      // Clean up deprecated files (v4.3.2)
-      installer.cleanupDeprecated();
-    } catch (err) {
-      console.warn('[!] Failed to install .claude/ directory:', err.message);
-      console.warn('    CCS items may not be available');
-    }
-
-    // Install CCS items to ~/.claude/ (v4.1.0)
-    try {
-      const ClaudeSymlinkManager = require('../bin/utils/claude-symlink-manager');
-      const claudeSymlinkManager = new ClaudeSymlinkManager();
-      claudeSymlinkManager.install();
-    } catch (err) {
-      console.warn('[!] CCS item installation warning:', err.message);
-      console.warn('    Run "ccs sync" to retry');
-    }
-    console.log('');
+    // NOTE: .claude/ directory installation moved to "ccs sync" command
+    // Users can run "ccs sync" to install CCS commands/skills to ~/.claude/
+    // This gives users control over when to modify their Claude configuration
 
     // Create config.json if missing
+    // NOTE: gemini/codex profiles NOT included - they are added on-demand when user
+    // runs `ccs gemini` or `ccs codex` for first time (requires OAuth auth first)
     const configPath = path.join(ccsDir, 'config.json');
     if (!fs.existsSync(configPath)) {
       const config = {
@@ -156,12 +147,17 @@ function createConfigFiles() {
       if (!config.profiles) {
         config.profiles = {};
       }
+      let configUpdated = false;
       if (!config.profiles.glmt) {
         config.profiles.glmt = '~/.ccs/glmt.settings.json';
+        configUpdated = true;
+      }
+      // NOTE: gemini/codex profiles added on-demand, not during migration
+      if (configUpdated) {
         const tmpPath = `${configPath}.tmp`;
         fs.writeFileSync(tmpPath, JSON.stringify(config, null, 2) + '\n', 'utf8');
         fs.renameSync(tmpPath, configPath);
-        console.log('[OK] Updated config with GLMT profile');
+        console.log('[OK] Updated config with glmt profile');
       } else {
         console.log('[OK] Config exists: ~/.ccs/config.json (preserved)');
       }
@@ -309,6 +305,10 @@ function createConfigFiles() {
     } else {
       console.log('[OK] Kimi profile exists: ~/.ccs/kimi.settings.json (preserved)');
     }
+
+    // NOTE: gemini.settings.json and codex.settings.json are NOT created during install
+    // They are created on-demand when user runs `ccs gemini` or `ccs codex` for the first time
+    // This prevents confusion - users need to run `--auth` first anyway
 
     // Migrate existing Kimi configs to remove deprecated model fields (v4.1.2)
     // Kimi API changed - model fields now cause 401 errors

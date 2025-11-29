@@ -1,5 +1,9 @@
 # CCS Installation Guide
 
+> [!WARNING]
+> **Native shell installers (curl/irm) are deprecated.**
+> Use npm installation for all platforms. Legacy installers will be removed in v5.0.
+
 ## npm Package Installation (Recommended)
 
 ### Cross-Platform Installation
@@ -34,7 +38,11 @@ npm install -g @kaitranntt/ccs
 npm install -g @kaitranntt/ccs --force
 ```
 
-## One-Liner Installation (Traditional)
+## [!] DEPRECATED: One-Liner Installation (Legacy)
+
+> [!WARNING]
+> **These installers are deprecated and will be removed in v5.0.**
+> They now auto-redirect to npm installation. Please use npm directly.
 
 ### macOS / Linux
 
@@ -46,8 +54,7 @@ curl -fsSL ccs.kaitran.ca/install | bash
 curl -fsSL https://raw.githubusercontent.com/kaitranntt/ccs/main/installers/install.sh | bash
 ```
 
-**Install Location**:
-- **All Unix Systems**: `~/.local/bin/ccs` (auto-configures PATH for bash, zsh, fish)
+**Note:** Scripts show deprecation warning and automatically run npm installation if Node.js is available.
 
 ### Windows PowerShell
 
@@ -59,18 +66,12 @@ irm ccs.kaitran.ca/install.ps1 | iex
 irm https://raw.githubusercontent.com/kaitranntt/ccs/main/installers/install.ps1 | iex
 ```
 
-**Auto PATH Configuration**:
-- Installer detects your shell (bash, zsh, fish) automatically
-- Adds `~/.local/bin` to PATH in shell profile if needed
-- Idempotent: safe to run multiple times
-- Shows reload instructions after install
+**Note:** Scripts show deprecation warning and automatically run npm installation if Node.js is available.
 
-**Notes**:
-- Unix installer supports both direct execution (`./install.sh`) and piped installation (`curl | bash`)
-- Windows installer requires PowerShell 5.1+ (pre-installed on Windows 10+)
-- No sudo required on any platform
+## [!] DEPRECATED: Git Clone Installation (Legacy)
 
-## Git Clone Installation
+> [!WARNING]
+> **Git clone installation is deprecated.** Use npm installation instead.
 
 ### macOS / Linux
 
@@ -88,7 +89,7 @@ cd ccs
 .\installers\install.ps1
 ```
 
-**Note**: Works with git worktrees and submodules - the installer detects both `.git` directory and `.git` file.
+**Note**: Scripts show deprecation warning and automatically run npm installation if Node.js is available.
 
 ## Manual Installation
 

@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 'use strict';
 
-const GlmtTransformer = require('../../../bin/glmt/glmt-transformer');
+const GlmtTransformer = require('../../../dist/glmt/glmt-transformer').default;
 
 /**
  * Simple test runner (no external dependencies)

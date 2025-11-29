@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 'use strict';
 
-const { HeadlessExecutor } = require('../../../bin/delegation/headless-executor');
+const { HeadlessExecutor } = require('../../../dist/delegation/headless-executor');
 
 /**
  * Test runner

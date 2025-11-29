@@ -176,16 +176,27 @@ spawn(claudeCli, ['--settings', settingsPath, ...args]);
 spawn('sh', ['-c', `claude --settings ${settingsPath} ${args.join(' ')}`]);
 ```
 
-### Module Organization Standards (v4.3.2)
+### Module Organization Standards (Phase 02 Complete - 2025-11-27)
 
 #### Subsystem Directory Structure
 ```
-bin/
+src/
+├── ccs.ts                   # Main entry point (593 lines, 44.6% reduction)
+├── commands/                # Modular command handlers (Phase 02 NEW)
+│   ├── version-command.ts          # Version display functionality
+│   ├── help-command.ts            # Help system
+│   ├── install-command.ts         # Installation workflows
+│   ├── doctor-command.ts          # System diagnostics
+│   ├── sync-command.ts            # Configuration synchronization
+│   └── shell-completion-command.ts # Shell completion management
 ├── auth/                    # Auth system modules
 ├── delegation/              # Delegation system modules
 ├── glmt/                    # GLMT system modules
 ├── management/              # Management system modules
-└── utils/                   # Utility modules
+├── utils/                   # Utility modules (expanded in Phase 02)
+│   ├── shell-executor.ts            # Cross-platform execution (NEW)
+│   └── package-manager-detector.ts # Package manager detection (NEW)
+└── types/                   # TypeScript type definitions
 ```
 
 #### Module Dependencies
@@ -237,6 +248,192 @@ module.exports = {
 - **validator**: Validation logic (e.g., `delegation-validator.js`)
 - **formatter**: Output formatting (e.g., `result-formatter.js`)
 - **parser**: Parsing logic (e.g., `settings-parser.js`, `sse-parser.js`)
+
+## Modular Command Architecture Standards (Phase 02, 2025-11-27)
+
+### Overview
+
+Phase 02 introduced modular command architecture that separates command handling logic from the main orchestrator. This enhances maintainability, testability, and development workflow efficiency.
+
+### Command Handler Pattern
+
+**Structure Requirements**:
+- Each command must be implemented in its own dedicated file in `src/commands/`
+- Commands must follow consistent interface pattern for type safety
+- Single responsibility principle - each module handles one command only
+
+**Interface Pattern**:
+```typescript
+interface CommandHandler {
+  handle(args: string[]): Promise<void>;
+  requiresProfile?: boolean;
+  description?: string;
+}
+```
+
+**Implementation Example**:
+```typescript
+export class VersionCommand implements CommandHandler {
+  async handle(args: string[]): Promise<void> {
+    // Command implementation
+  }
+
+  get description(): string {
+    return "Display version information";
+  }
+}
+```
+
+### Command Handler Standards
+
+#### File Organization
+- **Location**: `src/commands/<command-name>-command.ts`
+- **Naming**: kebab-case with `-command.ts` suffix
+- **Export**: Default export of command class
+
+#### Function Size Limits
+- **Command handlers**: Maximum 200 lines (enforces focused responsibility)
+- **Helper functions**: Maximum 50 lines within command modules
+- **Type definitions**: Separate files for complex types (>5 interfaces)
+
+#### Import Patterns
+```typescript
+// Preferred: Specific imports
+import { ConfigManager } from '../utils/config-manager.js';
+import { Logger } from '../utils/logger.js';
+
+// Avoid: Wildcard imports
+import * as Utils from '../utils/index.js';
+```
+
+### Module Dependencies Standards
+
+#### Dependency Direction
+```
+Main Entry Point (src/ccs.ts)
+    ↓
+Command Handlers (src/commands/)
+    ↓
+Utility Modules (src/utils/)
+```
+
+**Rules**:
+- Command handlers may import from utils, types, and management modules
+- Command handlers MUST NOT import from other command handlers
+- Utility modules may import from other utilities and types
+- No circular dependencies allowed
+
+#### Import Organization
+```typescript
+// 1. Node.js built-ins
+import { spawn } from 'child_process';
+import { readFile } from 'fs/promises';
+
+// 2. External dependencies
+import ora from 'ora';
+
+// 3. Internal modules (sorted alphabetically)
+import { ConfigManager } from '../utils/config-manager.js';
+import { Logger } from '../utils/logger.js';
+import { Types } from '../types/index.js';
+```
+
+### Error Handling in Command Modules
+
+#### Standardized Error Pattern
+```typescript
+export class CommandError extends Error {
+  constructor(
+    message: string,
+    public readonly code: string,
+    public readonly exitCode: number = 1
+  ) {
+    super(message);
+    this.name = 'CommandError';
+  }
+}
+
+// Usage
+try {
+  await this.executeCommand();
+} catch (error) {
+  if (error instanceof CommandError) {
+    console.error(`[X] ${error.message}`);
+    process.exit(error.exitCode);
+  }
+  throw error;
+}
+```
+
+#### Validation Requirements
+- **Input validation**: Must validate arguments before processing
+- **State validation**: Check required dependencies exist
+- **Permission validation**: Verify file system access where needed
+
+### Testing Standards for Command Modules
+
+#### Unit Test Structure
+```typescript
+import { assert } from 'chai';
+import { VersionCommand } from '../src/commands/version-command.js';
+
+describe('VersionCommand', () => {
+  let command: VersionCommand;
+
+  beforeEach(() => {
+    command = new VersionCommand();
+  });
+
+  describe('handle()', () => {
+    it('should display version information', async () => {
+      // Test implementation
+    });
+  });
+});
+```
+
+#### Mock Requirements
+- **File system**: Mock all file operations
+- **External processes**: Mock spawn/exec calls
+- **Configuration**: Use test fixtures for config data
+
+### New Utility Module Standards
+
+#### Shell Executor (`src/utils/shell-executor.ts`)
+- **Cross-platform**: Must work on Windows, macOS, Linux
+- **Process management**: Proper cleanup and signal handling
+- **Error handling**: Standardized error reporting
+
+#### Package Manager Detector (`src/utils/package-manager-detector.ts`)
+- **Detection order**: npm → yarn → pnpm → bun (priority based on availability)
+- **Caching**: Cache detection results for performance
+- **Fallback**: Graceful degradation when managers unavailable
+
+### Integration with Main Orchestrator
+
+#### Command Registration Pattern
+```typescript
+// In src/ccs.ts
+import { VersionCommand } from './commands/version-command.js';
+import { HelpCommand } from './commands/help-command.js';
+
+const commandHandlers = {
+  '--version': new VersionCommand(),
+  '--help': new HelpCommand(),
+  // ... other commands
+};
+```
+
+#### Routing Logic
+```typescript
+// Command detection and routing
+for (const [flag, handler] of Object.entries(commandHandlers)) {
+  if (args.includes(flag)) {
+    await handler.handle(args);
+    return;
+  }
+}
+```
 
 ## Delegation System Patterns (v4.0+)
 
@@ -691,6 +888,34 @@ spawn('sh', ['-c', `claude --settings ${settingsPath} ${command}`]);
 
 ## Quality Assurance Standards
 
+### ESLint Quality Gates (Phase 01 Enhanced + Phase 02 Modular)
+
+**Strict TypeScript Rules** (enforced as errors):
+- ✅ `@typescript-eslint/no-unused-vars`: Zero unused variables, imports, or parameters
+- ✅ `@typescript-eslint/no-explicit-any`: No explicit `any` types allowed (use `unknown` or proper types)
+- ✅ `@typescript-eslint/no-non-null-assertion`: No non-null assertions (`value!`) - use explicit checks
+
+**Quality Validation Commands**:
+```bash
+bun run validate      # Full validation: typecheck + lint + format + test
+bun run typecheck     # TypeScript compilation (tsc --noEmit)
+bun run lint          # ESLint validation (must show 0 errors)
+bun run format        # Prettier formatting
+bun run test          # Test suite execution
+```
+
+**Pre-commit Requirements**:
+- All ESLint rules must pass (zero errors, zero warnings)
+- TypeScript compilation must succeed
+- All tests must pass
+- Code must be properly formatted
+
+**Phase 02 Additional Requirements**:
+- Command modules must not exceed 200 lines (enforces single responsibility)
+- No circular dependencies between command handlers
+- Each command must implement the CommandHandler interface
+- Utility modules must be cross-platform compatible
+
 ### Code Review Checklist
 Before submitting code, verify:
 - [ ] Follows all coding standards
@@ -699,6 +924,7 @@ Before submitting code, verify:
 - [ ] No console.log statements left in production code
 - [ ] Error handling is comprehensive
 - [ ] Cross-platform compatibility is maintained
+- [ ] **ESLint strictness rules pass** (no unused vars, no explicit any, no non-null assertions)
 
 ### Release Checklist
 Before releasing new version:
@@ -733,11 +959,18 @@ These code standards ensure the CCS codebase remains:
 - **Secure**: Safe process execution, symlink validation, file handling
 - **Compatible**: Cross-platform symlinking, Windows fallbacks, unified behavior
 - **Extensible**: Clean subsystem boundaries, reusable patterns
+- **Type-Safe**: Enhanced ESLint strictness enforces zero-tolerance for code quality issues
 
 **v4.x Specific Standards**:
 - **Delegation patterns**: Stream-JSON parsing, session management, headless execution
 - **Symlinking patterns**: Cross-platform symlink creation, validation, repair
 - **Subsystem organization**: Clear separation (auth, delegation, glmt, management, utils)
 - **Naming conventions**: handler, executor, manager, validator, formatter, parser suffixes
+
+**v4.5.0 Installation Standards**:
+- **Bootstrap-based installers**: Native shell wrappers delegate to Node.js via npx
+- **Node.js requirement**: 14+ required (checked during install)
+- **No shell dependencies**: error-codes.sh, progress-indicator.sh, prompt.sh removed
+- **First-run bootstrap**: Auto-installs @kaitranntt/ccs npm package globally
 
 Following these standards helps maintain the quality, modularity, and extensibility of the v4.x architecture while enabling future development with AI delegation, shared data management, and comprehensive diagnostics.

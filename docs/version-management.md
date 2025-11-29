@@ -82,12 +82,12 @@ When releasing a new version:
 - [ ] Update version using `./scripts/bump-version.sh X.Y.Z`
 - [ ] Review changes: `git diff`
 - [ ] Run comprehensive tests: `npm test`
-- [ ] Test both installation methods if applicable
+- [ ] ~~Test both installation methods if applicable~~ (Shell installers DEPRECATED)
 - [ ] Update CHANGELOG.md with release notes
 - [ ] Commit changes: `git commit -am "chore: bump version to X.Y.Z"`
 - [ ] Push: `git push`
-- [ ] Verify CloudFlare worker serves updated installer
-- [ ] Publish to npm (if npm package updated): `npm publish`
+- [ ] ~~Verify CloudFlare worker serves updated installer~~ (Shell installers DEPRECATED)
+- [ ] Publish to npm: `npm publish`
 
 ## Version Display
 

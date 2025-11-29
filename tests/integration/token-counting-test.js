@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 'use strict';
 
-const GlmtTransformer = require('../bin/glmt-transformer');
-const DeltaAccumulator = require('../bin/delta-accumulator');
+const GlmtTransformer = require('../dist/glmt/glmt-transformer').default;
+const { DeltaAccumulator } = require('../dist/glmt/delta-accumulator');
 
 /**
  * Token Counting Validation Tests

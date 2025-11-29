@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 'use strict';
 
-const { ResultFormatter } = require('../../../bin/delegation/result-formatter');
+const { ResultFormatter } = require('../../../dist/delegation/result-formatter');
 
 /**
  * Simple test runner (no external dependencies)

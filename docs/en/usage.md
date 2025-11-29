@@ -103,16 +103,15 @@ Run 'ccs --help' for usage information
 - Platform-specific guidance
 - Configuration file location and troubleshooting
 
-**Official Uninstall (Recommended)**:
+**Uninstall (Recommended)**:
 ```bash
-# macOS/Linux
-curl -fsSL ccs.kaitran.ca/uninstall | bash
+# npm (recommended)
+npm uninstall -g @kaitranntt/ccs
 
-# Windows PowerShell
-irm ccs.kaitran.ca/uninstall | iex
+# Legacy uninstallers (for native installs only)
+# macOS/Linux: curl -fsSL ccs.kaitran.ca/uninstall | bash
+# Windows: irm ccs.kaitran.ca/uninstall | iex
 ```
-
-The official uninstaller completely removes CCS including configs and PATH modifications.
 
 **Platform-Specific Locations**:
 - macOS: `/usr/local/bin/ccs`

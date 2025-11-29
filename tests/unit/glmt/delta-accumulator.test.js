@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 'use strict';
 
-const DeltaAccumulator = require('../../../bin/glmt/delta-accumulator');
+const { DeltaAccumulator } = require('../../../dist/glmt/delta-accumulator');
 
 console.log('[TEST] DeltaAccumulator unit tests');
 console.log('');

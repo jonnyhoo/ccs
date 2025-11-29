@@ -47,9 +47,13 @@ bun add -g @kaitranntt/ccs
 ```
 
 <details>
-<summary><strong>代替案：直接インストール（従来型）</strong></summary>
+<summary><strong>[!] 非推奨: ネイティブシェルインストーラー（レガシー）</strong></summary>
 
 <br>
+
+> [!WARNING]
+> **これらのインストーラーは非推奨であり、将来のバージョンで削除されます。**
+> 現在は npm インストールに自動リダイレクトされます。npm を直接使用してください。
 
 **macOS / Linux**
 ```bash
@@ -61,7 +65,7 @@ curl -fsSL ccs.kaitran.ca/install | bash
 irm ccs.kaitran.ca/install | iex
 ```
 
-**注**: 従来型インストールはNode.jsルーティングをバイパスし起動が高速ですが、デプロイ自動化が容易なためnpmを優先します。
+**注**: スクリプトは非推奨の警告を表示し、Node.jsが利用可能な場合は自動的にnpmインストールを実行します。
 
 </details>
 

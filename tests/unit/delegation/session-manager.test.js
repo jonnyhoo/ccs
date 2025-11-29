@@ -4,7 +4,7 @@
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
-const { SessionManager } = require('../../../bin/delegation/session-manager');
+const { SessionManager } = require('../../../dist/delegation/session-manager');
 
 /**
  * Test runner

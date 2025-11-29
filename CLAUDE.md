@@ -13,46 +13,58 @@ CLI wrapper for instant switching between multiple Claude accounts and alternati
 - **DRY**: One source of truth (config.json)
 - **CLI-First**: All features must have CLI interface
 
+## TypeScript Quality Gates (CORE PURPOSE)
+
+**The npm package is 100% TypeScript. Quality gates MUST pass before publish.**
+
+**Package Manager: bun (preferred)** - 10-25x faster than npm
+```bash
+bun install          # Install dependencies (creates bun.lockb)
+bun run build        # Compile src/ → dist/
+bun run validate     # Full validation: typecheck + lint + format + test
+```
+
+**Quality gate scripts:**
+```bash
+bun run typecheck    # Type-check without emit (tsc --noEmit)
+bun run lint         # ESLint TypeScript rules
+bun run lint:fix     # Auto-fix lint issues
+bun run format       # Prettier formatting (write)
+bun run format:check # Prettier check (CI)
+bun run test         # Build + run all tests
+```
+
+**Automatic enforcement:**
+- `prepublishOnly` runs `validate` before `npm publish`
+- `prepack` runs `validate` before `npm pack`
+- CI/CD should run `bun run validate` on every PR
+
+**File structure:**
+- `src/` - TypeScript source (development)
+- `dist/` - Compiled JavaScript (production, npm package)
+- `lib/` - Native shell scripts (bash, PowerShell)
+
+**Linting rules (eslint.config.mjs):**
+- `no-unused-vars` - warn (upgrade to error incrementally)
+- `no-explicit-any` - warn (upgrade to error incrementally)
+- `no-non-null-assertion` - warn
+- `prefer-const`, `no-var`, `eqeqeq` - error
+
+**Type safety rules:**
+- Avoid `any` types - use proper typing or `unknown`
+- Avoid `@ts-ignore` - fix the type error properly
+- Strict mode enabled in tsconfig.json
+
 ## Critical Constraints (NEVER VIOLATE)
 
 1. **NO EMOJIS** - ASCII only: [OK], [!], [X], [i]
 2. **TTY-aware colors** - Respect NO_COLOR env var
 3. **Non-invasive** - NEVER modify `~/.claude/settings.json`
 4. **Cross-platform parity** - bash/PowerShell/Node.js must behave identically
-5. **CLI documentation** - ALL changes MUST update `--help` in bin/ccs.js, lib/ccs, lib/ccs.ps1
+5. **CLI documentation** - ALL changes MUST update `--help` in src/ccs.ts, lib/ccs, lib/ccs.ps1
 6. **Idempotent** - All install operations safe to run multiple times
 
 ## Key Technical Details
-
-### GLMT Implementation Notes
-
-**[!] GLMT only in Node.js version** (`bin/ccs.js`). Native shell versions don't support GLMT (requires HTTP server).
-
-**Critical files when working on GLMT**:
-- `bin/glmt/glmt-proxy.js`: HTTP proxy server with streaming + auto-fallback
-- `bin/glmt/glmt-transformer.js`: Format conversion + delta handling + tool transformation
-- `bin/glmt/locale-enforcer.js`: Enforces English output
-- `bin/glmt/reasoning-enforcer.js`: Injects explicit reasoning instructions (hybrid approach)
-- `bin/glmt/sse-parser.js`: SSE stream parser
-- `bin/glmt/delta-accumulator.js`: State tracking for streaming + tool calls
-- `tests/unit/glmt/glmt-transformer.test.js`: Unit tests (35 tests passing)
-- `tests/unit/glmt/reasoning-enforcer.test.js`: ReasoningEnforcer unit tests (15 tests passing)
-
-**Reasoning control mechanisms (hybrid approach)**:
-- **Keywords**: `think`, `think hard`, `think harder`, `ultrathink`
-- **Tags**: `<Thinking:On|Off>`, `<Effort:Low|Medium|High>`
-- **Precedence**: CLI parameter > message tags > keywords
-- **Hybrid mode**: Uses BOTH API parameters (`reasoning: true`) AND prompt injection
-  - API params: Native Z.AI support (deterministic, zero overhead)
-  - Prompt injection: Explicit format instructions using `<reasoning_content>` tags
-  - ReasoningEnforcer has 4 effort-aware prompts (low/medium/high/max)
-  - **Enabled by default** for all GLMT usage (always active)
-
-**Security limits** (DoS protection):
-- SSE buffer: 1MB max
-- Content buffers: 10MB max per block
-- Content blocks: 100 max per message
-- Request timeout: 120s
 
 ### Profile Mechanisms
 
@@ -75,8 +87,11 @@ Windows fallback: Copies if symlinks unavailable
 - PowerShell 5.1+, `$ErrorActionPreference = "Stop"`
 - Native JSON only, no external dependencies
 
-### Node.js (bin/ccs.js)
-- Node.js 14+, `child_process.spawn`, handle SIGINT/SIGTERM
+### TypeScript/Node.js (src/*.ts → dist/*.js)
+- Node.js 14+, Bun 1.0+, TypeScript 5.3, strict mode
+- `child_process.spawn`, handle SIGINT/SIGTERM
+- Run `bun run lint && bun run typecheck` before committing
+- Format with `bun run format` if needed
 
 ### Terminal Output (ENFORCE)
 - ASCII only: [OK], [!], [X], [i] (NO emojis)
@@ -107,7 +122,7 @@ rm -rf ~/.ccs                                  # Clean environment
 ### New Feature Checklist
 1. Verify YAGNI/KISS/DRY alignment - reject if doesn't align
 2. Implement in bash + PowerShell + Node.js (all three)
-3. **REQUIRED**: Update `--help` in bin/ccs.js, lib/ccs, lib/ccs.ps1
+3. **REQUIRED**: Update `--help` in src/ccs.ts, lib/ccs, lib/ccs.ps1
 4. Test on macOS/Linux/Windows
 5. Add test cases to tests/edge-cases.*
 6. Update README.md if user-facing
@@ -128,8 +143,9 @@ Code standards:
 - [ ] ASCII only (NO emojis)
 - [ ] TTY colors disabled when piped
 - [ ] NO_COLOR respected
-- [ ] `--help` updated in bin/ccs.js, lib/ccs, lib/ccs.ps1
+- [ ] `--help` updated in src/ccs.ts, lib/ccs, lib/ccs.ps1
 - [ ] `--help` consistent across all three
+- [ ] `bun run validate` passes (typecheck + lint + format + tests)
 
 Install/behavior:
 - [ ] Idempotent install
@@ -158,31 +174,6 @@ All env values MUST be strings (not booleans/objects) to prevent PowerShell cras
   }
 }
 ```
-
-## GLMT Debugging (Common Issues)
-
-### Debug Mode
-```bash
-export CCS_DEBUG=1
-ccs glmt --verbose "test"  # File logs: ~/.ccs/logs/
-```
-
-### Known Issues & Fixes
-
-**No Thinking Blocks**:
-- Check Z.AI API plan supports reasoning_content
-- Test with keywords: `ccs glmt "think about the solution"`
-
-**Empty Thinking Blocks** (v3.5.1+):
-- Fixed: Signature timing race (see tests/unit/glmt/test-thinking-signature-race.js)
-
-**Tool Execution Issues**:
-- MCP tools outputting XML: Fixed in v3.5
-- Debug with `CCS_DEBUG=1` to inspect transformation
-
-**Streaming Issues**:
-- Buffer errors: Hit DoS limits (1MB SSE, 10MB content)
-- Auto-fallback to buffered mode on error
 
 ## Error Handling Principles
 

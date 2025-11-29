@@ -6,7 +6,7 @@
  * Tests different message formats to understand the bug
  */
 
-const GlmtTransformer = require('../../../bin/glmt/glmt-transformer');
+const GlmtTransformer = require('../../../dist/glmt/glmt-transformer').default;
 
 const transformer = new GlmtTransformer({ verbose: true });
 

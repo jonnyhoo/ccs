@@ -2,6 +2,23 @@
 
 > **Note**: CCS has been recently simplified with a 35% code reduction (1,315 → 855 lines) while maintaining all functionality. The troubleshooting steps below apply to the simplified architecture.
 
+## Native Installer Deprecation
+
+**Issue:** "Why does the curl/irm installer show a deprecation warning?"
+
+**Cause:** Native shell installers are deprecated in favor of npm installation.
+
+**Solution:**
+```bash
+# Uninstall legacy version (if installed via curl/irm)
+ccs-uninstall  # or: curl -fsSL ccs.kaitran.ca/uninstall | bash
+
+# Install via npm (recommended)
+npm install -g @kaitranntt/ccs
+```
+
+**Note:** The legacy installer now auto-runs npm install if Node.js is available.
+
 ## npm Installation Issues
 
 ### Config File Not Found After npm Install

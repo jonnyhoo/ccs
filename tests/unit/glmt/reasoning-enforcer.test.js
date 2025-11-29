@@ -13,7 +13,7 @@
  * 6. Edge cases (empty messages, no system/user)
  */
 
-const ReasoningEnforcer = require('../../../bin/glmt/reasoning-enforcer');
+const ReasoningEnforcer = require('../../../dist/glmt/reasoning-enforcer').default;
 
 /**
  * Simple test runner (no external dependencies)

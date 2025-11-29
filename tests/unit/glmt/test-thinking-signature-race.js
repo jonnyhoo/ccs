@@ -10,8 +10,8 @@
  * Fix: Guard against empty content, return null if block.content is empty
  */
 
-const GlmtTransformer = require('../../../bin/glmt/glmt-transformer');
-const DeltaAccumulator = require('../../../bin/glmt/delta-accumulator');
+const GlmtTransformer = require('../../../dist/glmt/glmt-transformer').default;
+const { DeltaAccumulator } = require('../../../dist/glmt/delta-accumulator');
 
 // Test runner
 class TestRunner {

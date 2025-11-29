@@ -47,9 +47,13 @@ bun add -g @kaitranntt/ccs
 ```
 
 <details>
-<summary><strong>Phương án thay thế: Cài Đặt Trực Tiếp (Truyền thống)</strong></summary>
+<summary><strong>[!] LỖI THỜI: Trình cài đặt shell gốc (Cũ)</strong></summary>
 
 <br>
+
+> [!WARNING]
+> **Các trình cài đặt này đã lỗi thời và sẽ bị xóa trong phiên bản tương lai.**
+> Hiện tại chúng tự động chuyển hướng đến cài đặt npm. Vui lòng sử dụng npm trực tiếp.
 
 **macOS / Linux**
 ```bash
@@ -61,7 +65,7 @@ curl -fsSL ccs.kaitran.ca/install | bash
 irm ccs.kaitran.ca/install | iex
 ```
 
-**Lưu ý**: Cài truyền thống bỏ qua Node.js routing để khởi động nhanh hơn, nhưng ưu tiên npm cho dễ dàng tự động hóa triển khai.
+**Lưu ý**: Script hiển thị cảnh báo lỗi thời và tự động chạy cài đặt npm nếu Node.js khả dụng.
 
 </details>
 

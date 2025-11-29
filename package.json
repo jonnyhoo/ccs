@@ -1,6 +1,6 @@
 {
   "name": "@kaitranntt/ccs",
-  "version": "4.4.0",
+  "version": "5.0.0",
   "description": "Claude Code Switch - Instant profile switching between Claude Sonnet 4.5 and GLM 4.6",
   "keywords": [
     "cli",
@@ -23,11 +23,13 @@
     "name": "Tam Nhu Tran (Kai)",
     "email": "kaitranntt@users.noreply.github.com"
   },
+  "main": "dist/ccs.js",
+  "types": "dist/ccs.d.ts",
   "bin": {
-    "ccs": "bin/ccs.js"
+    "ccs": "dist/ccs.js"
   },
   "files": [
-    "bin/",
+    "dist/",
     "lib/",
     "scripts/",
     "config/",
@@ -37,8 +39,10 @@
     "LICENSE"
   ],
   "engines": {
-    "node": ">=14.0.0"
+    "node": ">=14.0.0",
+    "bun": ">=1.0.0"
   },
+  "packageManager": "bun@1.2.21",
   "os": [
     "darwin",
     "linux",
@@ -46,14 +50,23 @@
   ],
   "preferGlobal": true,
   "scripts": {
-    "test": "npm run test:all",
-    "test:all": "npm run test:unit && npm run test:npm",
-    "test:unit": "npx mocha tests/shared/unit/**/*.test.js --timeout 5000",
-    "test:npm": "npx mocha tests/npm/**/*.test.js --timeout 10000",
+    "build": "tsc && node scripts/add-shebang.js",
+    "build:watch": "tsc --watch",
+    "prebuild": "rm -rf dist tsconfig.tsbuildinfo",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint src/",
+    "lint:fix": "eslint src/ --fix",
+    "format": "prettier --write src/",
+    "format:check": "prettier --check src/",
+    "validate": "bun run typecheck && bun run lint && bun run format:check && bun run test",
+    "test": "bun run build && bun run test:all",
+    "test:all": "bun run test:unit && bun run test:npm",
+    "test:unit": "mocha tests/shared/unit/**/*.test.js --timeout 5000",
+    "test:npm": "mocha tests/npm/**/*.test.js --timeout 10000",
     "test:native": "bash tests/native/unix/edge-cases.sh",
     "test:edge-cases": "bash tests/edge-cases.sh",
-    "prepublishOnly": "node scripts/sync-version.js",
-    "prepack": "node scripts/sync-version.js",
+    "prepublishOnly": "npm run validate && node scripts/sync-version.js",
+    "prepack": "npm run validate && node scripts/sync-version.js",
     "prepare": "node scripts/check-executables.js",
     "postinstall": "node scripts/postinstall.js"
   },
@@ -62,6 +75,13 @@
     "ora": "^9.0.0"
   },
   "devDependencies": {
-    "mocha": "^11.7.5"
+    "@types/node": "^20.19.25",
+    "@typescript-eslint/eslint-plugin": "^8.48.0",
+    "@typescript-eslint/parser": "^8.48.0",
+    "eslint": "^9.39.1",
+    "eslint-config-prettier": "^10.1.8",
+    "mocha": "^11.7.5",
+    "prettier": "^3.6.2",
+    "typescript": "5.3"
   }
 }

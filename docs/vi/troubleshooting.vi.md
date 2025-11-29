@@ -1,5 +1,22 @@
 # Hướng Dẫn Khắc Phục Sự Cố CCS
 
+## Cảnh báo lỗi thời của trình cài đặt gốc
+
+**Vấn đề:** "Tại sao trình cài đặt curl/irm hiển thị cảnh báo lỗi thời?"
+
+**Nguyên nhân:** Trình cài đặt shell gốc đã lỗi thời, ưu tiên cài đặt npm.
+
+**Giải pháp:**
+```bash
+# Gỡ cài đặt phiên bản cũ (nếu cài qua curl/irm)
+ccs-uninstall  # hoặc: curl -fsSL ccs.kaitran.ca/uninstall | bash
+
+# Cài đặt qua npm (khuyến nghị)
+npm install -g @kaitranntt/ccs
+```
+
+**Lưu ý:** Trình cài đặt cũ hiện tự động chạy npm install nếu Node.js khả dụng.
+
 ## Vấn Đề Riêng Của Windows
 
 ### PowerShell Execution Policy

@@ -3,7 +3,7 @@ const { execSync } = require('child_process');
 const path = require('path');
 
 describe('integration: special commands', () => {
-  const ccsPath = path.join(__dirname, '..', '..', 'bin', 'ccs.js');
+  const ccsPath = path.join(__dirname, '..', '..', 'dist', 'ccs.js');
 
   it('shows version with --version', () => {
     const output = execSync(`node ${ccsPath} --version`, { encoding: 'utf8' });

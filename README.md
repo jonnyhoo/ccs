@@ -46,9 +46,13 @@ bun add -g @kaitranntt/ccs
 ```
 
 <details>
-<summary><strong>Alternative: Direct Install (Traditional)</strong></summary>
+<summary><strong>[!] DEPRECATED: Native Shell Installers (Legacy)</strong></summary>
 
 <br>
+
+> [!WARNING]
+> **These installers are deprecated and will be removed in a future version.**
+> They now auto-redirect to npm installation. Please use npm directly.
 
 **macOS / Linux**
 ```bash
@@ -60,7 +64,7 @@ curl -fsSL ccs.kaitran.ca/install | bash
 irm ccs.kaitran.ca/install | iex
 ```
 
-**Note:** Traditional installs bypass Node.js routing for faster startup, but npm is prioritized for easier deployment automation.
+**Note:** Scripts show deprecation warning and automatically run npm installation if Node.js is available.
 
 </details>
 
@@ -748,15 +752,18 @@ ccs sync
 
 ## Uninstall
 
+### npm (Recommended)
+
+```bash
+npm uninstall -g @kaitranntt/ccs
+```
+
 <details>
-<summary><h3>Package Managers</h3></summary>
+<summary><strong>Alternative Package Managers</strong></summary>
 
 <br>
 
 ```bash
-# npm
-npm uninstall -g @kaitranntt/ccs
-
 # yarn
 yarn global remove @kaitranntt/ccs
 
@@ -770,7 +777,7 @@ bun remove -g @kaitranntt/ccs
 </details>
 
 <details>
-<summary><h3>Official Uninstaller</h3></summary>
+<summary><strong>Legacy Uninstallers (for native installs)</strong></summary>
 
 <br>
 
