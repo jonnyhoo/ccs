@@ -11,6 +11,13 @@
 * **profile:** add profile command with configuration display ([53d7a15](https://github.com/kaitranntt/ccs/commit/53d7a15c047e760723e051dc0f7be3c0dd42d087))
 * **shell-completion:** add --force flag and fix zsh profile coloring ([7faed1d](https://github.com/kaitranntt/ccs/commit/7faed1d84ba29ba02bf687bae5b3458617512e67))
 
+## [5.2.1](https://github.com/kaitranntt/ccs/compare/v5.2.0...v5.2.1) (2025-12-01)
+
+
+### Bug Fixes
+
+* **cliproxy:** improve qwen oauth error handling ([#33](https://github.com/kaitranntt/ccs/issues/33)) ([1c3374f](https://github.com/kaitranntt/ccs/commit/1c3374f6a7e4440e299d49b58808c6454b4547c2)), closes [#29](https://github.com/kaitranntt/ccs/issues/29)
+
 # [5.3.0-beta.2](https://github.com/kaitranntt/ccs/compare/v5.3.0-beta.1...v5.3.0-beta.2) (2025-12-01)
 
 
