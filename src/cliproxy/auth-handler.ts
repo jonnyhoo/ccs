@@ -14,11 +14,71 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
-import { spawn } from 'child_process';
+import { spawn, execSync } from 'child_process';
 import { ProgressIndicator } from '../utils/progress-indicator';
 import { getProviderAuthDir, generateConfig } from './config-generator';
 import { ensureCLIProxyBinary } from './binary-manager';
 import { CLIProxyProvider } from './types';
+
+/**
+ * OAuth callback ports used by CLIProxyAPI (hardcoded in binary)
+ * See: https://github.com/router-for-me/CLIProxyAPI/tree/main/internal/auth
+ *
+ * OAuth flow types per provider:
+ * - Gemini: Authorization Code Flow with local callback server on port 8085
+ * - Codex:  Authorization Code Flow with local callback server on port 1455
+ * - Agy:    Authorization Code Flow with local callback server on port 51121
+ * - Qwen:   Device Code Flow (polling-based, NO callback port needed)
+ *
+ * We auto-kill processes on callback ports before OAuth to avoid conflicts.
+ */
+const OAUTH_CALLBACK_PORTS: Partial<Record<CLIProxyProvider, number>> = {
+  gemini: 8085,
+  // codex uses 1455
+  // agy uses 51121
+  // qwen uses Device Code Flow - no callback port needed
+};
+
+/**
+ * Kill any process using a specific port
+ * Used to free OAuth callback port before authentication
+ */
+function killProcessOnPort(port: number, verbose: boolean): boolean {
+  try {
+    if (process.platform === 'win32') {
+      // Windows: use netstat + taskkill
+      const result = execSync(`netstat -ano | findstr :${port}`, {
+        encoding: 'utf-8',
+        stdio: 'pipe',
+      });
+      const lines = result.trim().split('\n');
+      for (const line of lines) {
+        const parts = line.trim().split(/\s+/);
+        const pid = parts[parts.length - 1];
+        if (pid && /^\d+$/.test(pid)) {
+          execSync(`taskkill /F /PID ${pid}`, { stdio: 'pipe' });
+          if (verbose) console.error(`[auth] Killed process ${pid} on port ${port}`);
+        }
+      }
+      return true;
+    } else {
+      // Unix: use lsof + kill
+      const result = execSync(`lsof -ti:${port}`, { encoding: 'utf-8', stdio: 'pipe' });
+      const pids = result
+        .trim()
+        .split('\n')
+        .filter((p) => p);
+      for (const pid of pids) {
+        execSync(`kill -9 ${pid}`, { stdio: 'pipe' });
+        if (verbose) console.error(`[auth] Killed process ${pid} on port ${port}`);
+      }
+      return pids.length > 0;
+    }
+  } catch {
+    // No process on port or command failed - that's fine
+    return false;
+  }
+}
 
 /**
  * Detect if running in a headless environment (no browser available)
@@ -328,6 +388,16 @@ export async function triggerOAuth(
   const configPath = generateConfig(provider);
   log(`Config generated: ${configPath}`);
 
+  // Free OAuth callback port if this provider shares it with another
+  // Qwen and Gemini both use port 8085 - kill any existing process to avoid conflict
+  const callbackPort = OAUTH_CALLBACK_PORTS[provider];
+  if (callbackPort) {
+    const killed = killProcessOnPort(callbackPort, verbose);
+    if (killed) {
+      log(`Freed port ${callbackPort} for OAuth callback`);
+    }
+  }
+
   // Build args: config + auth flag + optional --no-browser for headless
   const args = ['--config', configPath, oauthConfig.authFlag];
   if (headless) {
@@ -428,8 +498,15 @@ export async function triggerOAuth(
         } else {
           if (!headless) spinner.fail('Authentication incomplete');
           console.error('[X] Token not found after authentication');
-          console.error('    The OAuth flow may have been cancelled or port 8085 was in use');
-          console.error('    Try: pkill -f cli-proxy-api && ccs gemini --auth');
+          // Qwen uses Device Code Flow (polling), others use Authorization Code Flow (callback)
+          if (provider === 'qwen') {
+            console.error('    Qwen uses Device Code Flow - ensure you completed auth in browser');
+            console.error('    The polling may have timed out or been cancelled');
+            console.error('    Try: ccs qwen --auth --verbose');
+          } else {
+            console.error('    The OAuth flow may have been cancelled or callback port was in use');
+            console.error(`    Try: pkill -f cli-proxy-api && ccs ${provider} --auth`);
+          }
           resolve(false);
         }
       } else {

@@ -11,7 +11,7 @@ import { PlatformInfo, SupportedOS, SupportedArch, ArchiveExtension } from './ty
  * CLIProxyAPI fallback version (used when GitHub API unavailable)
  * Auto-update fetches latest from GitHub; this is only a safety net
  */
-export const CLIPROXY_FALLBACK_VERSION = '6.5.27';
+export const CLIPROXY_FALLBACK_VERSION = '6.5.31';
 
 /** @deprecated Use CLIPROXY_FALLBACK_VERSION instead */
 export const CLIPROXY_VERSION = CLIPROXY_FALLBACK_VERSION;
