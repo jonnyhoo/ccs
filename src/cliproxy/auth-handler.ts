@@ -6,7 +6,7 @@
  * 1. Check if auth exists (token files in CCS auth directory)
  * 2. Trigger OAuth flow by spawning binary with auth flag
  * 3. Auto-detect headless environments (SSH, no DISPLAY)
- * 4. Use -no-browser flag for headless, display OAuth URL for manual auth
+ * 4. Use --no-browser flag for headless, display OAuth URL for manual auth
  *
  * Token storage: ~/.ccs/cliproxy/auth/<provider>/
  * Each provider has its own directory to avoid conflicts.
@@ -84,21 +84,21 @@ const OAUTH_CONFIGS: Record<CLIProxyProvider, ProviderOAuthConfig> = {
     displayName: 'Google Gemini',
     authUrl: 'https://accounts.google.com/o/oauth2/v2/auth',
     scopes: ['https://www.googleapis.com/auth/generative-language'],
-    authFlag: '-login',
+    authFlag: '--login',
   },
   codex: {
     provider: 'codex',
     displayName: 'Codex',
     authUrl: 'https://auth.openai.com/authorize',
     scopes: ['openid', 'profile'],
-    authFlag: '-codex-login',
+    authFlag: '--codex-login',
   },
   agy: {
     provider: 'agy',
     displayName: 'Antigravity',
     authUrl: 'https://antigravity.ai/oauth/authorize',
     scopes: ['api'],
-    authFlag: '-antigravity-login',
+    authFlag: '--antigravity-login',
   },
 };
 
@@ -284,7 +284,7 @@ export function clearAuth(provider: CLIProxyProvider): boolean {
 
 /**
  * Trigger OAuth flow for provider
- * Auto-detects headless environment and uses -no-browser flag accordingly
+ * Auto-detects headless environment and uses --no-browser flag accordingly
  */
 export async function triggerOAuth(
   provider: CLIProxyProvider,
@@ -319,10 +319,10 @@ export async function triggerOAuth(
   const configPath = generateConfig(provider);
   log(`Config generated: ${configPath}`);
 
-  // Build args: config + auth flag + optional -no-browser for headless
-  const args = ['-config', configPath, oauthConfig.authFlag];
+  // Build args: config + auth flag + optional --no-browser for headless
+  const args = ['--config', configPath, oauthConfig.authFlag];
   if (headless) {
-    args.push('-no-browser');
+    args.push('--no-browser');
   }
 
   // Show appropriate message
@@ -343,7 +343,7 @@ export async function triggerOAuth(
   }
 
   return new Promise<boolean>((resolve) => {
-    // Spawn CLIProxyAPI with auth flag (and -no-browser if headless)
+    // Spawn CLIProxyAPI with auth flag (and --no-browser if headless)
     const authProcess = spawn(binaryPath, args, {
       stdio: ['ignore', 'pipe', 'pipe'],
       env: {
