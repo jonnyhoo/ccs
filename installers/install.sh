@@ -84,7 +84,7 @@ fi
 # IMPORTANT: Update this version when releasing new versions!
 # This hardcoded version is used for standalone installations (curl | bash)
 # For git installations, VERSION file is read if available
-CCS_VERSION="5.4.1"
+CCS_VERSION="5.4.2-dev.1"
 
 # Try to read VERSION file for git installations
 if [[ -f "$SCRIPT_DIR/VERSION" ]]; then

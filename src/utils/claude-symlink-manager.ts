@@ -164,17 +164,69 @@ export class ClaudeSymlinkManager {
       if (!silent) console.log(`[OK] Symlinked ${item.target}`);
       return true;
     } catch (err) {
-      // Windows fallback: stub for now, full implementation in v4.2
+      // Windows fallback: copy instead of symlink when symlinks unavailable
       if (process.platform === 'win32') {
-        if (!silent) {
-          console.log(`[!] Symlink failed for ${item.target} (Windows fallback deferred to v4.2)`);
-          console.log(`[i] Enable Developer Mode or wait for next update`);
-        }
+        return this.copyFallback(sourcePath, targetPath, item, silent);
       } else {
         const error = err as Error;
         if (!silent) console.log(`[!] Failed to symlink ${item.target}: ${error.message}`);
       }
       return false;
+    }
+  }
+
+  /**
+   * Windows fallback: copy files/directories when symlinks unavailable
+   * Note: Changes won't auto-sync; user must run 'ccs sync' after updates
+   */
+  private copyFallback(
+    sourcePath: string,
+    targetPath: string,
+    item: CcsItem,
+    silent = false
+  ): boolean {
+    try {
+      if (item.type === 'directory') {
+        // Copy directory recursively
+        this.copyDirRecursive(sourcePath, targetPath);
+      } else {
+        // Copy single file
+        fs.copyFileSync(sourcePath, targetPath);
+      }
+      if (!silent) {
+        console.log(`[OK] Copied ${item.target} (symlink unavailable)`);
+        console.log(`[i] Run 'ccs sync' after CCS updates to refresh`);
+      }
+      return true;
+    } catch (copyErr) {
+      const error = copyErr as Error;
+      if (!silent) {
+        console.log(`[!] Failed to copy ${item.target}: ${error.message}`);
+        console.log(`[i] Enable Developer Mode for symlinks, or check permissions`);
+      }
+      return false;
+    }
+  }
+
+  /**
+   * Recursively copy directory (for Windows fallback)
+   */
+  private copyDirRecursive(src: string, dest: string): void {
+    if (!fs.existsSync(dest)) {
+      fs.mkdirSync(dest, { recursive: true });
+    }
+
+    const entries = fs.readdirSync(src, { withFileTypes: true });
+
+    for (const entry of entries) {
+      const srcPath = path.join(src, entry.name);
+      const destPath = path.join(dest, entry.name);
+
+      if (entry.isDirectory()) {
+        this.copyDirRecursive(srcPath, destPath);
+      } else {
+        fs.copyFileSync(srcPath, destPath);
+      }
     }
   }
 
@@ -224,8 +276,8 @@ export class ClaudeSymlinkManager {
   }
 
   /**
-   * Uninstall CCS items from ~/.claude/ (remove symlinks only)
-   * Safe: only removes items that are CCS symlinks
+   * Uninstall CCS items from ~/.claude/ (remove symlinks or copied files)
+   * Safe: only removes items that are CCS symlinks or valid copies
    */
   uninstall(): void {
     let removed = 0;
@@ -234,10 +286,20 @@ export class ClaudeSymlinkManager {
       const targetPath = path.join(this.userClaudeDir, item.target);
       const sourcePath = path.join(this.ccsClaudeDir, item.source);
 
-      // Only remove if it's our symlink
-      if (fs.existsSync(targetPath) && this.isOurSymlink(targetPath, sourcePath)) {
+      // Check if it's our symlink or a valid copy (Windows fallback)
+      const isSymlink = this.isOurSymlink(targetPath, sourcePath);
+      const isCopy =
+        process.platform === 'win32' && this.isCopiedItem(targetPath, sourcePath, item.type);
+
+      if (fs.existsSync(targetPath) && (isSymlink || isCopy)) {
         try {
-          fs.unlinkSync(targetPath);
+          if (item.type === 'directory' && !isSymlink) {
+            // Remove copied directory recursively
+            fs.rmSync(targetPath, { recursive: true, force: true });
+          } else {
+            // Remove symlink or file
+            fs.unlinkSync(targetPath);
+          }
           console.log(`[OK] Removed ${item.target}`);
           removed++;
         } catch (err) {
@@ -286,12 +348,45 @@ export class ClaudeSymlinkManager {
         issues.push(`Not installed: ${item.target} (run 'ccs sync' to install)`);
         healthy = false;
       } else if (!this.isOurSymlink(targetPath, sourcePath)) {
-        issues.push(`Not a CCS symlink: ${item.target} (run 'ccs sync' to fix)`);
-        healthy = false;
+        // On Windows, copied files are valid (symlink fallback)
+        if (process.platform === 'win32' && this.isCopiedItem(targetPath, sourcePath, item.type)) {
+          // Copied file is valid on Windows, but note it's not a symlink
+          issues.push(`${item.target} is a copy (not symlink) - run 'ccs sync' after updates`);
+          // Still healthy, just a warning
+        } else {
+          issues.push(`Not a CCS symlink: ${item.target} (run 'ccs sync' to fix)`);
+          healthy = false;
+        }
       }
     }
 
     return { healthy, issues };
+  }
+
+  /**
+   * Check if target is a valid copy of source (Windows fallback check)
+   */
+  private isCopiedItem(
+    targetPath: string,
+    sourcePath: string,
+    type: 'file' | 'directory'
+  ): boolean {
+    try {
+      const targetStats = fs.statSync(targetPath);
+      const sourceStats = fs.statSync(sourcePath);
+
+      if (type === 'directory') {
+        // For directories, just check both exist and are directories
+        return targetStats.isDirectory() && sourceStats.isDirectory();
+      } else {
+        // For files, compare size as basic validation
+        return (
+          targetStats.isFile() && sourceStats.isFile() && targetStats.size === sourceStats.size
+        );
+      }
+    } catch {
+      return false;
+    }
   }
 
   /**
