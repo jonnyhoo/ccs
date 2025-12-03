@@ -1,3 +1,10 @@
+## [5.4.3](https://github.com/kaitranntt/ccs/compare/v5.4.2...v5.4.3) (2025-12-03)
+
+
+### Bug Fixes
+
+* **postinstall:** handle broken symlinks during npm install ([81add5a](https://github.com/kaitranntt/ccs/commit/81add5a05eeb8297ceef840071f11b6a194df707))
+
 ## [5.4.2](https://github.com/kaitranntt/ccs/compare/v5.4.1...v5.4.2) (2025-12-03)
 
 
