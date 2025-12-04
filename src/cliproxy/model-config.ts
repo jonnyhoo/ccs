@@ -94,8 +94,10 @@ export async function configureProviderModel(
     label: formatModelOption(m),
   }));
 
-  // Find default index
-  const defaultIdx = catalog.models.findIndex((m) => m.id === catalog.defaultModel);
+  // Find default index - use current model if configured, otherwise catalog default
+  const currentModel = getCurrentModel(provider);
+  const targetModel = currentModel || catalog.defaultModel;
+  const defaultIdx = catalog.models.findIndex((m) => m.id === targetModel);
   const safeDefaultIdx = defaultIdx >= 0 ? defaultIdx : 0;
 
   // Show header with context (gradient like ccs doctor)
