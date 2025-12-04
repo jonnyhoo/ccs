@@ -43,8 +43,8 @@ export function getCurrentModel(provider: CLIProxyProvider): string | undefined 
  * Format model entry for display in selection list
  */
 function formatModelOption(model: ModelEntry): string {
-  // Tier badge: clarify that "paid" means API tier, not model pricing
-  const tierBadge = model.tier === 'paid' ? color(' [Paid API]', 'warning') : '';
+  // Tier badge: clarify that "paid" means paid Google account (not free tier)
+  const tierBadge = model.tier === 'paid' ? color(' [Paid Tier]', 'warning') : '';
   return `${model.name}${tierBadge}`;
 }
 
@@ -54,7 +54,7 @@ function formatModelOption(model: ModelEntry): string {
 function formatModelDetailed(model: ModelEntry, isCurrent: boolean): string {
   const marker = isCurrent ? color('>', 'success') : ' ';
   const name = isCurrent ? bold(model.name) : model.name;
-  const tierBadge = model.tier === 'paid' ? color(' [Paid API]', 'warning') : '';
+  const tierBadge = model.tier === 'paid' ? color(' [Paid Tier]', 'warning') : '';
   const desc = model.description ? dim(` - ${model.description}`) : '';
   return `  ${marker} ${name}${tierBadge}${desc}`;
 }
@@ -103,7 +103,9 @@ export async function configureProviderModel(
   console.error(header(`Configure ${catalog.displayName} Model`));
   console.error('');
   console.error(dim('    Select which model to use for this provider.'));
-  console.error(dim('    Models marked [Paid API] require a paid Google AI Studio API key.'));
+  console.error(
+    dim('    Models marked [Paid Tier] require a paid Google account (not free tier).')
+  );
   console.error('');
 
   // Interactive selection
@@ -181,7 +183,7 @@ export async function showCurrentConfig(provider: CLIProxyProvider): Promise<voi
 
   console.error('');
   console.error(bold('Available models:'));
-  console.error(dim('  [Paid API] = Requires paid Google AI Studio API key'));
+  console.error(dim('  [Paid Tier] = Requires paid Google account (not free tier)'));
   console.error('');
   catalog.models.forEach((m) => {
     const isCurrent = m.id === currentModel;

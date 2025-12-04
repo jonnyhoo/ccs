@@ -15,7 +15,7 @@ export interface ModelEntry {
   id: string;
   /** Human-readable name for display */
   name: string;
-  /** Access tier indicator - 'paid' means requires paid API tier (not model pricing) */
+  /** Access tier indicator - 'paid' means requires paid Google account (not free tier) */
   tier?: 'free' | 'paid';
   /** Optional description for the model */
   description?: string;
@@ -61,7 +61,7 @@ export const MODEL_CATALOG: Partial<Record<CLIProxyProvider, ProviderCatalog>> =
         id: 'gemini-3-pro-preview',
         name: 'Gemini 3 Pro',
         tier: 'paid',
-        description: 'Google latest, requires Paid API tier',
+        description: 'Google latest, requires paid Google account',
       },
     ],
   },
@@ -74,12 +74,12 @@ export const MODEL_CATALOG: Partial<Record<CLIProxyProvider, ProviderCatalog>> =
         id: 'gemini-3-pro-preview',
         name: 'Gemini 3 Pro',
         tier: 'paid',
-        description: 'Latest model, requires Paid API tier',
+        description: 'Latest model, requires paid Google account',
       },
       {
         id: 'gemini-2.5-pro',
         name: 'Gemini 2.5 Pro',
-        description: 'Stable release, works with free tier',
+        description: 'Stable, works with free Google account',
       },
     ],
   },
