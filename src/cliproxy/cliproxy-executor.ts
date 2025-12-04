@@ -26,6 +26,8 @@ import {
 } from './config-generator';
 import { isAuthenticated } from './auth-handler';
 import { CLIProxyProvider, ExecutorConfig } from './types';
+import { configureProviderModel, getCurrentModel } from './model-config';
+import { supportsModelConfig, isModelBroken, getModelIssueUrl, findModel } from './model-catalog';
 
 /** Default executor configuration */
 const DEFAULT_CONFIG: ExecutorConfig = {
@@ -116,10 +118,17 @@ export async function execClaudeWithCLIProxy(
     throw error;
   }
 
-  // 2. Handle authentication flags
+  // 2. Handle special flags
   const forceAuth = args.includes('--auth');
   const forceHeadless = args.includes('--headless');
   const forceLogout = args.includes('--logout');
+  const forceConfig = args.includes('--config');
+
+  // Handle --config: configure model selection and exit
+  if (forceConfig && supportsModelConfig(provider)) {
+    await configureProviderModel(provider, true);
+    process.exit(0);
+  }
 
   // Handle --logout: clear auth and exit
   if (forceLogout) {
@@ -155,10 +164,33 @@ export async function execClaudeWithCLIProxy(
     }
   }
 
-  // 4. Ensure user settings file exists (creates from defaults if not)
+  // 4. First-run model configuration (interactive)
+  // For supported providers, prompt user to select model on first run
+  if (supportsModelConfig(provider)) {
+    await configureProviderModel(provider, false); // false = only if not configured
+  }
+
+  // 5. Check for known broken models and warn user
+  const currentModel = getCurrentModel(provider);
+  if (currentModel && isModelBroken(provider, currentModel)) {
+    const modelEntry = findModel(provider, currentModel);
+    const issueUrl = getModelIssueUrl(provider, currentModel);
+    console.error('');
+    console.error(
+      `[!] Warning: ${modelEntry?.name || currentModel} has known issues with Claude Code`
+    );
+    console.error('    Tool calls will fail. Use "gemini-3-pro-preview" instead.');
+    if (issueUrl) {
+      console.error(`    Tracking: ${issueUrl}`);
+    }
+    console.error(`    Run "ccs ${provider} --config" to change model.`);
+    console.error('');
+  }
+
+  // 6. Ensure user settings file exists (creates from defaults if not)
   ensureProviderSettings(provider);
 
-  // 5. Generate config file
+  // 6. Generate config file
   log(`Generating config for ${provider}`);
   const configPath = generateConfig(provider, cfg.port);
   log(`Config written: ${configPath}`);
@@ -226,7 +258,7 @@ export async function execClaudeWithCLIProxy(
   log(`Claude env: ANTHROPIC_MODEL=${envVars.ANTHROPIC_MODEL}`);
 
   // Filter out CCS-specific flags before passing to Claude CLI
-  const ccsFlags = ['--auth', '--headless', '--logout'];
+  const ccsFlags = ['--auth', '--headless', '--logout', '--config'];
   const claudeArgs = args.filter((arg) => !ccsFlags.includes(arg));
 
   const isWindows = process.platform === 'win32';

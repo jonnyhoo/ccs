@@ -46,6 +46,8 @@ export interface BinaryManagerConfig {
   maxRetries: number;
   /** Enable verbose logging */
   verbose: boolean;
+  /** Force specific version (skip auto-upgrade to latest) */
+  forceVersion?: boolean;
 }
 
 /**

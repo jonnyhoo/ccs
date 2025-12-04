@@ -16,7 +16,7 @@ import {
   isPortAvailable,
   getAllAuthStatus,
   getConfigPath,
-  CLIPROXY_VERSION,
+  getInstalledCliproxyVersion,
   CLIPROXY_DEFAULT_PORT,
 } from '../cliproxy';
 
@@ -775,11 +775,12 @@ class Doctor {
 
     if (isCLIProxyInstalled()) {
       const binaryPath = getCLIProxyPath();
+      const installedVersion = getInstalledCliproxyVersion();
       binarySpinner.succeed();
-      console.log(`  ${ok('CLIProxy Binary'.padEnd(22))}  v${CLIPROXY_VERSION}`);
+      console.log(`  ${ok('CLIProxy Binary'.padEnd(22))}  v${installedVersion}`);
       this.results.addCheck('CLIProxy Binary', 'success', undefined, undefined, {
         status: 'OK',
-        info: `v${CLIPROXY_VERSION} (${binaryPath})`,
+        info: `v${installedVersion} (${binaryPath})`,
       });
     } else {
       binarySpinner.info();

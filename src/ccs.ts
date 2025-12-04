@@ -241,8 +241,27 @@ async function main(): Promise<void> {
   // Special case: update command
   if (firstArg === 'update' || firstArg === '--update') {
     const updateArgs = args.slice(1);
+
+    // Handle --help for update command
+    if (updateArgs.includes('--help') || updateArgs.includes('-h')) {
+      console.log('');
+      console.log('Usage: ccs update [options]');
+      console.log('');
+      console.log('Options:');
+      console.log('  --force       Force reinstall current version');
+      console.log('  --beta, --dev Install from dev channel (unstable)');
+      console.log('  --help, -h    Show this help message');
+      console.log('');
+      console.log('Examples:');
+      console.log('  ccs update           Update to latest stable');
+      console.log('  ccs update --force   Force reinstall');
+      console.log('  ccs update --beta    Install dev channel');
+      console.log('');
+      return;
+    }
+
     const forceFlag = updateArgs.includes('--force');
-    const betaFlag = updateArgs.includes('--beta');
+    const betaFlag = updateArgs.includes('--beta') || updateArgs.includes('--dev');
     await handleUpdateCommand({ force: forceFlag, beta: betaFlag });
     return;
   }
@@ -260,6 +279,13 @@ async function main(): Promise<void> {
   if (firstArg === 'api') {
     const { handleApiCommand } = await import('./commands/api-command');
     await handleApiCommand(args.slice(1));
+    return;
+  }
+
+  // Special case: cliproxy command (manages CLIProxyAPI binary)
+  if (firstArg === 'cliproxy') {
+    const { handleCliproxyCommand } = await import('./commands/cliproxy-command');
+    await handleCliproxyCommand(args.slice(1));
     return;
   }
 

@@ -1,0 +1,102 @@
+name: Dev Release
+
+on:
+  push:
+    branches: [dev]
+
+jobs:
+  release:
+    # Skip if commit message contains [skip ci] or is a release commit
+    if: "!contains(github.event.head_commit.message, '[skip ci]')"
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.PAT_TOKEN }}
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Build and validate
+        run: |
+          bun run build
+          bun run validate
+
+      - name: Bump dev version
+        id: bump
+        run: |
+          CURRENT=$(cat VERSION)
+          PKG_NAME=$(jq -r '.name' package.json)
+
+          # Extract base version
+          if [[ "$CURRENT" =~ ^([0-9]+\.[0-9]+\.[0-9]+)(-dev\.([0-9]+))?$ ]]; then
+            BASE="${BASH_REMATCH[1]}"
+          else
+            echo "Invalid version format: $CURRENT"
+            exit 1
+          fi
+
+          # Find highest published dev version for this base
+          LATEST_DEV=$(npm view "${PKG_NAME}" versions --json 2>/dev/null | \
+            jq -r '.[]' | \
+            grep "^${BASE}-dev\." | \
+            sed "s/${BASE}-dev\.//" | \
+            sort -n | \
+            tail -1)
+
+          if [[ -z "$LATEST_DEV" ]]; then
+            NEW_DEV=1
+          else
+            NEW_DEV=$((LATEST_DEV + 1))
+          fi
+
+          NEW_VERSION="${BASE}-dev.${NEW_DEV}"
+
+          echo "current=$CURRENT" >> $GITHUB_OUTPUT
+          echo "new=$NEW_VERSION" >> $GITHUB_OUTPUT
+          echo "Bumping: $CURRENT -> $NEW_VERSION"
+
+      - name: Update version files
+        run: |
+          NEW_VERSION="${{ steps.bump.outputs.new }}"
+
+          # Update VERSION file
+          echo "$NEW_VERSION" > VERSION
+
+          # Update package.json
+          jq --arg v "$NEW_VERSION" '.version = $v' package.json > package.json.tmp
+          mv package.json.tmp package.json
+
+          # Update installers
+          sed -i "s/^VERSION=.*/VERSION=\"$NEW_VERSION\"/" installers/install.sh
+          sed -i "s/^\$Version = .*/\$Version = \"$NEW_VERSION\"/" installers/install.ps1
+
+      - name: Publish to npm
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: npm publish --tag dev
+
+      - name: Commit version bump
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add VERSION package.json installers/install.sh installers/install.ps1
+          git commit -m "chore(release): ${{ steps.bump.outputs.new }} [skip ci]"
+          git push origin dev

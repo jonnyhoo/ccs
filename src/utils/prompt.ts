@@ -24,6 +24,15 @@ interface PasswordOptions {
   mask?: string; // Character to show (default: '*')
 }
 
+interface SelectOption {
+  id: string;
+  label: string;
+}
+
+interface SelectOptions {
+  defaultIndex?: number;
+}
+
 export class InteractivePrompt {
   /**
    * Ask for confirmation
@@ -134,6 +143,11 @@ export class InteractivePrompt {
 
   /**
    * Get password/secret input (masked)
+   *
+   * Handles bracketed paste mode escape sequences that terminals send:
+   * - Start paste: ESC[200~
+   * - End paste: ESC[201~
+   * These are stripped automatically so pasted API keys work correctly.
    */
   static async password(message: string, options: PasswordOptions = {}): Promise<string> {
     const { mask = '*' } = options;
@@ -153,6 +167,7 @@ export class InteractivePrompt {
 
     return new Promise((resolve) => {
       let input = '';
+      let escapeBuffer = ''; // Buffer for escape sequence detection
 
       const cleanup = (): void => {
         if (process.stdin.setRawMode) {
@@ -167,6 +182,32 @@ export class InteractivePrompt {
 
         for (const char of str) {
           const charCode = char.charCodeAt(0);
+
+          // ESC character (start of escape sequence)
+          if (charCode === 27) {
+            escapeBuffer = '\x1b';
+            continue;
+          }
+
+          // If we're in an escape sequence, buffer chars until we detect the pattern
+          if (escapeBuffer) {
+            escapeBuffer += char;
+
+            // Check for bracketed paste sequences: ESC[200~ (start) or ESC[201~ (end)
+            if (escapeBuffer === '\x1b[200~' || escapeBuffer === '\x1b[201~') {
+              // Discard bracketed paste markers
+              escapeBuffer = '';
+              continue;
+            }
+
+            // If buffer is getting too long without match, it's not a paste sequence
+            // Flush buffer as regular input (shouldn't happen with API keys)
+            if (escapeBuffer.length > 6) {
+              // Not a recognized sequence - skip it entirely (likely other escape seq)
+              escapeBuffer = '';
+            }
+            continue;
+          }
 
           // Enter key (CR or LF)
           if (charCode === 13 || charCode === 10) {
@@ -203,6 +244,91 @@ export class InteractivePrompt {
 
       process.stdin.on('data', onData);
       process.stdin.resume();
+    });
+  }
+
+  /**
+   * Select from a numbered list
+   *
+   * Displays options with numbers and waits for user selection.
+   * Shows default with asterisk (*) prefix.
+   */
+  static async selectFromList(
+    prompt: string,
+    options: SelectOption[],
+    selectOptions: SelectOptions = {}
+  ): Promise<string> {
+    const { defaultIndex = 0 } = selectOptions;
+
+    // Check for --yes flag (automation) - use default
+    if (
+      process.env.CCS_YES === '1' ||
+      process.argv.includes('--yes') ||
+      process.argv.includes('-y')
+    ) {
+      console.error(`[i] Using default: ${options[defaultIndex].label}`);
+      return options[defaultIndex].id;
+    }
+
+    // Check for --no-input flag (CI)
+    if (process.env.CCS_NO_INPUT === '1' || process.argv.includes('--no-input')) {
+      console.error(`[i] Using default: ${options[defaultIndex].label}`);
+      return options[defaultIndex].id;
+    }
+
+    // Non-TTY: use default
+    if (!process.stdin.isTTY) {
+      console.error(`[i] Using default: ${options[defaultIndex].label}`);
+      return options[defaultIndex].id;
+    }
+
+    // Display prompt and options
+    console.error(`${prompt}`);
+    console.error('');
+
+    options.forEach((opt, i) => {
+      const marker = i === defaultIndex ? '*' : ' ';
+      const num = String(i + 1).padStart(2);
+      console.error(`  ${marker}${num}. ${opt.label}`);
+    });
+
+    console.error('');
+
+    const rl = readline.createInterface({
+      input: process.stdin,
+      output: process.stderr,
+      terminal: true,
+    });
+
+    const defaultNum = String(defaultIndex + 1);
+    const promptText = `Enter choice [1-${options.length}] (default: ${defaultNum}): `;
+
+    return new Promise((resolve) => {
+      rl.question(promptText, (answer: string) => {
+        rl.close();
+
+        const normalized = answer.trim();
+
+        // Empty answer: use default
+        if (normalized === '') {
+          console.error(`[i] Using default: ${options[defaultIndex].label}`);
+          resolve(options[defaultIndex].id);
+          return;
+        }
+
+        // Parse number
+        const num = parseInt(normalized, 10);
+
+        // Validate range
+        if (isNaN(num) || num < 1 || num > options.length) {
+          console.error(`[!] Invalid choice. Please enter 1-${options.length}`);
+          resolve(InteractivePrompt.selectFromList(prompt, options, selectOptions));
+          return;
+        }
+
+        const selected = options[num - 1];
+        resolve(selected.id);
+      });
     });
   }
 }

@@ -63,6 +63,7 @@ const DEFAULT_CONFIG: BinaryManagerConfig = {
   binPath: getBinDir(),
   maxRetries: 3,
   verbose: false,
+  forceVersion: false,
 };
 
 /**
@@ -87,6 +88,12 @@ export class BinaryManager {
     // Check if binary already exists
     if (fs.existsSync(binaryPath)) {
       this.log(`Binary exists: ${binaryPath}`);
+
+      // Skip auto-update if forceVersion is set (user requested specific version)
+      if (this.config.forceVersion) {
+        this.log(`Force version mode: skipping auto-update`);
+        return this.getBinaryPath();
+      }
 
       // Check for updates in background (non-blocking for UX)
       try {
@@ -114,16 +121,21 @@ export class BinaryManager {
     // Download, verify, extract
     this.log('Binary not found, downloading...');
 
-    // Check latest version before first download
-    try {
-      const latestVersion = await this.fetchLatestVersion();
-      if (latestVersion && this.isNewerVersion(latestVersion, this.config.version)) {
-        this.log(`Using latest version: ${latestVersion} (instead of ${this.config.version})`);
-        this.config.version = latestVersion;
+    // Skip auto-upgrade to latest if forceVersion is set
+    if (!this.config.forceVersion) {
+      // Check latest version before first download
+      try {
+        const latestVersion = await this.fetchLatestVersion();
+        if (latestVersion && this.isNewerVersion(latestVersion, this.config.version)) {
+          this.log(`Using latest version: ${latestVersion} (instead of ${this.config.version})`);
+          this.config.version = latestVersion;
+        }
+      } catch {
+        // Use pinned version if API fails
+        this.log(`Using pinned version: ${this.config.version}`);
       }
-    } catch {
-      // Use pinned version if API fails
-      this.log(`Using pinned version: ${this.config.version}`);
+    } else {
+      this.log(`Force version mode: using specified version ${this.config.version}`);
     }
 
     await this.downloadAndInstall();
@@ -898,6 +910,56 @@ export function isCLIProxyInstalled(): boolean {
 export function getCLIProxyPath(): string {
   const manager = new BinaryManager();
   return manager.getBinaryPath();
+}
+
+/**
+ * Get installed CLIProxyAPI version from .version file
+ * Returns the fallback version if not installed or version file missing
+ */
+export function getInstalledCliproxyVersion(): string {
+  const versionFile = path.join(getBinDir(), '.version');
+  if (fs.existsSync(versionFile)) {
+    try {
+      return fs.readFileSync(versionFile, 'utf8').trim();
+    } catch {
+      return CLIPROXY_FALLBACK_VERSION;
+    }
+  }
+  return CLIPROXY_FALLBACK_VERSION;
+}
+
+/**
+ * Install a specific version of CLIProxyAPI
+ * Deletes existing binary and downloads the specified version
+ *
+ * @param version Version to install (e.g., "6.5.40")
+ * @param verbose Enable verbose logging
+ */
+export async function installCliproxyVersion(version: string, verbose = false): Promise<void> {
+  // Use forceVersion to prevent auto-upgrade to latest
+  const manager = new BinaryManager({ version, verbose, forceVersion: true });
+
+  // Delete existing binary if present
+  if (manager.isBinaryInstalled()) {
+    const currentVersion = getInstalledCliproxyVersion();
+    if (verbose) {
+      console.log(`[i] Removing existing CLIProxyAPI v${currentVersion}`);
+    }
+    manager.deleteBinary();
+  }
+
+  // Install specified version (forceVersion prevents auto-upgrade)
+  await manager.ensureBinary();
+}
+
+/**
+ * Fetch the latest CLIProxyAPI version from GitHub API
+ * @returns Latest version string (e.g., "6.5.40")
+ */
+export async function fetchLatestCliproxyVersion(): Promise<string> {
+  const manager = new BinaryManager();
+  const result = await manager.checkForUpdates();
+  return result.latestVersion;
 }
 
 export default BinaryManager;

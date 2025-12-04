@@ -151,16 +151,17 @@ Claude Code Profile & Model Switcher`.trim();
     'CLI Proxy (OAuth Providers)',
     [
       'Zero-config OAuth authentication via CLIProxyAPI',
-      'First run: Browser opens for authentication',
+      'First run: Browser opens for authentication, then model selection',
       'Settings: ~/.ccs/{provider}.settings.json (created after auth)',
     ],
     [
-      ['ccs gemini', 'Google Gemini (gemini-2.5-pro)'],
+      ['ccs gemini', 'Google Gemini (gemini-2.5-pro or 3-pro)'],
       ['ccs codex', 'OpenAI Codex (gpt-5.1-codex-max)'],
-      ['ccs agy', 'Antigravity (gemini-3-pro-preview)'],
+      ['ccs agy', 'Antigravity (Claude/Gemini models)'],
       ['ccs qwen', 'Qwen Code (qwen3-coder)'],
       ['', ''], // Spacer
       ['ccs <provider> --auth', 'Authenticate only'],
+      ['ccs <provider> --config', 'Change model (agy, gemini)'],
       ['ccs <provider> --logout', 'Clear authentication'],
       ['ccs <provider> --headless', 'Headless auth (for SSH)'],
       ['ccs codex "explain code"', 'Use with prompt'],
@@ -201,6 +202,13 @@ Claude Code Profile & Model Switcher`.trim();
     ['Profiles:', '~/.ccs/profiles.json'],
     ['Instances:', '~/.ccs/instances/'],
     ['Settings:', '~/.ccs/*.settings.json'],
+  ]);
+
+  // CLI Proxy management
+  printSubSection('CLI Proxy Management', [
+    ['ccs cliproxy', 'Show CLIProxyAPI status and version'],
+    ['ccs cliproxy --install <ver>', 'Install specific version (e.g., 6.5.40)'],
+    ['ccs cliproxy --latest', 'Update to latest version'],
   ]);
 
   // CLI Proxy paths

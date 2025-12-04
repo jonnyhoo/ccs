@@ -1,0 +1,51 @@
+name: Sync Dev After Main Release
+
+on:
+  workflow_run:
+    workflows: ["Release"]
+    types: [completed]
+    branches: [main]
+
+jobs:
+  sync-dev:
+    # Only run if Release workflow succeeded on main branch
+    if: ${{ github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'main' }}
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.PAT_TOKEN }}
+
+      - name: Configure Git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Sync dev with main
+        run: |
+          git fetch origin main dev
+          git checkout dev
+
+          # Attempt merge, handle version conflicts by taking main's versions
+          if ! git merge origin/main --no-edit -m "chore(sync): merge main into dev after release [skip ci]"; then
+            echo "Merge conflicts detected, resolving version files..."
+
+            # For version files, take main's version (new stable base)
+            for file in VERSION package.json installers/install.sh installers/install.ps1 CHANGELOG.md; do
+              if git diff --name-only --diff-filter=U | grep -q "^${file}$"; then
+                git checkout --theirs "$file"
+                git add "$file"
+              fi
+            done
+
+            # Complete the merge
+            git commit --no-edit
+          fi
+
+          git push origin dev
