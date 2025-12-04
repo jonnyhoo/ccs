@@ -1,3 +1,12 @@
+## [5.4.1-dev.1](https://github.com/kaitranntt/ccs/compare/v5.4.0...v5.4.1-dev.1) (2025-12-04)
+
+
+### Bug Fixes
+
+* **cliproxy:** resolve windows auth browser not opening ([af4d6cf](https://github.com/kaitranntt/ccs/commit/af4d6cff89395a74e2eaf56551d3f56b95e0a6ce)), closes [#42](https://github.com/kaitranntt/ccs/issues/42)
+* **doctor:** resolve windows claude cli detection failure ([cfe9ba0](https://github.com/kaitranntt/ccs/commit/cfe9ba05a4351302fbb330ca00b6025cb65a8f20)), closes [#41](https://github.com/kaitranntt/ccs/issues/41)
+* **tests:** migrate test suite from mocha to bun test runner ([bd46c8d](https://github.com/kaitranntt/ccs/commit/bd46c8de1237e3a76c774b00a1c9e026f4c0cd4b))
+
 ## [5.4.1-dev.1](https://github.com/kaitranntt/ccs/compare/v5.4.0...v5.4.1-dev.1) (2025-12-03)
 
 
