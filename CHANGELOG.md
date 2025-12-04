@@ -1,3 +1,24 @@
+# [5.6.0](https://github.com/kaitranntt/ccs/compare/v5.5.0...v5.6.0) (2025-12-04)
+
+
+### Bug Fixes
+
+* **cliproxy:** clarify paid tier messaging to reference google account tier ([848fbf4](https://github.com/kaitranntt/ccs/commit/848fbf4686b49305c26ef85da339b12dffa51b5b))
+* **cliproxy:** correct model selection default and update fallback version ([fdb8761](https://github.com/kaitranntt/ccs/commit/fdb8761cfac416831a8c3ae64f5718179517e3d0))
+* **dev-release:** find next available dev version from npm ([482f3a7](https://github.com/kaitranntt/ccs/commit/482f3a7fc66f1b93a1b7e24e00a87c9858574ebd))
+* **doctor:** use actual installed clipproxy version instead of hardcoded ([e3edcf6](https://github.com/kaitranntt/ccs/commit/e3edcf613e28a48fb7cb5c2c90ffed3c80cb0c62))
+* **prompt:** strip bracketed paste escape sequences from password input ([df31ffc](https://github.com/kaitranntt/ccs/commit/df31ffcee7872b8d263451807818b368a9ba1eb4))
+* **update:** add --help support and --dev alias for update command ([b18163c](https://github.com/kaitranntt/ccs/commit/b18163c57b59cabbd7d18165b28933155d94d74a))
+
+
+### Features
+
+* **cliproxy:** add model catalog with configuration management ([4654c15](https://github.com/kaitranntt/ccs/commit/4654c15577307457f8eb86ca9718b527460c7c40))
+* **cliproxy:** add version management command ([7e07615](https://github.com/kaitranntt/ccs/commit/7e07615eedb7263aa359651abef8660ff0dcd95a))
+* **cliproxy:** add warning for broken claude proxy models on agy ([0e11426](https://github.com/kaitranntt/ccs/commit/0e11426daa8896ba58aa9d53889818ab3577e250)), closes [CLIProxyAPI#415](https://github.com/CLIProxyAPI/issues/415)
+* **prompt:** add password input utility with masking ([3bdbff9](https://github.com/kaitranntt/ccs/commit/3bdbff9345c2eb21d861621e56430de5bac61fc4))
+* **release:** simplify dev versioning with stable base ([942b4b9](https://github.com/kaitranntt/ccs/commit/942b4b92cfce054c0886d8508f1c15ad18fd4400))
+
 # [5.5.0](https://github.com/kaitranntt/ccs/compare/v5.4.3...v5.5.0) (2025-12-04)
 
 
