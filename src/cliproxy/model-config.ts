@@ -67,7 +67,8 @@ function formatModelOption(model: ModelEntry): string {
   // Tier badge: clarify that "paid" means paid Google account (not free tier)
   const tierBadge = model.tier === 'paid' ? color(' [Paid Tier]', 'warning') : '';
   const brokenBadge = model.broken ? color(' [BROKEN]', 'error') : '';
-  return `${model.name}${tierBadge}${brokenBadge}`;
+  const deprecatedBadge = model.deprecated ? color(' [DEPRECATED]', 'warning') : '';
+  return `${model.name}${tierBadge}${brokenBadge}${deprecatedBadge}`;
 }
 
 /**
@@ -78,8 +79,9 @@ function formatModelDetailed(model: ModelEntry, isCurrent: boolean): string {
   const name = isCurrent ? bold(model.name) : model.name;
   const tierBadge = model.tier === 'paid' ? color(' [Paid Tier]', 'warning') : '';
   const brokenBadge = model.broken ? color(' [BROKEN]', 'error') : '';
+  const deprecatedBadge = model.deprecated ? color(' [DEPRECATED]', 'warning') : '';
   const desc = model.description ? dim(` - ${model.description}`) : '';
-  return `  ${marker} ${name}${tierBadge}${brokenBadge}${desc}`;
+  return `  ${marker} ${name}${tierBadge}${brokenBadge}${deprecatedBadge}${desc}`;
 }
 
 /**
@@ -136,6 +138,7 @@ export async function configureProviderModel(
   console.error(
     dim('    Models marked [Paid Tier] require a paid Google account (not free tier).')
   );
+  console.error(dim('    Models marked [DEPRECATED] are not recommended for use.'));
   console.error('');
 
   // Interactive selection
@@ -211,6 +214,15 @@ export async function configureProviderModel(
   console.error(ok(`Model set to: ${bold(displayName)}`));
   console.error(dim(`     Config saved: ${settingsPath}`));
 
+  // Show deprecation warning if model is deprecated
+  if (selectedEntry?.deprecated) {
+    console.error('');
+    console.error(color('[!] DEPRECATION WARNING', 'warning'));
+    const reason = selectedEntry.deprecationReason || 'This model is deprecated';
+    console.error(dim(`     ${reason}`));
+    console.error(dim('     Consider using a non-deprecated model for better compatibility.'));
+  }
+
   // Show info for Claude models about thinking token limit
   if (isClaude) {
     console.error('');
@@ -261,6 +273,7 @@ export async function showCurrentConfig(provider: CLIProxyProvider): Promise<voi
   console.error('');
   console.error(bold('Available models:'));
   console.error(dim('  [Paid Tier] = Requires paid Google account (not free tier)'));
+  console.error(dim('  [DEPRECATED] = Not recommended for use'));
   console.error('');
   catalog.models.forEach((m) => {
     const isCurrent = m.id === currentModel;
