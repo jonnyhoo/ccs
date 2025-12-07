@@ -8,6 +8,7 @@ import {
   SidebarMenuButton,
   SidebarHeader,
 } from '@/components/ui/sidebar';
+import { CcsLogo } from '@/components/ccs-logo';
 
 const navItems = [
   { path: '/', icon: Home, label: 'Home' },
@@ -25,7 +26,7 @@ export function AppSidebar() {
   return (
     <Sidebar>
       <SidebarHeader className="p-4 border-b">
-        <span className="font-bold text-lg">CCS Config</span>
+        <CcsLogo size="sm" />
       </SidebarHeader>
       <SidebarContent>
         <SidebarMenu>
