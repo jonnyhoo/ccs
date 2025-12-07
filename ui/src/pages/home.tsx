@@ -66,11 +66,7 @@ export function HomePage() {
             <Stethoscope className="w-4 h-4 mr-2" /> Run Doctor
           </Button>
           <Button variant="outline" asChild>
-            <a
-              href="https://github.com/kaitranntt/ccs"
-              target="_blank"
-              rel="noopener noreferrer"
-            >
+            <a href="https://github.com/kaitranntt/ccs" target="_blank" rel="noopener noreferrer">
               <BookOpen className="w-4 h-4 mr-2" /> Documentation
             </a>
           </Button>
