@@ -47,7 +47,7 @@ function AccountBadge({
           }`}
         >
           <User className="w-3 h-3" />
-          <span className="max-w-[120px] truncate">{account.email || account.id}</span>
+          <span className="max-w-[200px] truncate">{account.email || account.id}</span>
           {account.isDefault && <Star className="w-3 h-3 fill-current" />}
           <ChevronDown className="w-3 h-3 opacity-50" />
         </button>

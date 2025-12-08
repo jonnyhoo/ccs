@@ -10,7 +10,7 @@ import { Construction, ArrowRight } from 'lucide-react';
 
 export function SettingsPage() {
   return (
-    <div className="p-6 space-y-6">
+    <div className="p-6 max-w-6xl mx-auto space-y-8">
       <h1 className="text-2xl font-bold">Settings</h1>
 
       <Card className="border-yellow-500/50 bg-yellow-500/5">
