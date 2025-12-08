@@ -214,4 +214,86 @@ describe('Model Catalog', () => {
       }
     });
   });
+
+  describe('Deprecated models', () => {
+    it('Claude Opus 4.5 Thinking is marked as deprecated', () => {
+      const { MODEL_CATALOG } = modelCatalog;
+      const opus = MODEL_CATALOG.agy.models.find(
+        (m) => m.id === 'gemini-claude-opus-4-5-thinking'
+      );
+      assert(opus, 'Should include Claude Opus 4.5 Thinking');
+      assert.strictEqual(opus.deprecated, true, 'Should be marked as deprecated');
+      assert(opus.deprecationReason, 'Should have deprecation reason');
+    });
+
+    it('Claude Sonnet 4.5 Thinking is marked as deprecated', () => {
+      const { MODEL_CATALOG } = modelCatalog;
+      const sonnetThinking = MODEL_CATALOG.agy.models.find(
+        (m) => m.id === 'gemini-claude-sonnet-4-5-thinking'
+      );
+      assert(sonnetThinking, 'Should include Claude Sonnet 4.5 Thinking');
+      assert.strictEqual(sonnetThinking.deprecated, true, 'Should be marked as deprecated');
+      assert(sonnetThinking.deprecationReason, 'Should have deprecation reason');
+    });
+
+    it('deprecated models are at the bottom of the list', () => {
+      const { MODEL_CATALOG } = modelCatalog;
+      const models = MODEL_CATALOG.agy.models;
+
+      // Find indices of deprecated models
+      const opusIdx = models.findIndex((m) => m.id === 'gemini-claude-opus-4-5-thinking');
+      const sonnetThinkingIdx = models.findIndex(
+        (m) => m.id === 'gemini-claude-sonnet-4-5-thinking'
+      );
+
+      // Find indices of non-deprecated models
+      const sonnetIdx = models.findIndex((m) => m.id === 'gemini-claude-sonnet-4-5');
+      const geminiIdx = models.findIndex((m) => m.id === 'gemini-3-pro-preview');
+
+      // Deprecated models should come after non-deprecated models
+      assert(opusIdx > sonnetIdx, 'Opus Thinking should be below non-deprecated Sonnet');
+      assert(opusIdx > geminiIdx, 'Opus Thinking should be below non-deprecated Gemini');
+      assert(
+        sonnetThinkingIdx > sonnetIdx,
+        'Sonnet Thinking should be below non-deprecated Sonnet'
+      );
+      assert(
+        sonnetThinkingIdx > geminiIdx,
+        'Sonnet Thinking should be below non-deprecated Gemini'
+      );
+    });
+  });
+
+  describe('isModelDeprecated', () => {
+    it('returns true for deprecated models', () => {
+      const { isModelDeprecated } = modelCatalog;
+      assert.strictEqual(isModelDeprecated('agy', 'gemini-claude-opus-4-5-thinking'), true);
+      assert.strictEqual(isModelDeprecated('agy', 'gemini-claude-sonnet-4-5-thinking'), true);
+    });
+
+    it('returns false for non-deprecated models', () => {
+      const { isModelDeprecated } = modelCatalog;
+      assert.strictEqual(isModelDeprecated('agy', 'gemini-claude-sonnet-4-5'), false);
+      assert.strictEqual(isModelDeprecated('agy', 'gemini-3-pro-preview'), false);
+    });
+
+    it('returns false for unknown models', () => {
+      const { isModelDeprecated } = modelCatalog;
+      assert.strictEqual(isModelDeprecated('agy', 'unknown-model'), false);
+    });
+  });
+
+  describe('getModelDeprecationReason', () => {
+    it('returns deprecation reason for deprecated models', () => {
+      const { getModelDeprecationReason } = modelCatalog;
+      const reason = getModelDeprecationReason('agy', 'gemini-claude-opus-4-5-thinking');
+      assert(reason, 'Should have deprecation reason');
+      assert(typeof reason === 'string', 'Reason should be a string');
+    });
+
+    it('returns undefined for non-deprecated models', () => {
+      const { getModelDeprecationReason } = modelCatalog;
+      assert.strictEqual(getModelDeprecationReason('agy', 'gemini-claude-sonnet-4-5'), undefined);
+    });
+  });
 });

@@ -1,2 +1,8 @@
 # Run validation before commit (typecheck + lint + format + tests)
 bun run validate
+
+# Validate UI if changes detected
+if git diff --cached --name-only | grep -q "^ui/"; then
+  echo "[i] UI changes detected, running ui:validate..."
+  bun run ui:validate
+fi

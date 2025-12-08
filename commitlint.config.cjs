@@ -17,8 +17,8 @@ module.exports = {
       'build',    // Build system → no release
       'revert'    // Revert commit → PATCH
     ]],
-    // Subject must be lowercase
-    'subject-case': [2, 'always', 'lower-case'],
+    // Subject case - disabled to allow capital letters
+    'subject-case': [0],
     // Max header length (type + scope + subject)
     'header-max-length': [2, 'always', 100]
   }

@@ -2,10 +2,13 @@
 
 ## Executive Summary
 
-CCS (Claude Code Switch) is a lightweight CLI wrapper that enables instant profile switching between Claude Sonnet 4.5, GLM 4.6, GLMT (GLM with Thinking), and Kimi for Coding models. The project has evolved through major architectural phases:
-- **v2.x**: Vault-based credential encryption (~1,700 LOC)
-- **v3.0**: 40% reduction through vault removal (~1,100 LOC), login-per-profile model
-- **v4.0-4.3.2**: AI-powered delegation system, selective .claude/ symlinking, stream-JSON output (~8,477 LOC including delegation infrastructure)
+CCS (Claude Code Switch) is a TypeScript-based CLI tool that enables instant profile switching between Claude Sonnet 4.5, GLM 4.6, GLMT (GLM with Thinking), and Kimi for Coding models. The project features a modern React 19 web dashboard with real-time WebSocket integration, comprehensive TypeScript architecture, and cross-platform support. Current architecture includes:
+
+- **TypeScript Core**: 43 source files with 100% type coverage
+- **React 19 Dashboard**: Modern UI with Vite, shadcn/ui, and real-time features
+- **AI Delegation System**: Headless execution with stream-JSON output
+- **Cross-Platform**: Native support for macOS, Linux, and Windows
+- **163 total files**: ~8,000 lines of TypeScript code
 
 ## Product Vision
 

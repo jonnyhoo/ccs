@@ -1,664 +1,288 @@
-# CCS Codebase Summary (v4.5.0)
+# CCS Codebase Summary
 
 ## Overview
 
-CCS (Claude Code Switch) v4.5.0 is a lightweight CLI wrapper enabling instant profile switching between Claude Sonnet 4.5, GLM 4.6, GLMT (GLM with Thinking), and Kimi for Coding models. Version 4.x introduces AI-powered delegation, selective .claude/ directory symlinking, stream-JSON output, and enhanced shell completion. **Phase 02 (2025-11-28)** completes modular command architecture refactoring with 44.6% main file reduction and deprecates native shell installers. v4.5.0 completes transition to npm-first, Node.js-based architecture with bootstrap installers and CSS text-only output (no emojis).
+CCS (Claude Code Switch) is a TypeScript-based CLI tool that provides instant profile switching between multiple AI models (Claude Sonnet 4.5, GLM 4.6, GLMT, and Kimi). The project features a comprehensive architecture with TypeScript source, React UI dashboard, cross-platform shell scripts, and extensive automation. Current version includes a modern React 19 dashboard with real-time WebSocket integration, Vite build system, and shadcn/ui components.
 
-## Version Evolution
+## Repository Structure
 
-### v4.5.0 Architecture (Current, Phase 02 Complete - 2025-11-28, UI Phase 1 - 2025-12-01)
-- **Total LOC**: ~8,477 lines (JavaScript/TypeScript)
-- **Main File**: src/ccs.ts - 593 lines (**44.6% reduction** from 1,071 lines)
-- **Key Features**: AI delegation, stream-JSON output, shell completion, doctor diagnostics, sync command
-- **Phase 02 Modular Commands**: 6 specialized command handlers (version, help, install, doctor, sync, shell-completion) + deprecation notices
-- **Installation Method**: npm-first (curl/irm scripts deprecated, auto-redirect to npm)
-- **New Components**: src/commands/, src/utils/shell-executor.ts, src/utils/package-manager-detector.ts
-- **Architecture**: Modular design with clear separation: auth/, delegation/, glmt/, management/, utils/, commands/, types/
-- **Output Format**: Text-only ASCII indicators ([OK], [!], [X], [i]) - no emoji usage per CLAUDE.md
-
-### Evolution Summary
-- **v2.x**: Vault-based credential encryption (~1,700 LOC)
-- **v3.0**: Vault removal, login-per-profile (~1,100 LOC, 40% reduction)
-- **v4.0-4.4.x**: Delegation system, .claude/ sharing, stream-JSON (~8,477 LOC including tests/utils)
-- **Phase 02 (2025-11-28)**: Modular command architecture, native installer deprecation, main file 44.6% reduction
-- **v4.5.0**: npm-first distribution, TypeScript package with quality gates, modular commands, text-only output (no emojis)
-
-## Core Components (Phase 05 Complete - 2025-12-01 | UI Phase 1 + Listr2)
-
-### 1. Main Entry Point (`src/ccs.ts` - 593 lines, 44.6% reduction)
-
-**Role**: Central orchestrator with **modular command routing** (Phase 02 enhanced)
-
-**Key Functions**:
-- `execClaude(claudeCli, args, envVars)`: Unified spawn logic (Windows shell detection)
-- `execClaudeWithProxy(claudeCli, profile, args)`: GLMT proxy lifecycle
-- `main()`: Profile routing + delegation detection (-p flag) + **command routing to modular handlers**
-
-**Phase 02 Modular Enhancements**:
-- **Command Routing**: Delegates to 6 specialized command handlers
-- **Main File Focus**: Now contains only routing logic + profile detection + GLMT proxy
-- **Maintainability**: Single responsibility principle applied to all commands
-- **Testing Independence**: Each command handler can be unit tested in isolation
-
-**v4.x Enhancements**:
-- Delegation detection: `-p` flag routes to DelegationHandler
-- Stream-JSON output support for real-time tool tracking
-- Shell completion installation (`--shell-completion`)
-- Update checking and CCS sync commands
-- Enhanced version display with API key validation
-
-**Architecture Flow**:
-```javascript
-// Delegation path (v4.0+)
-if (args.includes('-p') || args.includes('--prompt')) {
-  const { DelegationHandler } = require('./delegation/delegation-handler');
-  const handler = new DelegationHandler();
-  await handler.route(args);
-}
-
-// Settings profile (glm, kimi, glmt)
-const expandedSettingsPath = getSettingsPath(profileInfo.name);
-if (profileInfo.name === 'glmt') {
-  await execClaudeWithProxy(claudeCli, 'glmt', remainingArgs);
-} else {
-  execClaude(claudeCli, ['--settings', expandedSettingsPath, ...remainingArgs]);
-}
-
-// Account profile (work, personal)
-const instancePath = instanceMgr.ensureInstance(profileInfo.name);
-registry.touchProfile(profileInfo.name);
-const envVars = { CLAUDE_CONFIG_DIR: instancePath };
-execClaude(claudeCli, remainingArgs, envVars);
+```
+ccs/
+├── src/                      # TypeScript source code (43 files)
+│   ├── ccs.ts               # Main entry point (593 lines)
+│   ├── commands/            # Modular command handlers (7 files)
+│   ├── auth/                # Authentication system (3 files)
+│   ├── cliproxy/            # CLIProxy integration (6 files)
+│   ├── delegation/          # AI delegation system (6 files)
+│   ├── glmt/                # GLMT thinking mode (7 files)
+│   ├── management/          # System management (5 files)
+│   ├── utils/               # Utilities (6 files)
+│   └── types/               # TypeScript definitions (6 files)
+├── ui/                      # React 19 Dashboard (Vite + shadcn/ui)
+│   ├── src/
+│   │   ├── App.tsx          # Main React app
+│   │   ├── components/      # UI components
+│   │   │   ├── ui/          # shadcn/ui components
+│   │   │   └── *.tsx        # Custom components
+│   │   ├── hooks/           # React hooks
+│   │   ├── lib/             # Utilities
+│   │   └── pages/           # Route pages
+│   ├── public/              # Static assets
+│   ├── package.json         # Dependencies
+│   └── vite.config.ts       # Vite configuration
+├── lib/                     # Cross-platform scripts
+│   ├── ccs                  # Bash bootstrap
+│   └── ccs.ps1              # PowerShell bootstrap
+├── scripts/                 # Build and automation
+│   ├── build.js             # TypeScript compilation
+│   ├── postinstall.js       # Auto-configuration
+│   └── sync-version.js      # Version sync
+├── tests/                   # Test suites
+│   ├── unit/                # Unit tests
+│   ├── npm/                 # Package tests
+│   └── native/              # Native install tests
+└── docs/                    # Documentation
+    ├── project-overview-pdr.md
+    ├── code-standards.md
+    ├── system-architecture.md
+    └── project-roadmap.md
 ```
 
-### 2. Modular Command Handlers (`src/commands/` - Phase 02 New)
+## Key Components
 
-**New in Phase 02**: Complete command modularization for enhanced maintainability
+### TypeScript Core (src/)
+
+1. **Main Entry Point** (`src/ccs.ts`)
+   - Command parsing and routing
+   - Profile detection logic
+   - Delegation flag handling (`-p`)
+   - GLMT proxy lifecycle management
+
+2. **Modular Commands** (`src/commands/`)
+   - `version-command.ts`: Version display
+   - `help-command.ts`: Comprehensive help system
+   - `install-command.ts`: Installation workflows
+   - `doctor-command.ts`: System diagnostics
+   - `sync-command.ts`: Configuration synchronization
+   - `shell-completion-command.ts`: Shell completion
+   - `update-command.ts`: Version updates with beta channel support
+
+3. **Authentication System** (`src/auth/`)
+   - Profile detection and validation
+   - Multi-account management
+   - Profile registry operations
+
+4. **CLIProxy Integration** (`src/cliproxy/`)
+   - OAuth-based provider integration
+   - Binary manager for cliproxy executables
+   - Auth handler for OAuth flows
+
+5. **AI Delegation** (`src/delegation/`)
+   - Headless Claude execution
+   - Stream-JSON parsing
+   - Real-time tool tracking
+   - Session persistence
+
+6. **GLMT System** (`src/glmt/`)
+   - HTTP proxy for thinking mode
+   - Format transformation (Anthropic ↔ OpenAI)
+   - Reasoning content handling
+   - Debug logging
+
+7. **Management** (`src/management/`)
+   - System diagnostics
+   - Instance management
+   - Shared data management
+   - Recovery operations
+
+8. **Utilities** (`src/utils/`)
+   - Cross-platform helpers
+   - Shell execution
+   - Package manager detection
+   - Update checking
+
+### React Dashboard (ui/)
+
+**Technology Stack**:
+- React 19 with TypeScript
+- Vite for fast development and building
+- shadcn/ui component library (Radix UI + Tailwind)
+- TanStack Query for server state
+- Real-time WebSocket integration
+- Dark mode support
+
+**Key Pages**:
+- Dashboard: Overview and status
+- API Profiles: Model configuration
+- CLIProxy: OAuth provider setup
+- Accounts: Account management
+- Health: System diagnostics
+- Settings: Configuration
+- Shared: Data sharing management
 
 **Components**:
-- **version-command.ts** (3.0KB): Version display with build information and platform details
-- **help-command.ts** (4.9KB): Comprehensive help system with dynamic profile listings
-- **install-command.ts** (957B): Installation and uninstallation workflows
-- **doctor-command.ts** (415B): System diagnostics and health checks
-- **sync-command.ts** (1.0KB): Configuration synchronization and symlink repair
-- **shell-completion-command.ts** (2.1KB): Shell completion installation for 4 shells
-- **update-command.ts** (2.1KB): Update management with force reinstall support (Phase 2 implementation)
-
-**Phase 02 Benefits**:
-- **Single Responsibility**: Each command has focused, dedicated module
-- **Code Navigation**: Developers can quickly locate specific command logic
-- **Testing Independence**: Command handlers can be unit tested in isolation
-- **Parallel Development**: Multiple developers can work on different commands simultaneously
-- **Future Extension**: New commands can be added without modifying main orchestrator
-
-**Command Handler Interface**:
-```typescript
-interface CommandHandler {
-  handle(args: string[]): Promise<void>;
-  requiresProfile?: boolean;
-  description?: string;
-}
-```
-
-**New Utility Modules** (`src/utils/` - Phase 02):
-- **shell-executor.ts** (1.5KB): Cross-platform shell command execution with process management
-- **package-manager-detector.ts** (3.8KB): Package manager detection (npm, yarn, pnpm, bun)
-
-#### Phase 2 Implementation Details (Update Command)
-
-**Force Reinstall Feature (Phase 2)**:
-- **Purpose**: Allows users to bypass update checks and force reinstall from target channel
-- **Implementation**: Added `force` and `beta` flags to `UpdateOptions` interface
-- **Behavior**:
-  - When `force=true`: Skips version comparison and cache validation
-  - Installs directly from `latest` or `dev` tag based on `--beta` flag
-  - Automatically clears package manager cache before reinstalling
-  - Supports both npm and direct installation methods (with limitations)
-- **Error Handling**: Graceful fallback for direct install + beta flag combination
-
-**Key Functions**:
-- `handleUpdateCommand(options)`: Main entry point with flag parsing
-- `performNpmUpdate(targetTag, isReinstall)`: Handles npm-based updates with cache clearing
-- `performDirectUpdate()`: Handles installer-based updates (force only)
-- `handleDirectBetaNotSupported()`: Clear error messaging for unsupported combinations
-
-### 3. Delegation System (`src/delegation/` - ~1,200 lines, Phase 5 Enhanced)
-
-**New in v4.0**: Complete delegation subsystem; **Phase 5 Enhanced** with UI layer & Listr2
-
-**Components**:
-- **delegation-handler.ts** (~300 lines): Routes `-p` commands, validates profiles; async formatting
-- **headless-executor.ts** (~400 lines): Executes Claude CLI in headless mode with stream-JSON; UI progress
-- **session-manager.ts** (~200 lines): Manages delegation session persistence (continue support)
-- **result-formatter.ts** (~150 lines): **Async formatting** with styled boxes and tables (Phase 5)
-- **settings-parser.ts** (~150 lines): Parses profile settings for validation
-
-**Key Features**:
-- **Stream-JSON output**: Real-time tool visibility (`--output-format stream-json --verbose`)
-- **Session continuation**: `ccs glm:continue -p "follow-up"` resumes last session
-- **Tool tracking**: Shows file paths, commands, patterns as they execute
-- **Signal handling**: Ctrl+C kills child processes properly
-- **Cost tracking**: USD cost display per delegation
-- **13 Claude Code tools** supported: Bash, Read, Write, Edit, Glob, Grep, NotebookEdit, SlashCommand, TodoWrite, etc.
-- **Phase 5 Enhancements**:
-  - **Styled output**: UI layer integration for semantic boxes and tables
-  - **Async formatting**: Result formatter now fully async with ui.init() call
-  - **Listr2 integration**: Optional task list progress in TTY mode
-  - **Fallback chain**: Graceful degradation for non-TTY/CI environments
-
-**Delegation Flow**:
-```
-User: ccs glm -p "add tests"
-  ↓
-DelegationHandler: Parse args, validate profile
-  ↓
-HeadlessExecutor: Spawn Claude CLI with --output-format stream-json --verbose
-  ↓
-Stream parser: Extract [Tool] lines, format in real-time
-  ↓
-SessionManager: Save session ID for :continue
-  ↓
-ResultFormatter: Display cost, duration, exit code
-```
-
-### 3. Auth System (`bin/auth/` - ~800 lines)
-
-**Role**: Multi-account management (unchanged from v3.0 core)
-
-**Components**:
-- **auth-commands.js** (~400 lines): CLI handlers for auth subcommands
-- **profile-detector.js** (~150 lines): Profile type routing (settings vs account)
-- **profile-registry.js** (~250 lines): Metadata management (profiles.json)
-
-**v4.x Status**: Core logic stable, focus shifted to delegation
-
-**Profile Creation Flow (v3.0+)**:
-```bash
-# Create profile (prompts login)
-ccs auth create work  # Opens Claude, auto-prompts OAuth
-# Use directly (credentials in instance)
-ccs work "task"
-```
-
-### 4. GLMT System (`bin/glmt/` - ~900 lines)
-
-**Role**: GLM with thinking mode via embedded proxy
-
-**Components** (unchanged from v3.x):
-- **glmt-proxy.js** (~400 lines): HTTP proxy on localhost:random
-- **glmt-transformer.js** (~300 lines): Anthropic ↔ OpenAI format conversion
-- **reasoning-enforcer.js** (~100 lines): Inject reasoning prompts
-- **locale-enforcer.js** (~50 lines): Force English output
-- **delta-accumulator.js** (~200 lines): Streaming state tracking
-- **sse-parser.js** (~50 lines): SSE stream parser
-
-**Status**: Stable experimental feature, not actively developed in v4.x
-
-### 5. Management System (`bin/management/` - ~600 lines)
-
-**Role**: Diagnostics, recovery, instance management
-
-**Components**:
-- **doctor.js** (~250 lines): Health check diagnostics
-- **instance-manager.js** (~220 lines): Instance lifecycle (v3.0 simplified)
-- **recovery-manager.js** (~80 lines): Auto-recovery for missing configs
-- **shared-manager.js** (~50 lines): Shared data symlinking (v3.1+)
-
-**v4.x Enhancements**:
-- **doctor.js**: Now checks delegation commands in `~/.ccs/.claude/commands/ccs/`
-- Validates .claude/ symlinks from v4.1
-
-### 6. Utilities (`bin/utils/` - ~1,500 lines)
-
-**New in v4.x**: Expanded utility modules
-
-**Components**:
-- **claude-detector.js** (~70 lines): Claude CLI detection
-- **claude-dir-installer.js** (~150 lines): Copy .claude/ from package (v4.1.1)
-- **claude-symlink-manager.js** (~200 lines): Selective .claude/ symlinking (v4.1)
-- **config-manager.js** (~80 lines): Settings config management
-- **delegation-validator.js** (~100 lines): Validate delegation eligibility (v4.0)
-- **error-codes.js** (~50 lines): Standard error codes
-- **error-manager.js** (~200 lines): Error handling utilities
-- **helpers.js** (~100 lines): TTY colors, path expansion
-- **progress-indicator.js** (~150 lines): Spinner/progress display
-- **prompt.js** (~100 lines): User input prompting
-- **shell-completion.js** (~250 lines): Shell auto-completion installation (v4.1.4)
-- **update-checker.js** (~100 lines): Version update notifications (v4.1)
-
-**Key Utilities**:
-- **ClaudeDirInstaller**: Copies `.claude/` from npm package to `~/.ccs/.claude/`
-- **ClaudeSymlinkManager**: Creates selective symlinks to `~/.claude/` (Windows fallback to copy)
-- **DelegationValidator**: Validates profile readiness (API keys, settings)
-
-### 7. CCS .claude/ Directory (`/.claude/` - packaged with npm)
-
-**New in v4.1**: Selective symlink approach
-
-**Structure**:
-```
-.claude/
-├── commands/ccs/       # Delegation slash commands
-│   ├── ccs.md          # /ccs "task" (auto-select profile)
-│   └── ccs/continue.md # /ccs:continue "follow-up" (auto-detect profile)
-├── skills/ccs-delegation/  # Auto-delegation skill
-│   ├── SKILL.md        # Skill definition
-│   ├── CLAUDE.md.template  # User CLAUDE.md snippet
-│   └── references/troubleshooting.md
-└── settings.local.json # Repomix permissions
-```
-
-**Symlink Strategy** (v4.1):
-- **Source**: `~/.ccs/.claude/` (copied from npm package)
-- **Target**: `~/.claude/commands/ccs@`, `~/.claude/skills/ccs-delegation@`
-- **Selective**: Only CCS items symlinked, doesn't overwrite user's other commands/skills
-- **Windows**: Falls back to copying if Developer Mode not enabled
-
-**Installation Flow** (v4.1.1):
-1. `npm install -g @kaitranntt/ccs`
-2. Postinstall: ClaudeDirInstaller copies `.claude/` → `~/.ccs/.claude/`
-3. Postinstall: ClaudeSymlinkManager creates selective symlinks → `~/.claude/`
-4. User can now use `/ccs` (auto-select) and `/ccs:continue` commands
-
-## File Structure (Phase 02 Complete - 2025-11-28)
-
-```
-src/                         # TypeScript source files (Phase 02 Modular Architecture)
-├── ccs.ts                   # Main entry point (593 lines, 44.6% reduction from 1,071)
-├── commands/                # Modular command handlers (Phase 02 NEW)
-│   ├── version-command.ts          # 3.0KB - Version display
-│   ├── help-command.ts            # 4.9KB - Help system
-│   ├── install-command.ts         # 957B - Install/uninstall
-│   ├── doctor-command.ts          # 415B - System diagnostics
-│   ├── sync-command.ts            # 1.0KB - Configuration sync
-│   ├── shell-completion-command.ts # 2.1KB - Shell completion
-│   └── update-command.ts          # 2.1KB - Update management
-├── auth/               # Multi-account management (v3.0 core)
-│   ├── auth-commands.ts       # CLI handlers (~400 lines)
-│   ├── profile-detector.ts    # Profile routing (~150 lines)
-│   └── profile-registry.ts    # Metadata management (~250 lines)
-├── delegation/         # AI delegation system (v4.0+)
-│   ├── delegation-handler.ts  # Route -p commands (~300 lines)
-│   ├── headless-executor.ts   # Execute with stream-JSON (~400 lines)
-│   ├── session-manager.ts     # Session persistence (~200 lines)
-│   ├── result-formatter.ts    # Format results (~150 lines)
-│   ├── settings-parser.ts     # Parse settings (~150 lines)
-│   └── README.md              # Delegation documentation
-├── glmt/               # GLM thinking mode (v3.x)
-│   ├── glmt-proxy.ts          # Embedded HTTP proxy (~400 lines)
-│   ├── glmt-transformer.ts    # Format conversion (~300 lines)
-│   ├── reasoning-enforcer.ts  # Reasoning prompts (~100 lines)
-│   ├── locale-enforcer.ts     # English enforcement (~50 lines)
-│   ├── delta-accumulator.ts   # Stream state (~200 lines)
-│   └── sse-parser.ts          # SSE parser (~50 lines)
-├── management/         # System management (v3.x+)
-│   ├── doctor.ts              # Health diagnostics (~250 lines)
-│   ├── instance-manager.ts    # Instance lifecycle (~220 lines)
-│   ├── recovery-manager.ts    # Auto-recovery (~80 lines)
-│   └── shared-manager.ts      # Shared symlinking (~50 lines)
-├── utils/              # Utilities (expanded in v4.x + Phase 02 + Phase 05, UI + Listr2)
-│   ├── claude-detector.ts         # CLI detection (~70 lines)
-│   ├── claude-dir-installer.ts    # .claude/ installer (v4.1.1, ~150 lines)
-│   ├── claude-symlink-manager.ts  # Selective symlinks (v4.1, ~200 lines)
-│   ├── config-manager.ts          # Config management (~80 lines)
-│   ├── shell-executor.ts          # 1.5KB - Cross-platform execution (Phase 02)
-│   ├── package-manager-detector.ts # 3.8KB - Package manager detection (Phase 02)
-│   ├── ui.ts                      # 5.2KB - Central UI abstraction (Phase 5, Listr2 integration)
-│   ├── delegation-validator.ts    # Delegation validation (v4.0, ~100 lines)
-│   ├── error-codes.ts             # Error codes (~50 lines)
-│   ├── error-manager.ts           # Error handling (~200 lines)
-│   ├── helpers.ts                 # Utilities (~100 lines)
-│   ├── progress-indicator.ts      # Progress display (~150 lines)
-│   ├── prompt.ts                  # User prompting (~100 lines)
-│   ├── shell-completion.ts        # Shell completion (v4.1.4, ~250 lines)
-│   └── update-checker.ts          # Update checker (v4.1, ~100 lines)
-├── types/                   # TypeScript type definitions
-│   ├── cli.ts           # CLI interface definitions
-│   ├── config.ts        # Configuration type schemas
-│   ├── delegation.ts    # Delegation system types
-│   ├── glmt.ts         # GLMT-specific types
-│   ├── utils.ts        # Utility function types
-│   └── index.ts        # Central type exports
-└── scripts/                 # Build and utility scripts
-
-.claude/                # CCS-provided items (v4.1+)
-├── commands/ccs/       # Delegation commands
-│   ├── glm.md
-│   ├── kimi.md
-│   ├── glm/continue.md
-│   └── kimi/continue.md
-├── skills/ccs-delegation/  # Auto-delegation skill
-│   ├── SKILL.md
-│   ├── CLAUDE.md.template
-│   └── references/troubleshooting.md
-└── settings.local.json
-
-scripts/
-├── postinstall.js      # Auto-config + migration
-├── sync-version.js     # Version management
-├── check-executables.js # Validation
-├── completion/         # Shell completions (v4.1.4)
-│   ├── ccs.bash
-│   ├── ccs.zsh
-│   ├── ccs.fish
-│   ├── ccs.ps1
-│   └── README.md
-└── worker.js           # Cloudflare Worker (ccs.kaitran.ca)
-
-tests/
-├── unit/               # Unit tests
-│   ├── delegation/     # Delegation tests (v4.0+)
-│   └── glmt/           # GLMT tests (v3.x)
-├── npm/                # npm package tests
-├── integration/        # Integration tests
-└── shared/             # Shared test utilities
-
-~/.ccs/                 # User installation
-├── .claude/            # CCS items (copied from package)
-│   ├── commands/ccs/
-│   └── skills/ccs-delegation/
-├── shared/             # Shared across profiles (v3.1+)
-│   ├── commands@ → ~/.claude/commands/
-│   ├── skills@ → ~/.claude/skills/
-│   └── agents@ → ~/.claude/agents/
-├── instances/          # Isolated Claude instances
-│   └── work/
-│       ├── commands@ → shared/commands/
-│       ├── skills@ → shared/skills/
-│       ├── agents@ → shared/agents/
-│       ├── settings.json (if any)
-│       ├── sessions/
-│       └── ...
-├── config.json         # Settings-based profiles
-├── profiles.json       # Account-based profiles
-├── delegation-sessions.json  # Delegation session history (v4.0)
-├── glm.settings.json
-├── glmt.settings.json
-├── kimi.settings.json
-└── logs/               # Debug logs
-
-~/.claude/              # User's Claude directory
-├── commands/ccs@ → ~/.ccs/.claude/commands/ccs/  # Selective symlink (v4.1)
-├── skills/ccs-delegation@ → ~/.ccs/.claude/skills/ccs-delegation/  # Selective symlink
-└── (user's other commands/skills remain untouched)
-```
-
-## Data Flow (v4.3.2)
-
-### Delegation Execution (v4.0+)
-```
-User: ccs glm -p "add tests to UserService"
-  ↓
-ccs.js: Detect -p flag → route to DelegationHandler
-  ↓
-DelegationHandler: Parse { profile: 'glm', prompt: 'add tests', options: {} }
-  ↓
-DelegationValidator: Check API key, settings validity
-  ↓
-HeadlessExecutor: Spawn Claude CLI with:
-  - --settings ~/.ccs/glm.settings.json
-  - --output-format stream-json
-  - --verbose
-  - --prompt "add tests to UserService"
-  ↓
-Stream parser: Extract [Tool] lines in real-time
-  - [Tool] Grep: searching for test patterns
-  - [Tool] Read: reading UserService.js
-  - [Tool] Write: creating UserService.test.js
-  ↓
-SessionManager: Save { sessionId, profile: 'glm', timestamp }
-  ↓
-ResultFormatter: Display summary
-  - Working Directory: /home/user/project
-  - Model: GLM-4.6
-  - Duration: 12.3s
-  - Cost: $0.0023
-  - Session ID: abc123 (use :continue to resume)
-  ↓
-Exit with Claude CLI exit code
-```
-
-### Settings Profile Execution (glm, kimi, glmt)
-```
-User: ccs glm "command"
-  ↓
-ccs.js: Parse arguments, detect profile "glm"
-  ↓
-ProfileDetector: detectProfileType("glm") → {type: 'settings'}
-  ↓
-ConfigManager: getSettingsPath("glm") → "~/.ccs/glm.settings.json"
-  ↓
-ccs.js: execClaude(["--settings", path, "command"])
-  ↓
-Claude CLI: Execute with GLM API
-```
-
-### Account Profile Execution (work, personal)
-```
-User: ccs work "command"
-  ↓
-ccs.js: Parse arguments, detect profile "work"
-  ↓
-ProfileDetector: detectProfileType("work") → {type: 'account'}
-  ↓
-InstanceManager: ensureInstance("work") → "~/.ccs/instances/work/"
-  ↓
-ProfileRegistry: touchProfile("work") → Update last_used
-  ↓
-ccs.js: execClaude(["command"], {CLAUDE_CONFIG_DIR: instancePath})
-  ↓
-Claude CLI: Read credentials from instance, execute
-```
-
-## Key Features (v4.5.0 - Phase 02 Complete, UI Phase 1)
-
-### 0. Central UI Abstraction Layer (UI Phase 1 - 2025-12-01, Phase 5 Complete)
-- **New Module**: src/utils/ui.ts (5.2KB) - Semantic, TTY-aware CLI styling
-- **Dependencies**: chalk@5.6.2, boxen@8.0.1, gradient-string@3.0.0, cli-table3@0.6.5, ora@5.4.1, listr2@8.0.0
-- **Features**:
-  - Semantic color system (success, error, warning, info, dim, primary, secondary, command, path)
-  - ASCII-only status indicators ([OK], [X], [!], [i]) - NO EMOJIS per CLAUDE.md
-  - TTY-aware output (respects NO_COLOR, FORCE_COLOR env vars)
-  - Box rendering (with fallback ASCII renderer)
-  - Table rendering via cli-table3
-  - Spinner/progress (ora wrapper with fallback)
-  - Section headers with optional gradient
-  - **Listr2 task lists** (Phase 5 NEW) - intelligent renderer selection:
-    - TTY mode: Default renderer with subtask hierarchy
-    - Non-TTY/CI: Simple renderer for clean output
-    - Claude Code detection: Automatic fallback for tool context
-  - Lazy loading of ESM modules for CommonJS compatibility
-- **Type Support**: SemanticColor, BoxOptions, TableOptions, SpinnerOptions, SpinnerController, TaskItem, TaskListOptions
-- **Compliance**: Strict CLAUDE.md adherence (no emojis, TTY-aware, NO_COLOR respect)
-- **Fallback Architecture**: Works in non-TTY environments with graceful degradation
-- **Claude Code Integration** (Phase 5): `isClaudeCodeContext()` detection for adaptive UI rendering
-
-### 1. npm-First Installation (Phase 02 - 2025-11-28)
-- **Recommended method**: All users directed to npm installation
-- **Native installer deprecation**: curl/irm scripts auto-redirect to npm
-- **Cross-platform parity**: Single installation method across macOS/Linux/Windows
-- **Easy updates**: `npm install -g @kaitranntt/ccs` (version pinning supported)
-- **Bootstrap installers**: Replaced shell scripts with Node.js-based installation
-
-### 2. AI-Powered Delegation (v4.0+)
-- **Headless execution**: `ccs glm -p "task"` runs without interactive UI
-- **Stream-JSON output**: Real-time tool visibility (`[Tool] Write: file.js`)
-- **Session continuation**: `ccs glm:continue -p "follow-up"` resumes last session
-- **Cost tracking**: USD cost display per delegation
-- **Signal handling**: Proper Ctrl+C cleanup
-- **13 tools supported**: Comprehensive Claude Code tool coverage
-
-### 3. Selective .claude/ Symlinking (v4.1)
-- **Package-provided**: `.claude/` ships with npm, copied to `~/.ccs/.claude/`
-- **Selective symlinks**: Only CCS items linked to `~/.claude/`
-- **Non-invasive**: Doesn't overwrite user's commands/skills
-- **Windows support**: Falls back to copying if symlinks unavailable
-- **Auto-sync**: `ccs sync` re-creates symlinks
-
-### 4. Enhanced Shell Completion (v4.1.4)
-- **4 shells**: bash, zsh, fish, PowerShell
-- **Color-coded**: Commands vs descriptions
-- **Categorized**: Model profiles, account profiles, flags
-- **Auto-install**: `ccs --shell-completion` or `ccs -sc`
-
-### 5. Comprehensive Diagnostics (v4.1+)
-- **ccs doctor**: Health check for installation, configs, symlinks, delegation
-- **ccs sync**: Re-sync delegation commands and skills
-- **ccs update**: Check for updates (v4.1+)
-
-### 6. Text-Only Output (Phase 02 - CLAUDE.md Compliance)
-- **ASCII indicators only**: [OK], [!], [X], [i] (no emoji)
-- **TTY-aware colors**: Respects NO_COLOR environment variable
-- **Consistent formatting**: Box borders for errors using ╔═╗║╚╝
-- **Cross-platform consistency**: Identical output on all shells
-
-### 7. GLMT Thinking Mode (v3.x, stable experimental)
-- **Embedded proxy**: HTTP proxy on localhost:random
-- **Format conversion**: Anthropic ↔ OpenAI
-- **Reasoning injection**: Force English, thinking prompts
-- **Debug logging**: `CCS_DEBUG_LOG=1` writes to `~/.ccs/logs/`
-
-## Breaking Changes
-
-### v3.0 → v4.0
-- **No breaking changes**: v4.0 purely additive (delegation features)
-- **New dependencies**: None (all Node.js built-ins)
-- **Migration**: Automatic via postinstall
-
-### v2.x → v3.0 (Historical)
-- Command renamed: `ccs auth save` → `ccs auth create`
-- Schema changed: Removed `vault`, `subscription`, `email` fields
-- Migration required: Users must recreate profiles
-
-## Performance Characteristics (v4.3.2)
-
-### Delegation Performance
-- **Headless spawn**: ~20-30ms overhead
-- **Stream parsing**: <5ms per tool call
-- **Session save**: ~10ms (JSON write)
-- **Total overhead**: ~35-45ms vs direct Claude CLI
-
-### Profile Activation (unchanged from v3.0)
-- Instance validation: ~5ms
-- `CLAUDE_CONFIG_DIR` env var: ~1ms
-- Claude CLI spawn: ~20-30ms
-- **Total overhead**: ~26-36ms
-
-### .claude/ Symlinking (v4.1)
-- **Symlink creation**: ~5-10ms per link
-- **Copy fallback (Windows)**: ~50-100ms total
-- **Sync command**: ~100-200ms (full re-sync)
-
-## Security Model (v4.3.2)
-
-### Unchanged from v3.0
-- No custom encryption (credentials managed by Claude CLI)
-- Spawn with array arguments (no shell injection)
-- Atomic file writes (temp + rename)
-- Instance directory permissions (0700)
-
-### New in v4.x
-- API key validation (checks for placeholder keys)
-- Delegation eligibility checks (validates settings before execution)
-- Signal handling (proper cleanup of child processes)
-
-## Testing Coverage (v4.3.2)
-
-### Unit Tests
-- `tests/unit/delegation/`: Delegation system tests (v4.0+)
-- `tests/unit/glmt/`: GLMT transformer tests (v3.x)
-- `tests/unit/utils/version-comparison.test.js`: Version comparison logic tests (v5.x update flags)
-- `tests/shared/unit/`: Utility function tests
-
-### Integration Tests
-- `tests/npm/special-commands.test.js`: CLI special commands including update flag tests
-- `tests/integration/`: Cross-platform behavior, edge cases
-
-### Test Coverage Details
-- **Version Comparison**: 25 comprehensive tests for update flags (--force, --beta)
-  - Semantic version comparison with prereleases
-  - Edge cases: invalid versions, large numbers, case sensitivity
-  - Downgrade detection for beta channel warnings
-- **Update Command Flags**: 4 integration tests for flag parsing
-  - --force flag verification
-  - --beta flag verification
-  - Combined --force --beta handling
-  - Error messages for invalid usage
-
-### Test Count
-- **Total**: ~55 test files
-- **Coverage**: >90% for critical paths
-- **New in v5.x**: Update flags test suite (29 new tests)
-
-## Dependencies (v4.3.2)
-
-### Production
-- `cli-table3@^0.6.5`: Table formatting (doctor command)
-- `ora@^5.4.1`: Spinner display (progress indicators)
-
-### Development
-- `mocha@^11.7.5`: Test runner
-
-**Note**: Minimal dependencies, all critical functionality uses Node.js built-ins
-
-## Future Extensibility
-
-### Extension Points (v4.x)
-1. **New delegation profiles**: Easy addition via DelegationValidator
-2. **Custom result formatters**: Pluggable ResultFormatter
-3. **Session management**: SQLite for better session queries
-4. **MCP integration**: Delegation via MCP tools
-5. **Cost optimization**: Model selection based on task complexity
-
-## Summary
-
-**CCS Phase 5 Achievements (2025-12-01, UI + Listr2 Integration)**:
-- **Listr2 Task Lists**: Integrated task list progress display with intelligent renderer selection
-- **Claude Code Detection**: Automatic fallback for tool context via `isClaudeCodeContext()`
-- **Async Result Formatting**: Delegation system now fully async with ui initialization
-- **UI Layer Integration**: Styled boxes and tables for enhanced delegation output
-- **Adaptive Rendering**: TTY (default), non-TTY (simple), CI (simple), Claude Code (fallback)
-- **Type System**: TaskItem, TaskListOptions for task list operations
-
-**CCS UI Phase 1 Achievements (2025-12-01)**:
-- **Central UI Module**: Introduced src/utils/ui.ts for semantic, TTY-aware CLI styling
-- **CLAUDE.md Compliance**: ASCII-only indicators, NO_COLOR respect, TTY detection
-- **ESM Compatibility**: Lazy loading strategy for chalk, boxen, gradient-string, ora in CommonJS project
-- **Fallback Architecture**: Works in non-TTY (pipes/CI) with graceful degradation to plain text
-- **Type System**: Complete TypeScript definitions for all UI functions
-- **Color Palette**: Professional cyan-to-blue gradient (#00ECFA to #0099FF)
-
-**CCS Phase 02 Achievements (2025-11-28)**:
-- **npm-First Distribution**: Deprecated native shell installers, all users directed to npm
-- **Modular Command Architecture**: 6 specialized command handlers with single responsibility principle
-- **44.6% Main File Reduction**: src/ccs.ts reduced from 1,071 to 593 lines
-- **Text-Only Output**: All emoji removed ([!] replaces ⚠️), CLAUDE.md compliance
-- **Enhanced Maintainability**: Focused modules for version, help, install, doctor, sync, shell-completion
-- **New Utility Modules**: Cross-platform shell execution and package manager detection
-- **TypeScript Excellence**: 100% type coverage across all new modules
-- **Installation Flow**: Auto-redirection from deprecated shell scripts to npm
-
-**CCS v4.5.0 Overall Achievements**:
-- **Delegation system**: Complete AI-powered task routing with stream-JSON
-- **Selective symlinking**: Non-invasive .claude/ directory sharing
-- **Shell completion**: Enhanced UX with color-coded completions
-- **Diagnostics**: Comprehensive health checking and auto-recovery
-- **npm Package**: Bootstrap-based installation, quality gates (typecheck, lint, format, test)
-- **Modular architecture**: Clear separation of concerns (auth/, delegation/, glmt/, management/, utils/, commands/, types/)
-
-**Design Principles (STRICT ENFORCEMENT)**:
-- **YAGNI**: Only essential features implemented
-- **KISS**: Simple, readable code without over-engineering
-- **DRY**: Single source of truth for each concern
-- **CLI-First**: All features must have CLI interface
-- **No Emojis**: ASCII indicators only per CLAUDE.md
-
-**Code Quality**:
-- **Total LOC**: ~8,477 lines (src/ TypeScript)
-- **Main File**: 593 lines (44.6% reduction from 1,071 lines)
-- **Test Coverage**: >90% for critical paths
-- **Modularity**: 9 subsystems (main, auth, delegation, glmt, management, utils, commands, types, .claude/)
-- **Documentation**: Comprehensive inline comments, README.md, 8+ doc files
-- **Output Format**: ASCII-only text, TTY-aware colors, NO_COLOR compliant
-
-Phase 02 (2025-11-28) completes npm-first transition with native installer deprecation and text-only output compliance. v4.5.0 demonstrates successful feature expansion (delegation, symlinking, diagnostics, modular CLI) while maintaining core simplicity and zero breaking changes from v3.0. Bootstrap-based installers eliminate shell script complexity and provide consistent cross-platform behavior.
+- Modern UI with responsive design
+- Real-time updates via WebSocket
+- Professional theme with consistent styling
+- Accessibility-compliant components
+
+### Cross-Platform Scripts (lib/)
+
+1. **Bash Bootstrap** (`lib/ccs`)
+   - Entrypoint for Unix/macOS
+   - Delegates to Node.js via npx
+   - Argument passthrough support
+
+2. **PowerShell Bootstrap** (`lib/ccs.ps1`)
+   - Windows PowerShell support
+   - Parameter splatting for arguments
+   - Cross-platform parity with bash
+
+### Build & Automation (scripts/)
+
+1. **Build System**
+   - TypeScript compilation to dist/
+   - Source maps and declarations
+   - Linting and formatting
+
+2. **Post-Installation**
+   - Auto-configuration creation
+   - Directory structure setup
+   - Migration for version upgrades
+
+3. **Quality Gates**
+   - Type checking (strict mode)
+   - ESLint validation
+   - Test execution
+   - Code formatting
+
+## Technology Stack
+
+### Core Technologies
+- **TypeScript 5.3+**: 100% type coverage, zero `any` types
+- **Node.js 14+**: Runtime environment
+- **Bun**: Package manager (10-25x faster than npm)
+- **React 19**: Modern UI with concurrent features
+- **Vite**: Fast build tool and dev server
+
+### UI Libraries
+- **shadcn/ui**: Modern component library
+- **Radix UI**: Accessible component primitives
+- **Tailwind CSS**: Utility-first styling
+- **Lucide React**: Icon library
+- **React Router**: Client-side routing
+- **TanStack Query**: Server state management
+
+### Development Tools
+- **ESLint**: Code linting with strict rules
+- **Prettier**: Code formatting
+- **Mocha**: Test framework
+- **Chai**: Assertion library
+- **Semantic Release**: Automated versioning
+
+## Key Features
+
+### Profile Management
+- **Settings-based profiles**: glm, glmt, kimi
+- **Account-based profiles**: work, personal
+- **CLIProxy providers**: OAuth-based integration
+- **Instant switching**: Zero-downtime profile changes
+
+### AI Delegation System
+- **Headless execution**: `-p` flag for delegation
+- **Real-time tracking**: 13+ Claude Code tools
+- **Stream-JSON parsing**: Live tool visibility
+- **Session persistence**: `:continue` support
+- **Cost tracking**: Usage statistics
+
+### GLMT Thinking Mode
+- **Embedded proxy**: HTTP server for format conversion
+- **Reasoning support**: GLM 4.6 with thinking blocks
+- **Debug logging**: File-based logging with timestamps
+- **Configuration**: Temperature, max tokens, timeouts
+
+### Web Dashboard
+- **Real-time UI**: WebSocket for live updates
+- **Modern interface**: Responsive, accessible design
+- **Configuration**: Visual profile and settings management
+- **Health monitoring**: System diagnostics dashboard
+- **Dark mode**: Theme switching support
+
+### Cross-Platform Support
+- **Universal**: macOS, Linux, Windows
+- **Shell completion**: Bash, Zsh, Fish, PowerShell
+- **Consistent behavior**: Unified across platforms
+- **Windows fallbacks**: Copy when symlinks unavailable
+
+### Development Workflow
+- **TypeScript strict**: Maximum type safety
+- **Automated releases**: Semantic versioning
+- **Quality gates**: Pre-commit validation
+- **Comprehensive tests**: Unit, integration, native
+
+## Architecture Patterns
+
+### Modular Design
+- **Single responsibility**: Each module focused
+- **Clear interfaces**: TypeScript contracts
+- **Dependency injection**: Testable architecture
+- **Error boundaries**: Graceful error handling
+
+### Configuration Management
+- **Shared data**: Symlinks for commands, skills, agents
+- **Isolated state**: Profile-specific sessions, logs
+- **Auto-recovery**: Self-healing configurations
+- **Migration support**: Seamless upgrades
+
+### Performance Optimization
+- **Lazy loading**: On-demand initialization
+- **Stream processing**: Real-time parsing
+- **Minimal overhead**: Direct CLI execution
+- **Efficient builds**: Vite and Bun optimization
+
+## Statistics (as of v4.5.0)
+
+- **Total files**: 163 files
+- **TypeScript files**: 43 source files
+- **Lines of code**: ~8,000 lines TypeScript
+- **Test coverage**: 90%+ critical paths
+- **Platform support**: 3 OS (macOS, Linux, Windows)
+- **Shell completions**: 4 shells supported
+- **AI models**: 4+ models integrated
+- **Languages**: TypeScript, React, Bash, PowerShell
+
+## Development Standards
+
+### Code Quality
+- **Zero any types**: 100% type coverage
+- **Strict ESLint**: All errors enforced
+- **Pre-commit hooks**: Automated validation
+- **Semantic releases**: Automated versioning
+
+### Testing Strategy
+- **Unit tests**: Module isolation
+- **Integration tests**: Cross-module flows
+- **Platform tests**: OS-specific behavior
+- **Native tests**: Shell script validation
+
+### Documentation
+- **Living docs**: Updated with releases
+- **Code examples**: Real usage patterns
+- **Architecture docs**: System design
+- **API references**: Complete coverage
+
+## Future Roadmap
+
+### v4.6-v4.7 (UI Enhancements)
+- Sidebar redesign with modern UX
+- Enhanced dashboard visualizations
+- Real-time collaboration features
+- Mobile-responsive improvements
+
+### v5.0+ (Next Generation)
+- AI-powered automation
+- Plugin system
+- Enterprise features
+- Ecosystem expansion
+
+This codebase demonstrates a mature, well-architected TypeScript application with modern React UI, comprehensive testing, and cross-platform support. The modular design enables easy maintenance and extension while maintaining high quality standards.

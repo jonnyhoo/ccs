@@ -27,8 +27,9 @@ yarn-error.log*
 dist/
 *.tsbuildinfo
 
-# Package lock files (keep package-lock.json but ignore others)
+# Package lock files (use bun.lock only)
 yarn.lock
 pnpm-lock.yaml
+package-lock.json
 
 .claude/active-plan

@@ -353,6 +353,10 @@ export class GlmtProxy {
       const url = new URL(this.upstreamUrl);
       const requestBody = JSON.stringify(openaiRequest);
 
+      // OpenAI-compatible endpoints require "Bearer " prefix
+      const token = process.env.ANTHROPIC_AUTH_TOKEN || '';
+      const authHeader = this.formatAuthHeader(token, url.pathname);
+
       const options: https.RequestOptions = {
         hostname: url.hostname,
         port: url.port || 443,
@@ -361,7 +365,7 @@ export class GlmtProxy {
         headers: {
           'Content-Type': 'application/json',
           'Content-Length': Buffer.byteLength(requestBody),
-          Authorization: process.env.ANTHROPIC_AUTH_TOKEN || '',
+          Authorization: authHeader,
           'User-Agent': 'CCS-GLMT-Proxy/1.0',
         },
       };
@@ -425,6 +429,10 @@ export class GlmtProxy {
       const url = new URL(this.upstreamUrl);
       const requestBody = JSON.stringify(openaiRequest);
 
+      // OpenAI-compatible endpoints require "Bearer " prefix
+      const token = process.env.ANTHROPIC_AUTH_TOKEN || '';
+      const authHeader = this.formatAuthHeader(token, url.pathname);
+
       const options: https.RequestOptions = {
         hostname: url.hostname,
         port: url.port || 443,
@@ -433,7 +441,7 @@ export class GlmtProxy {
         headers: {
           'Content-Type': 'application/json',
           'Content-Length': Buffer.byteLength(requestBody),
-          Authorization: process.env.ANTHROPIC_AUTH_TOKEN || '',
+          Authorization: authHeader,
           'User-Agent': 'CCS-GLMT-Proxy/1.0',
           Accept: 'text/event-stream',
         },
@@ -538,6 +546,24 @@ export class GlmtProxy {
     if (this.verbose) {
       console.error(`[glmt-proxy] ${message}`);
     }
+  }
+
+  /**
+   * Format Authorization header based on endpoint type
+   * OpenAI-compatible endpoints (chat/completions) require "Bearer " prefix
+   * Anthropic-compatible endpoints use token directly
+   */
+  private formatAuthHeader(token: string, pathname: string): string {
+    // OpenAI-compatible endpoints use Bearer token format
+    const isOpenAICompatible =
+      pathname.includes('chat/completions') ||
+      pathname.includes('/v1/') ||
+      pathname.includes('/paas/');
+
+    if (isOpenAICompatible && token && !token.startsWith('Bearer ')) {
+      return `Bearer ${token}`;
+    }
+    return token;
   }
 
   /**

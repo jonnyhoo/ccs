@@ -12,14 +12,20 @@
 Register-ArgumentCompleter -CommandName ccs -ScriptBlock {
     param($commandName, $wordToComplete, $commandAst, $fakeBoundParameters)
 
-    $commands = @('auth', 'profile', 'doctor', 'sync', 'update', '--help', '--version', '--shell-completion', '-h', '-v', '-sc')
+    $commands = @('auth', 'api', 'cliproxy', 'doctor', 'sync', 'update', '--help', '--version', '--shell-completion', '-h', '-v', '-sc')
+    $cliproxyProfiles = @('gemini', 'codex', 'agy', 'qwen')
     $authCommands = @('create', 'list', 'show', 'remove', 'default', '--help', '-h')
-    $profileCommands = @('create', 'list', 'remove', '--help', '-h')
-    $profileCreateFlags = @('--base-url', '--api-key', '--model', '--force', '--yes', '-y')
+    $apiCommands = @('create', 'list', 'remove', '--help', '-h')
+    $cliproxyCommands = @('create', 'list', 'remove', '--install', '--latest', '--help', '-h')
+    $apiCreateFlags = @('--base-url', '--api-key', '--model', '--force', '--yes', '-y')
+    $cliproxyCreateFlags = @('--provider', '--model', '--force', '--yes', '-y')
+    $providerFlags = @('--auth', '--config', '--logout', '--headless', '--help', '-h')
+    $updateFlags = @('--force', '--beta', '--dev', '--help', '-h')
     $shellCompletionFlags = @('--bash', '--zsh', '--fish', '--powershell')
     $listFlags = @('--verbose', '--json')
     $removeFlags = @('--yes', '-y')
     $showFlags = @('--json')
+    $providers = @('gemini', 'codex', 'agy', 'qwen')
 
     # Get current position in command
     $words = $commandAst.ToString() -split '\s+' | Where-Object { $_ -ne '' }
@@ -53,12 +59,25 @@ Register-ArgumentCompleter -CommandName ccs -ScriptBlock {
             }
         }
 
+        # CLIProxy variants
+        if ($Type -in @('all', 'cliproxy')) {
+            $configPath = "$env:USERPROFILE\.ccs\config.json"
+            if (Test-Path $configPath) {
+                try {
+                    $config = Get-Content $configPath -Raw | ConvertFrom-Json
+                    if ($config.cliproxy) {
+                        $profiles += $config.cliproxy.PSObject.Properties.Name
+                    }
+                } catch {}
+            }
+        }
+
         return $profiles | Sort-Object -Unique
     }
 
     # Top-level completion
     if ($position -eq 2) {
-        $allOptions = $commands + (Get-CcsProfiles)
+        $allOptions = $commands + $cliproxyProfiles + (Get-CcsProfiles)
         $allOptions | Where-Object { $_ -like "$wordToComplete*" } | ForEach-Object {
             [System.Management.Automation.CompletionResult]::new(
                 $_,
@@ -85,10 +104,35 @@ Register-ArgumentCompleter -CommandName ccs -ScriptBlock {
         return
     }
 
+    # CLIProxy provider flags (gemini, codex, agy, qwen)
+    if ($words[1] -in $cliproxyProfiles) {
+        $providerFlags | Where-Object { $_ -like "$wordToComplete*" } | ForEach-Object {
+            [System.Management.Automation.CompletionResult]::new(
+                $_,
+                $_,
+                'ParameterValue',
+                $_
+            )
+        }
+        return
+    }
+
+    # update command completion
+    if ($words[1] -eq 'update') {
+        $updateFlags | Where-Object { $_ -like "$wordToComplete*" } | ForEach-Object {
+            [System.Management.Automation.CompletionResult]::new(
+                $_,
+                $_,
+                'ParameterValue',
+                $_
+            )
+        }
+        return
+    }
+
     # auth subcommand completion
     if ($words[1] -eq 'auth') {
         if ($position -eq 3) {
-            # auth subcommands
             $authCommands | Where-Object { $_ -like "$wordToComplete*" } | ForEach-Object {
                 [System.Management.Automation.CompletionResult]::new(
                     $_,
@@ -98,7 +142,6 @@ Register-ArgumentCompleter -CommandName ccs -ScriptBlock {
                 )
             }
         } elseif ($position -eq 4) {
-            # Profile names or flags for auth subcommands
             switch ($words[2]) {
                 'show' {
                     $options = (Get-CcsProfiles -Type account) + $showFlags
@@ -143,11 +186,17 @@ Register-ArgumentCompleter -CommandName ccs -ScriptBlock {
                     }
                 }
                 'create' {
-                    # No completion for create (user types new name)
+                    @('--force') | Where-Object { $_ -like "$wordToComplete*" } | ForEach-Object {
+                        [System.Management.Automation.CompletionResult]::new(
+                            $_,
+                            $_,
+                            'ParameterValue',
+                            $_
+                        )
+                    }
                 }
             }
         } elseif ($position -eq 5) {
-            # Flags after profile name
             switch ($words[2]) {
                 'show' {
                     $showFlags | Where-Object { $_ -like "$wordToComplete*" } | ForEach-Object {
@@ -171,13 +220,13 @@ Register-ArgumentCompleter -CommandName ccs -ScriptBlock {
                 }
             }
         }
+        return
     }
 
-    # profile subcommand completion
-    if ($words[1] -eq 'profile') {
+    # api subcommand completion
+    if ($words[1] -eq 'api') {
         if ($position -eq 3) {
-            # profile subcommands
-            $profileCommands | Where-Object { $_ -like "$wordToComplete*" } | ForEach-Object {
+            $apiCommands | Where-Object { $_ -like "$wordToComplete*" } | ForEach-Object {
                 [System.Management.Automation.CompletionResult]::new(
                     $_,
                     $_,
@@ -186,7 +235,6 @@ Register-ArgumentCompleter -CommandName ccs -ScriptBlock {
                 )
             }
         } elseif ($position -eq 4) {
-            # Profile names or flags for profile subcommands
             switch ($words[2]) {
                 'remove' {
                     $options = (Get-CcsProfiles -Type settings) + $removeFlags
@@ -200,7 +248,7 @@ Register-ArgumentCompleter -CommandName ccs -ScriptBlock {
                     }
                 }
                 'create' {
-                    $profileCreateFlags | Where-Object { $_ -like "$wordToComplete*" } | ForEach-Object {
+                    $apiCreateFlags | Where-Object { $_ -like "$wordToComplete*" } | ForEach-Object {
                         [System.Management.Automation.CompletionResult]::new(
                             $_,
                             $_,
@@ -211,7 +259,6 @@ Register-ArgumentCompleter -CommandName ccs -ScriptBlock {
                 }
             }
         } elseif ($position -eq 5) {
-            # Flags after profile name
             switch ($words[2]) {
                 'remove' {
                     $removeFlags | Where-Object { $_ -like "$wordToComplete*" } | ForEach-Object {
@@ -225,5 +272,123 @@ Register-ArgumentCompleter -CommandName ccs -ScriptBlock {
                 }
             }
         }
+        return
+    }
+
+    # cliproxy subcommand completion
+    if ($words[1] -eq 'cliproxy') {
+        if ($position -eq 3) {
+            $cliproxyCommands | Where-Object { $_ -like "$wordToComplete*" } | ForEach-Object {
+                [System.Management.Automation.CompletionResult]::new(
+                    $_,
+                    $_,
+                    'ParameterValue',
+                    $_
+                )
+            }
+        } elseif ($position -eq 4) {
+            switch ($words[2]) {
+                'remove' {
+                    $options = (Get-CcsProfiles -Type cliproxy) + $removeFlags
+                    $options | Where-Object { $_ -like "$wordToComplete*" } | ForEach-Object {
+                        [System.Management.Automation.CompletionResult]::new(
+                            $_,
+                            $_,
+                            'ParameterValue',
+                            $_
+                        )
+                    }
+                }
+                'create' {
+                    $cliproxyCreateFlags | Where-Object { $_ -like "$wordToComplete*" } | ForEach-Object {
+                        [System.Management.Automation.CompletionResult]::new(
+                            $_,
+                            $_,
+                            'ParameterValue',
+                            $_
+                        )
+                    }
+                }
+            }
+        } elseif ($position -eq 5) {
+            switch ($words[2]) {
+                'remove' {
+                    $removeFlags | Where-Object { $_ -like "$wordToComplete*" } | ForEach-Object {
+                        [System.Management.Automation.CompletionResult]::new(
+                            $_,
+                            $_,
+                            'ParameterValue',
+                            $_
+                        )
+                    }
+                }
+                'create' {
+                    # After --provider, complete with provider names
+                    if ($words[3] -eq '--provider') {
+                        $providers | Where-Object { $_ -like "$wordToComplete*" } | ForEach-Object {
+                            [System.Management.Automation.CompletionResult]::new(
+                                $_,
+                                $_,
+                                'ParameterValue',
+                                $_
+                            )
+                        }
+                    }
+                }
+            }
+        }
+        return
+    }
+
+    # profile subcommand completion (legacy)
+    if ($words[1] -eq 'profile') {
+        if ($position -eq 3) {
+            @('create', 'list', 'remove', '--help', '-h') | Where-Object { $_ -like "$wordToComplete*" } | ForEach-Object {
+                [System.Management.Automation.CompletionResult]::new(
+                    $_,
+                    $_,
+                    'ParameterValue',
+                    $_
+                )
+            }
+        } elseif ($position -eq 4) {
+            switch ($words[2]) {
+                'remove' {
+                    $options = (Get-CcsProfiles -Type settings) + $removeFlags
+                    $options | Where-Object { $_ -like "$wordToComplete*" } | ForEach-Object {
+                        [System.Management.Automation.CompletionResult]::new(
+                            $_,
+                            $_,
+                            'ParameterValue',
+                            $_
+                        )
+                    }
+                }
+                'create' {
+                    $apiCreateFlags | Where-Object { $_ -like "$wordToComplete*" } | ForEach-Object {
+                        [System.Management.Automation.CompletionResult]::new(
+                            $_,
+                            $_,
+                            'ParameterValue',
+                            $_
+                        )
+                    }
+                }
+            }
+        } elseif ($position -eq 5) {
+            switch ($words[2]) {
+                'remove' {
+                    $removeFlags | Where-Object { $_ -like "$wordToComplete*" } | ForEach-Object {
+                        [System.Management.Automation.CompletionResult]::new(
+                            $_,
+                            $_,
+                            'ParameterValue',
+                            $_
+                        )
+                    }
+                }
+            }
+        }
+        return
     }
 }

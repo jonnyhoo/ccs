@@ -183,6 +183,8 @@ Claude Code Profile & Model Switcher`.trim();
   // Diagnostics
   printSubSection('Diagnostics', [
     ['ccs doctor', 'Run health check and diagnostics'],
+    ['ccs config', 'Open web configuration dashboard'],
+    ['ccs config --port 3000', 'Use specific port'],
     ['ccs sync', 'Sync delegation commands and skills'],
     ['ccs update', 'Update CCS to latest version'],
     ['ccs update --force', 'Force reinstall current version'],
@@ -207,7 +209,8 @@ Claude Code Profile & Model Switcher`.trim();
   // CLI Proxy management
   printSubSection('CLI Proxy Management', [
     ['ccs cliproxy', 'Show CLIProxyAPI status and version'],
-    ['ccs cliproxy --install <ver>', 'Install specific version (e.g., 6.5.40)'],
+    ['ccs cliproxy --help', 'Full CLIProxy management help'],
+    ['ccs cliproxy --install <ver>', 'Install specific version (e.g., 6.5.53)'],
     ['ccs cliproxy --latest', 'Update to latest version'],
   ]);
 

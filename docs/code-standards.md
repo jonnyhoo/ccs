@@ -2,7 +2,7 @@
 
 ## Overview
 
-This document defines the coding standards and principles for the CCS (Claude Code Switch) project. Following these standards ensures consistency, maintainability, and quality across the codebase.
+This document defines the coding standards and principles for the CCS (Claude Code Switch) project. The project uses TypeScript throughout, React 19 for the UI dashboard, Vite for fast builds, and Bun as the primary package manager. Following these standards ensures consistency, maintainability, and quality across the entire codebase.
 
 ## Core Principles
 
@@ -32,29 +32,27 @@ The recent codebase simplification (35% reduction from 1,315 to 855 lines) estab
 3. **Simplify error handling**: Direct console.error instead of complex formatting
 4. **Deduplicate platform checks**: Centralize platform-specific logic
 
-## JavaScript Standards
+## TypeScript Standards
 
 ### Code Style
 
 #### File Structure
-```javascript
-'use strict';
-
+```typescript
 // Dependencies
-const { spawn } = require('child_process');
-const path = require('path');
-const { error } = require('./helpers');
+import { spawn } from 'child_process';
+import path from 'path';
+import { error } from './helpers';
 
 // Constants
 const CCS_VERSION = require('../package.json').version;
 
 // Functions (grouped by responsibility)
-function mainFunction() {
+function mainFunction(): void {
   // Implementation
 }
 
 // Main execution
-function main() {
+function main(): void {
   // Implementation
 }
 
@@ -439,6 +437,225 @@ for (const [flag, handler] of Object.entries(commandHandlers)) {
     return;
   }
 }
+```
+
+## React 19 UI Standards
+
+### Component Architecture
+
+#### Functional Components with Hooks
+```typescript
+import React, { useState, useEffect } from 'react';
+import { cn } from '@/lib/utils';
+
+interface MyComponentProps {
+  title: string;
+  onAction?: () => void;
+  className?: string;
+}
+
+export function MyComponent({ title, onAction, className }: MyComponentProps): JSX.Element {
+  const [isLoading, setIsLoading] = useState(false);
+
+  useEffect(() => {
+    // Side effects
+  }, []);
+
+  return (
+    <div className={cn('p-4 rounded-lg', className)}>
+      <h2 className="text-lg font-semibold">{title}</h2>
+      {isLoading ? (
+        <div>Loading...</div>
+      ) : (
+        <button onClick={onAction}>Action</button>
+      )}
+    </div>
+  );
+}
+```
+
+### UI Library Standards (shadcn/ui)
+
+#### Component Usage
+- Use shadcn/ui components as base building blocks
+- Customize with Tailwind CSS classes
+- Maintain consistent design tokens
+- Support dark mode out of the box
+
+```typescript
+import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+
+export function SettingsPage(): JSX.Element {
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Settings</CardTitle>
+      </CardHeader>
+      <CardContent>
+        <Button variant="default">Save Changes</Button>
+      </CardContent>
+    </Card>
+  );
+}
+```
+
+### State Management
+
+#### TanStack Query for Server State
+```typescript
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { getProfiles, updateProfile } from '@/lib/api';
+
+export function useProfiles() {
+  return useQuery({
+    queryKey: ['profiles'],
+    queryFn: getProfiles,
+    staleTime: 5 * 60 * 1000, // 5 minutes
+  });
+}
+
+export function useUpdateProfile() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: updateProfile,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['profiles'] });
+    },
+  });
+}
+```
+
+#### Local State with useState
+- Use useState for simple component state
+- Use useReducer for complex state logic
+- Consider Zustand for global state (if needed)
+
+### Vite Configuration
+
+#### Build Settings (vite.config.ts)
+```typescript
+import { defineConfig } from 'vite';
+import react from '@vitejs/plugin-react';
+import path from 'path';
+
+export default defineConfig({
+  plugins: [react()],
+  resolve: {
+    alias: {
+      '@': path.resolve(__dirname, './src'),
+    },
+  },
+  build: {
+    outDir: 'dist',
+    sourcemap: true,
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          vendor: ['react', 'react-dom'],
+          ui: ['@radix-ui/react-dialog', '@radix-ui/react-dropdown-menu'],
+        },
+      },
+    },
+  },
+  server: {
+    port: 3000,
+    proxy: {
+      '/api': {
+        target: 'http://localhost:8080',
+        changeOrigin: true,
+      },
+    },
+  },
+});
+```
+
+### Performance Guidelines
+
+#### Code Splitting
+- Lazy load routes with React.lazy()
+- Dynamic imports for heavy components
+- Use Suspense boundaries for loading states
+
+```typescript
+import { lazy, Suspense } from 'react';
+
+const SettingsPage = lazy(() => import('@/pages/settings'));
+
+function App() {
+  return (
+    <Suspense fallback={<div>Loading...</div>}>
+      <SettingsPage />
+    </Suspense>
+  );
+}
+```
+
+#### Optimization
+- Use React.memo() for expensive components
+- Implement virtual scrolling for long lists
+- Optimize re-renders with useMemo() and useCallback()
+
+### WebSocket Integration
+
+#### Real-time Updates
+```typescript
+import { useEffect, useState } from 'react';
+
+export function useWebSocket(url: string) {
+  const [data, setData] = useState<any>(null);
+  const [isConnected, setIsConnected] = useState(false);
+
+  useEffect(() => {
+    const ws = new WebSocket(url);
+
+    ws.onopen = () => setIsConnected(true);
+    ws.onclose = () => setIsConnected(false);
+    ws.onmessage = (event) => setData(JSON.parse(event.data));
+
+    return () => ws.close();
+  }, [url]);
+
+  return { data, isConnected };
+}
+```
+
+### Testing Standards
+
+#### Vitest Configuration
+```typescript
+import { defineConfig } from 'vitest/config';
+import react from '@vitejs/plugin-react';
+
+export default defineConfig({
+  plugins: [react()],
+  test: {
+    environment: 'jsdom',
+    setupFiles: ['./src/test/setup.ts'],
+  },
+});
+```
+
+#### Component Testing
+```typescript
+import { render, screen, fireEvent } from '@testing-library/react';
+import { Button } from '@/components/ui/button';
+
+describe('Button', () => {
+  it('renders correctly', () => {
+    render(<Button>Click me</Button>);
+    expect(screen.getByRole('button')).toBeInTheDocument();
+  });
+
+  it('handles click events', () => {
+    const handleClick = vi.fn();
+    render(<Button onClick={handleClick}>Click me</Button>);
+
+    fireEvent.click(screen.getByRole('button'));
+    expect(handleClick).toHaveBeenCalledTimes(1);
+  });
+});
 ```
 
 ## UI System Patterns (Phase 5, v4.5.0+)

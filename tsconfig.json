@@ -52,6 +52,7 @@
     "dist",
     "tests",
     "lib",
-    "scripts"
+    "scripts",
+    "ui"
   ]
 }

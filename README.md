@@ -7,12 +7,14 @@
 ### One command, zero downtime, multiple accounts
 
 **Switch between multiple Claude accounts, GLM, and Kimi instantly.**<br>
-Stop hitting rate limits. Keep working continuously.
-
+Stop hitting rate limits. Keep working continuously.<br>
+Features a modern React 19 dashboard with real-time updates.
 
 [![License](https://img.shields.io/badge/license-MIT-C15F3C?style=for-the-badge)](LICENSE)
 [![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Linux%20%7C%20Windows-lightgrey?style=for-the-badge)]()
 [![npm](https://img.shields.io/npm/v/@kaitranntt/ccs?style=for-the-badge&logo=npm)](https://www.npmjs.com/package/@kaitranntt/ccs)
+[![React](https://img.shields.io/badge/React-19-61DAFB?style=for-the-badge&logo=react)](https://react.dev/)
+[![TypeScript](https://img.shields.io/badge/TypeScript-100%25-3178C6?style=for-the-badge&logo=typescript)](https://www.typescriptlang.org/)
 [![PoweredBy](https://img.shields.io/badge/PoweredBy-ClaudeKit-C15F3C?style=for-the-badge)](https://claudekit.cc?ref=HMNKXOHN)
 
 **Languages**: [English](README.md) | [Tiếng Việt](docs/vi/README.md) | [日本語](docs/ja/README.md)
@@ -458,6 +460,32 @@ Settings file format (`~/.ccs/gemini-flash.settings.json`):
 > **Windows**: Symlink support requires Developer Mode (v4.2 will add copy fallback)
 
 <br>
+
+## Web Dashboard
+
+CCS includes a modern React 19 dashboard for visual profile management and real-time monitoring:
+
+```bash
+# Start the web dashboard (auto-detects available port)
+ccs config
+
+# Or specify a port
+ccs config --port 3000
+
+# Access at http://localhost:PORT (shown in output)
+```
+
+**Dashboard Features**:
+- 🎨 **Modern UI**: Built with React 19, TypeScript, and shadcn/ui
+- 📊 **Real-time Updates**: WebSocket integration for live status
+- ⚙️ **Profile Management**: Visual configuration of all profiles
+- 🔍 **Health Monitoring**: System diagnostics and metrics
+- 🌙 **Dark Mode**: Eye-friendly theme switching
+- 📱 **Responsive**: Works on desktop and mobile
+
+### Dashboard Screenshots
+
+*(Add screenshots here when available)*
 
 ## Usage Examples
 

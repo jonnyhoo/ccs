@@ -927,7 +927,7 @@ export function getInstalledCliproxyVersion(): string {
  * Install a specific version of CLIProxyAPI
  * Deletes existing binary and downloads the specified version
  *
- * @param version Version to install (e.g., "6.5.40")
+ * @param version Version to install (e.g., "6.5.53")
  * @param verbose Enable verbose logging
  */
 export async function installCliproxyVersion(version: string, verbose = false): Promise<void> {
@@ -949,7 +949,7 @@ export async function installCliproxyVersion(version: string, verbose = false): 
 
 /**
  * Fetch the latest CLIProxyAPI version from GitHub API
- * @returns Latest version string (e.g., "6.5.40")
+ * @returns Latest version string (e.g., "6.5.53")
  */
 export async function fetchLatestCliproxyVersion(): Promise<string> {
   const manager = new BinaryManager();

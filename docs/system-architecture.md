@@ -2,7 +2,7 @@
 
 ## Overview
 
-CCS (Claude Code Switch) is a lightweight CLI wrapper that provides instant profile switching between Claude Sonnet 4.5, GLM 4.6, GLMT (GLM with Thinking), and Kimi for Coding models. Current version **v4.5.0** features AI-powered delegation system, selective .claude/ directory symlinking, stream-JSON output, shell completion (4 shells), and comprehensive diagnostics (doctor, sync, update commands). v4.5.0 completes transition to Node.js-first architecture with bootstrap-based installers.
+CCS (Claude Code Switch) is a TypeScript-based CLI tool that provides instant profile switching between Claude Sonnet 4.5, GLM 4.6, GLMT (GLM with Thinking), and Kimi for Coding models. The architecture features a modern React 19 web dashboard with real-time WebSocket integration, comprehensive TypeScript core, and cross-platform shell scripts. Current version includes AI-powered delegation, CLIProxy OAuth integration, and extensive automation infrastructure.
 
 ## Core Architecture Principles
 
@@ -17,15 +17,24 @@ CCS (Claude Code Switch) is a lightweight CLI wrapper that provides instant prof
 - Simplify error handling and messaging
 - Maintain cross-platform compatibility
 
-## High-Level Architecture (v4.3.2)
+## High-Level Architecture (v4.5.0)
 
 ```mermaid
 %%{init: {'theme': 'dark'}}%%
 graph TB
     subgraph "User Interface Layer"
         CLI[Command Line Interface]
+        UI[React Dashboard]
         FLAGS[Special Flag Handlers]
         DELEGATION[Delegation Flag]
+    end
+
+    subgraph "Web Dashboard (ui/)"
+        REACT[React 19 App]
+        WEBSOCKET[WebSocket Client]
+        VITE[Vite Dev Server]
+        API[API Integration]
+        ROUTER[React Router]
     end
 
     subgraph "Core Processing Layer"
@@ -40,6 +49,7 @@ graph TB
         DOCTOR[Diagnostics]
         COMPLETION[Shell Completion]
         SESSION[Session Manager]
+        CLIPROXY[CLIProxy Integration]
     end
 
     subgraph "System Integration Layer"
@@ -56,6 +66,8 @@ graph TB
 
     CLI --> DETECT
     CLI --> DELEGATION
+    UI --> API
+    API --> DETECT
     FLAGS --> SPAWN
     DELEGATION --> DELEGATOR
     DETECT --> CONFIG
@@ -136,6 +148,95 @@ if (profileInfo.name === 'glmt') {
   await execClaudeWithProxy(claudeCli, 'glmt', remainingArgs);
 }
 ```
+
+### React Dashboard Architecture (ui/)
+
+**Technology Stack**:
+- React 19 with TypeScript and concurrent features
+- Vite for fast development and optimized builds
+- shadcn/ui component library (Radix UI + Tailwind CSS)
+- TanStack Query for server state management
+- Real-time WebSocket integration for live updates
+
+#### Dashboard Components
+
+**1. Main Application (`ui/src/App.tsx`)**
+- React Router setup for client-side routing
+- Global providers (Query, Theme, WebSocket)
+- Layout structure with sidebar and main content
+
+**2. Pages (`ui/src/pages/`)**
+- **Dashboard**: Overview with system status and metrics
+- **API Profiles**: Model configuration management (GLM, GLMT, Kimi)
+- **CLIProxy**: OAuth provider setup and management
+- **Accounts**: Multi-account profile management
+- **Health**: System diagnostics and monitoring
+- **Settings**: Global configuration options
+- **Shared**: Data sharing management
+
+**3. Components (`ui/src/components/`)**
+- **UI Components (`ui/`)**: shadcn/ui base components
+- **Custom Components**: Domain-specific UI elements
+- **Charts**: Data visualization components
+- **Forms**: Profile and configuration forms
+
+**4. Hooks (`ui/src/hooks/`)**
+- `useWebSocket`: Real-time connection management
+- `useProfiles`: Profile data fetching and caching
+- `useSettings`: Settings persistence and sync
+- Custom hooks for domain logic
+
+**5. Utils (`ui/src/lib/`)**
+- API client functions
+- Utility helpers
+- Type definitions
+- Configuration constants
+
+#### Real-Time Features
+
+**WebSocket Integration**:
+```typescript
+// Real-time profile updates, delegation status, system health
+const wsUrl = `ws://localhost:8080/ws`;
+const { data, isConnected } = useWebSocket(wsUrl);
+```
+
+**Live Updates**:
+- Profile activation/deactivation
+- Delegation progress tracking
+- System health monitoring
+- CLIProxy authentication status
+
+#### State Management
+
+**Server State (TanStack Query)**:
+```typescript
+// Cached API calls with automatic refetching
+const queryClient = useQueryClient();
+const { data: profiles } = useQuery({
+  queryKey: ['profiles'],
+  queryFn: fetchProfiles,
+  staleTime: 5 * 60 * 1000, // 5 minutes
+});
+```
+
+**Local State**:
+- useState for component state
+- useReducer for complex state logic
+- Context for global theme preferences
+
+#### Build System (Vite)
+
+**Development**:
+- Fast HMR (Hot Module Replacement)
+- Vite dev server on port 3000
+- Proxy to backend API on port 8080
+
+**Production**:
+- Optimized bundle with code splitting
+- Manual chunks for vendor libraries
+- Source maps for debugging
+- Assets optimization
 
 ### 2. Configuration Manager (`bin/config-manager.js`)
 

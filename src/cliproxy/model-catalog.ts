@@ -23,6 +23,10 @@ export interface ModelEntry {
   broken?: boolean;
   /** Issue URL for broken models */
   issueUrl?: string;
+  /** Model is deprecated - show warning when selected */
+  deprecated?: boolean;
+  /** Deprecation reason/message */
+  deprecationReason?: string;
 }
 
 /**
@@ -47,16 +51,6 @@ export const MODEL_CATALOG: Partial<Record<CLIProxyProvider, ProviderCatalog>> =
     defaultModel: 'gemini-3-pro-preview',
     models: [
       {
-        id: 'gemini-claude-opus-4-5-thinking',
-        name: 'Claude Opus 4.5 Thinking',
-        description: 'Most capable, extended thinking',
-      },
-      {
-        id: 'gemini-claude-sonnet-4-5-thinking',
-        name: 'Claude Sonnet 4.5 Thinking',
-        description: 'Balanced with extended thinking',
-      },
-      {
         id: 'gemini-claude-sonnet-4-5',
         name: 'Claude Sonnet 4.5',
         description: 'Fast and capable',
@@ -65,6 +59,22 @@ export const MODEL_CATALOG: Partial<Record<CLIProxyProvider, ProviderCatalog>> =
         id: 'gemini-3-pro-preview',
         name: 'Gemini 3 Pro',
         description: 'Google latest model via Antigravity',
+      },
+      {
+        id: 'gemini-claude-opus-4-5-thinking',
+        name: 'Claude Opus 4.5 Thinking',
+        description: 'Most capable, extended thinking',
+        deprecated: true,
+        deprecationReason:
+          'Thinking models are deprecated due to compatibility issues with Antigravity',
+      },
+      {
+        id: 'gemini-claude-sonnet-4-5-thinking',
+        name: 'Claude Sonnet 4.5 Thinking',
+        description: 'Balanced with extended thinking',
+        deprecated: true,
+        deprecationReason:
+          'Thinking models are deprecated due to compatibility issues with Antigravity',
       },
     ],
   },
@@ -125,4 +135,23 @@ export function isModelBroken(provider: CLIProxyProvider, modelId: string): bool
 export function getModelIssueUrl(provider: CLIProxyProvider, modelId: string): string | undefined {
   const model = findModel(provider, modelId);
   return model?.issueUrl;
+}
+
+/**
+ * Check if model is deprecated
+ */
+export function isModelDeprecated(provider: CLIProxyProvider, modelId: string): boolean {
+  const model = findModel(provider, modelId);
+  return model?.deprecated === true;
+}
+
+/**
+ * Get deprecation reason for deprecated model
+ */
+export function getModelDeprecationReason(
+  provider: CLIProxyProvider,
+  modelId: string
+): string | undefined {
+  const model = findModel(provider, modelId);
+  return model?.deprecationReason;
 }

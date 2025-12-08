@@ -18,8 +18,9 @@ _ccs_completion() {
 
   # Top-level completion (first argument)
   if [[ ${COMP_CWORD} -eq 1 ]]; then
-    local commands="auth profile doctor sync update"
+    local commands="auth api cliproxy doctor sync update"
     local flags="--help --version --shell-completion -h -v -sc"
+    local cliproxy_profiles="gemini codex agy qwen"
     local profiles=""
 
     # Add profiles from config.json (settings-based profiles)
@@ -32,9 +33,21 @@ _ccs_completion() {
       profiles="$profiles $(jq -r '.profiles | keys[]' ~/.ccs/profiles.json 2>/dev/null || true)"
     fi
 
+    # Add cliproxy variants from config.json
+    if [[ -f ~/.ccs/config.json ]]; then
+      profiles="$profiles $(jq -r '.cliproxy | keys[]' ~/.ccs/config.json 2>/dev/null || true)"
+    fi
+
     # Combine all options
-    local opts="$commands $flags $profiles"
+    local opts="$commands $flags $cliproxy_profiles $profiles"
     COMPREPLY=( $(compgen -W "${opts}" -- ${cur}) )
+    return 0
+  fi
+
+  # CLIProxy provider flags (gemini, codex, agy, qwen)
+  if [[ ${COMP_WORDS[1]} =~ ^(gemini|codex|agy|qwen)$ ]]; then
+    local provider_flags="--auth --config --logout --headless --help -h"
+    COMPREPLY=( $(compgen -W "${provider_flags}" -- ${cur}) )
     return 0
   fi
 
@@ -45,15 +58,54 @@ _ccs_completion() {
     return 0
   fi
 
-  # profile subcommands
-  if [[ ${prev} == "profile" ]]; then
-    local profile_commands="create list remove --help -h"
-    COMPREPLY=( $(compgen -W "${profile_commands}" -- ${cur}) )
+  # api subcommands
+  if [[ ${prev} == "api" ]]; then
+    local api_commands="create list remove --help -h"
+    COMPREPLY=( $(compgen -W "${api_commands}" -- ${cur}) )
     return 0
   fi
 
-  # Completion for profile subcommands
-  if [[ ${COMP_WORDS[1]} == "profile" ]]; then
+  # cliproxy subcommands
+  if [[ ${prev} == "cliproxy" ]]; then
+    local cliproxy_commands="create list remove --install --latest --help -h"
+    COMPREPLY=( $(compgen -W "${cliproxy_commands}" -- ${cur}) )
+    return 0
+  fi
+
+  # Completion for cliproxy subcommands
+  if [[ ${COMP_WORDS[1]} == "cliproxy" ]]; then
+    case "${prev}" in
+      remove|delete|rm)
+        # Complete with cliproxy variant names
+        if [[ -f ~/.ccs/config.json ]]; then
+          local variants=$(jq -r '.cliproxy | keys[]' ~/.ccs/config.json 2>/dev/null || true)
+          COMPREPLY=( $(compgen -W "${variants}" -- ${cur}) )
+        fi
+        return 0
+        ;;
+      create)
+        # Complete with create flags
+        COMPREPLY=( $(compgen -W "--provider --model --force --yes -y" -- ${cur}) )
+        return 0
+        ;;
+      --provider)
+        # Complete with provider names
+        COMPREPLY=( $(compgen -W "gemini codex agy qwen" -- ${cur}) )
+        return 0
+        ;;
+      list|ls)
+        # No flags for list
+        return 0
+        ;;
+      --install)
+        # User enters version number
+        return 0
+        ;;
+    esac
+  fi
+
+  # Completion for api subcommands
+  if [[ ${COMP_WORDS[1]} == "api" ]]; then
     case "${prev}" in
       remove|delete|rm)
         # Complete with settings profile names
@@ -87,7 +139,8 @@ _ccs_completion() {
         return 0
         ;;
       create)
-        # No completion for create (user enters new name)
+        # Complete with create flags
+        COMPREPLY=( $(compgen -W "--force" -- ${cur}) )
         return 0
         ;;
       list)
@@ -104,8 +157,14 @@ _ccs_completion() {
     return 0
   fi
 
+  # Flags for update command
+  if [[ ${COMP_WORDS[1]} == "update" ]]; then
+    COMPREPLY=( $(compgen -W "--force --beta --dev --help -h" -- ${cur}) )
+    return 0
+  fi
+
   # Flags for shell-completion command
-  if [[ ${prev} == "--shell-completion" ]]; then
+  if [[ ${prev} == "--shell-completion" || ${prev} == "-sc" ]]; then
     COMPREPLY=( $(compgen -W "--bash --zsh --fish --powershell" -- ${cur}) )
     return 0
   fi

@@ -13,10 +13,8 @@
 #     sudo cp scripts/completion/ccs.zsh /usr/local/share/zsh/site-functions/_ccs
 
 # Set up completion styles for better formatting and colors
-# Color codes: 0;34=blue, 0;32=green, 0;33=yellow, 2;37=dim white
-# Pattern format: =(#b)(group1)(group2)==color_for_group1=color_for_group2
-# The leading '=' means no color for whole match, then each '=' assigns to each group
-zstyle ':completion:*:*:ccs:*:commands' list-colors '=(#b)(auth|profile|doctor|sync|update)([[:space:]]#--[[:space:]]#*)==0\;34=2\;37'
+zstyle ':completion:*:*:ccs:*:commands' list-colors '=(#b)(auth|api|cliproxy|doctor|sync|update)([[:space:]]#--[[:space:]]#*)==0\;34=2\;37'
+zstyle ':completion:*:*:ccs:*:proxy-profiles' list-colors '=(#b)(gemini|codex|agy|qwen)([[:space:]]#--[[:space:]]#*)==0\;35=2\;37'
 zstyle ':completion:*:*:ccs:*:model-profiles' list-colors '=(#b)(default|glm|glmt|kimi|[^[:space:]]##)([[:space:]]#--[[:space:]]#*)==0\;32=2\;37'
 zstyle ':completion:*:*:ccs:*:account-profiles' list-colors '=(#b)([^[:space:]]##)([[:space:]]#--[[:space:]]#*)==0\;33=2\;37'
 zstyle ':completion:*:*:ccs:*' group-name ''
@@ -26,20 +24,29 @@ zstyle ':completion:*:*:ccs:*' list-rows-first true
 zstyle ':completion:*:*:ccs:*' menu select
 
 _ccs() {
-  local -a commands settings_profiles_described account_profiles_described
+  local -a commands proxy_profiles settings_profiles_described account_profiles_described cliproxy_variants_described
   local curcontext="$curcontext" state line
   typeset -A opt_args
 
-  # Define top-level commands (padded for alignment)
+  # Define top-level commands
   commands=(
     'auth:Manage multiple Claude accounts'
-    'profile:Manage API profiles (create/remove)'
+    'api:Manage API profiles (create/remove)'
+    'cliproxy:Manage CLIProxy variants and binary'
     'doctor:Run health check and diagnostics'
     'sync:Sync delegation commands and skills'
     'update:Update CCS to latest version'
   )
 
-  # Define known settings profiles with descriptions (consistent padding)
+  # Define CLIProxy hardcoded profiles (OAuth providers)
+  proxy_profiles=(
+    'gemini:Google Gemini (OAuth)'
+    'codex:OpenAI Codex (OAuth)'
+    'agy:Antigravity (OAuth)'
+    'qwen:Qwen Code (OAuth)'
+  )
+
+  # Define known settings profiles with descriptions
   local -A profile_descriptions
   profile_descriptions=(
     'default' 'Default Claude Sonnet 4.5'
@@ -53,7 +60,6 @@ _ccs() {
     local -a raw_settings_profiles
     raw_settings_profiles=(${(f)"$(jq -r '.profiles | keys[]' ~/.ccs/config.json 2>/dev/null)"})
 
-    # Add descriptions to settings profiles
     for profile in $raw_settings_profiles; do
       local desc="${profile_descriptions[$profile]:-Settings-based profile}"
       settings_profiles_described+=("${profile}:${desc}")
@@ -65,9 +71,18 @@ _ccs() {
     local -a raw_account_profiles
     raw_account_profiles=(${(f)"$(jq -r '.profiles | keys[]' ~/.ccs/profiles.json 2>/dev/null)"})
 
-    # Add descriptions to account profiles
     for profile in $raw_account_profiles; do
       account_profiles_described+=("${profile}:Account-based profile")
+    done
+  fi
+
+  # Load cliproxy variants from config.json
+  if [[ -f ~/.ccs/config.json ]]; then
+    local -a raw_cliproxy_variants
+    raw_cliproxy_variants=(${(f)"$(jq -r '.cliproxy | keys[]' ~/.ccs/config.json 2>/dev/null)"})
+
+    for variant in $raw_cliproxy_variants; do
+      cliproxy_variants_described+=("${variant}:CLIProxy variant")
     done
   fi
 
@@ -80,10 +95,11 @@ _ccs() {
 
   case $state in
     command)
-      # Describe commands and profiles with proper tagging for colors
       _describe -t commands 'commands' commands
+      _describe -t proxy-profiles 'CLIProxy profiles' proxy_profiles
       _describe -t model-profiles 'model profiles' settings_profiles_described
       _describe -t account-profiles 'account profiles' account_profiles_described
+      _describe -t cliproxy-variants 'CLIProxy variants' cliproxy_variants_described
       ;;
 
     args)
@@ -91,14 +107,32 @@ _ccs() {
         auth)
           _ccs_auth
           ;;
-        profile)
-          _ccs_profile
+        api)
+          _ccs_api
+          ;;
+        cliproxy)
+          _ccs_cliproxy
+          ;;
+        update)
+          _arguments \
+            '--force[Force reinstall current version]' \
+            '--beta[Install from dev channel]' \
+            '--dev[Install from dev channel]' \
+            '(- *)'{-h,--help}'[Show help]'
           ;;
         doctor)
           _arguments \
             '(- *)'{-h,--help}'[Show help for doctor command]'
           ;;
-        --shell-completion)
+        gemini|codex|agy|qwen)
+          _arguments \
+            '--auth[Authenticate only]' \
+            '--config[Change model configuration]' \
+            '--logout[Clear authentication]' \
+            '--headless[Headless auth (for SSH)]' \
+            '(- *)'{-h,--help}'[Show help]'
+          ;;
+        --shell-completion|-sc)
           _arguments \
             '--bash[Install for bash]' \
             '--zsh[Install for zsh]' \
@@ -106,7 +140,6 @@ _ccs() {
             '--powershell[Install for PowerShell]'
           ;;
         *)
-          # For profile names, complete with Claude CLI arguments
           _message 'Claude CLI arguments'
           ;;
       esac
@@ -114,32 +147,30 @@ _ccs() {
   esac
 }
 
-_ccs_profile() {
+_ccs_api() {
   local curcontext="$curcontext" state line
   typeset -A opt_args
 
-  local -a profile_commands settings_profiles
+  local -a api_commands settings_profiles
 
-  # Define profile subcommands
-  profile_commands=(
+  api_commands=(
     'create:Create new API profile (interactive)'
-    'list:List all profiles'
-    'remove:Remove a profile'
+    'list:List all API profiles'
+    'remove:Remove an API profile'
   )
 
-  # Load settings profiles for remove command
   if [[ -f ~/.ccs/config.json ]]; then
     settings_profiles=(${(f)"$(jq -r '.profiles | keys[]' ~/.ccs/config.json 2>/dev/null)"})
   fi
 
   _arguments -C \
-    '(- *)'{-h,--help}'[Show help for profile commands]' \
+    '(- *)'{-h,--help}'[Show help for api commands]' \
     '1: :->subcommand' \
     '*:: :->subargs'
 
   case $state in
     subcommand)
-      _describe -t profile-commands 'profile commands' profile_commands
+      _describe -t api-commands 'api commands' api_commands
       ;;
 
     subargs)
@@ -154,11 +185,62 @@ _ccs_profile() {
             {--yes,-y}'[Skip prompts]'
           ;;
         list)
-          # No arguments
           ;;
         remove|delete|rm)
           _arguments \
             '1:profile:($settings_profiles)' \
+            {--yes,-y}'[Skip confirmation]'
+          ;;
+      esac
+      ;;
+  esac
+}
+
+_ccs_cliproxy() {
+  local curcontext="$curcontext" state line
+  typeset -A opt_args
+
+  local -a cliproxy_commands cliproxy_variants providers
+
+  cliproxy_commands=(
+    'create:Create new CLIProxy variant profile'
+    'list:List all CLIProxy variant profiles'
+    'remove:Remove a CLIProxy variant profile'
+  )
+
+  providers=(gemini codex agy qwen)
+
+  if [[ -f ~/.ccs/config.json ]]; then
+    cliproxy_variants=(${(f)"$(jq -r '.cliproxy | keys[]' ~/.ccs/config.json 2>/dev/null)"})
+  fi
+
+  _arguments -C \
+    '(- *)'{-h,--help}'[Show help for cliproxy commands]' \
+    '--install[Install specific version]:version:' \
+    '--latest[Install latest version]' \
+    '1: :->subcommand' \
+    '*:: :->subargs'
+
+  case $state in
+    subcommand)
+      _describe -t cliproxy-commands 'cliproxy commands' cliproxy_commands
+      ;;
+
+    subargs)
+      case $words[1] in
+        create)
+          _arguments \
+            '1:variant name:' \
+            '--provider[Provider name]:provider:($providers)' \
+            '--model[Model name]:model:' \
+            '--force[Overwrite existing variant]' \
+            {--yes,-y}'[Skip prompts]'
+          ;;
+        list|ls)
+          ;;
+        remove|delete|rm)
+          _arguments \
+            '1:variant:($cliproxy_variants)' \
             {--yes,-y}'[Skip confirmation]'
           ;;
       esac
@@ -172,7 +254,6 @@ _ccs_auth() {
 
   local -a auth_commands account_profiles
 
-  # Define auth subcommands
   auth_commands=(
     'create:Create new profile and login'
     'list:List all saved profiles'
@@ -181,7 +262,6 @@ _ccs_auth() {
     'default:Set default profile'
   )
 
-  # Load account profiles
   if [[ -f ~/.ccs/profiles.json ]]; then
     account_profiles=(${(f)"$(jq -r '.profiles | keys[]' ~/.ccs/profiles.json 2>/dev/null)"})
   fi
@@ -225,5 +305,4 @@ _ccs_auth() {
   esac
 }
 
-# Register the completion function
 _ccs "$@"

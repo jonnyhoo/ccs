@@ -23,6 +23,7 @@ import {
   isCLIProxyInstalled,
   getCLIProxyPath,
 } from '../cliproxy';
+import { getAllAuthStatus, getOAuthConfig } from '../cliproxy/auth-handler';
 import { CLIPROXY_FALLBACK_VERSION } from '../cliproxy/platform-detector';
 import { CLIPROXY_PROFILES, CLIProxyProfileName } from '../auth/profile-detector';
 import { getCcsDir, getConfigPath, loadConfig } from '../utils/config-manager';
@@ -354,50 +355,62 @@ async function handleCreate(args: string[]): Promise<void> {
 async function handleList(): Promise<void> {
   await initUI();
 
-  console.log(header('CLIProxy Variants'));
+  console.log(header('CLIProxy Profiles'));
   console.log('');
 
   try {
+    // Show auth status for built-in profiles
+    console.log(subheader('Built-in Profiles'));
+    const authStatuses = getAllAuthStatus();
+
+    for (const status of authStatuses) {
+      const oauthConfig = getOAuthConfig(status.provider);
+      const icon = status.authenticated ? ok('') : warn('');
+      const authLabel = status.authenticated
+        ? color('authenticated', 'success')
+        : dim('not authenticated');
+      const lastAuthStr = status.lastAuth ? dim(` (${status.lastAuth.toLocaleDateString()})`) : '';
+
+      console.log(
+        `  ${icon} ${color(status.provider, 'command').padEnd(18)} ${oauthConfig.displayName.padEnd(16)} ${authLabel}${lastAuthStr}`
+      );
+    }
+    console.log('');
+    console.log(dim('  To authenticate: ccs <provider> --auth'));
+    console.log(dim('  To logout:       ccs <provider> --logout'));
+    console.log('');
+
+    // Show custom variants if any
     const config = loadConfig();
     const variants = config.cliproxy || {};
     const variantNames = Object.keys(variants);
 
-    if (variantNames.length === 0) {
-      console.log(warn('No CLIProxy variants configured'));
+    if (variantNames.length > 0) {
+      console.log(subheader('Custom Variants'));
+
+      // Build table data
+      const rows: string[][] = variantNames.map((name) => {
+        const variant = variants[name] as { provider: string; settings: string };
+        return [name, variant.provider, variant.settings];
+      });
+
+      // Print table
+      console.log(
+        table(rows, {
+          head: ['Variant', 'Provider', 'Settings'],
+          colWidths: [15, 12, 35],
+        })
+      );
       console.log('');
-      console.log('Built-in CLIProxy profiles:');
-      CLIPROXY_PROFILES.forEach((p) => console.log(`  ${color(p, 'command')}`));
+      console.log(dim(`Total: ${variantNames.length} custom variant(s)`));
       console.log('');
-      console.log('To create a custom variant:');
-      console.log(`  ${color('ccs cliproxy create', 'command')}`);
-      console.log('');
-      return;
     }
 
-    // Build table data
-    const rows: string[][] = variantNames.map((name) => {
-      const variant = variants[name] as { provider: string; settings: string };
-      return [name, variant.provider, variant.settings];
-    });
-
-    // Print table
-    console.log(
-      table(rows, {
-        head: ['Variant', 'Provider', 'Settings'],
-        colWidths: [15, 12, 35],
-      })
-    );
-    console.log('');
-
-    // Show built-in profiles
-    console.log(subheader('Built-in Profiles'));
-    console.log(`  ${CLIPROXY_PROFILES.join(', ')}`);
-    console.log('');
-
-    console.log(dim(`Total: ${variantNames.length} custom variant(s)`));
+    console.log(dim('To create a custom variant:'));
+    console.log(`  ${color('ccs cliproxy create', 'command')}`);
     console.log('');
   } catch (error) {
-    console.log(fail(`Failed to list variants: ${(error as Error).message}`));
+    console.log(fail(`Failed to list profiles: ${(error as Error).message}`));
     process.exit(1);
   }
 }
@@ -494,39 +507,85 @@ async function handleRemove(args: string[]): Promise<void> {
 // ============================================================================
 
 /**
- * Show cliproxy command help
+ * Show cliproxy command help with styled UI
  */
-function showHelp(): void {
+async function showHelp(): Promise<void> {
+  await initUI();
+
   console.log('');
-  console.log('Usage: ccs cliproxy <command> [options]');
+  console.log(header('CLIProxy Management'));
   console.log('');
-  console.log('Manage CLIProxy variants and binary installation.');
+
+  // Usage
+  console.log(subheader('Usage:'));
+  console.log(`  ${color('ccs cliproxy', 'command')} <command> [options]`);
   console.log('');
-  console.log('Profile Commands:');
-  console.log('  create [name]        Create new CLIProxy variant profile');
-  console.log('  list                 List all CLIProxy variant profiles');
-  console.log('  remove <name>        Remove a CLIProxy variant profile');
+
+  // Profile Commands
+  console.log(subheader('Profile Commands:'));
+  const profileCmds: [string, string][] = [
+    ['create [name]', 'Create new CLIProxy variant profile'],
+    ['list', 'List all CLIProxy variant profiles'],
+    ['remove <name>', 'Remove a CLIProxy variant profile'],
+  ];
+  const maxProfileLen = Math.max(...profileCmds.map(([cmd]) => cmd.length));
+  for (const [cmd, desc] of profileCmds) {
+    console.log(`  ${color(cmd.padEnd(maxProfileLen + 2), 'command')} ${desc}`);
+  }
   console.log('');
-  console.log('Binary Commands:');
-  console.log('  --install <version>  Install a specific binary version');
-  console.log('  --latest             Install the latest binary version');
+
+  // Binary Commands
+  console.log(subheader('Binary Commands:'));
+  const binaryCmds: [string, string][] = [
+    ['--install <version>', 'Install a specific binary version'],
+    ['--latest', 'Install the latest binary version'],
+  ];
+  const maxBinaryLen = Math.max(...binaryCmds.map(([cmd]) => cmd.length));
+  for (const [cmd, desc] of binaryCmds) {
+    console.log(`  ${color(cmd.padEnd(maxBinaryLen + 2), 'command')} ${desc}`);
+  }
   console.log('');
-  console.log('Create Options:');
-  console.log('  --provider <name>    Provider (gemini, codex, agy, qwen)');
-  console.log('  --model <model>      Model name');
-  console.log('  --force              Overwrite existing variant');
-  console.log('  --yes, -y            Skip confirmation prompts');
+
+  // Create Options
+  console.log(subheader('Create Options:'));
+  const createOpts: [string, string][] = [
+    ['--provider <name>', 'Provider (gemini, codex, agy, qwen)'],
+    ['--model <model>', 'Model name'],
+    ['--force', 'Overwrite existing variant'],
+    ['--yes, -y', 'Skip confirmation prompts'],
+  ];
+  const maxOptLen = Math.max(...createOpts.map(([opt]) => opt.length));
+  for (const [opt, desc] of createOpts) {
+    console.log(`  ${color(opt.padEnd(maxOptLen + 2), 'command')} ${desc}`);
+  }
   console.log('');
-  console.log('Examples:');
-  console.log('  ccs cliproxy create                    Interactive wizard');
-  console.log('  ccs cliproxy create g3 --provider gemini --model gemini-3-pro-preview');
-  console.log('  ccs cliproxy list                      Show all variants');
-  console.log('  ccs cliproxy remove g3                 Remove variant');
-  console.log('  ccs cliproxy --latest                  Update binary');
+
+  // Examples
+  console.log(subheader('Examples:'));
+  console.log(
+    `  $ ${color('ccs cliproxy create', 'command')}                    ${dim('# Interactive wizard')}`
+  );
+  console.log(`  $ ${color('ccs cliproxy create g3 --provider gemini', 'command')}`);
+  console.log(
+    `    ${color('--model gemini-3-pro-preview', 'command')}            ${dim('# Non-interactive')}`
+  );
+  console.log(
+    `  $ ${color('ccs cliproxy list', 'command')}                       ${dim('# Show all variants')}`
+  );
+  console.log(
+    `  $ ${color('ccs cliproxy remove g3', 'command')}                  ${dim('# Remove variant')}`
+  );
+  console.log(
+    `  $ ${color('ccs cliproxy --latest', 'command')}                   ${dim('# Update binary')}`
+  );
   console.log('');
-  console.log('Notes:');
-  console.log(`  Default fallback version: ${CLIPROXY_FALLBACK_VERSION}`);
-  console.log('  Releases: https://github.com/router-for-me/CLIProxyAPI/releases');
+
+  // Notes
+  console.log(subheader('Notes:'));
+  console.log(`  Default fallback version: ${color(CLIPROXY_FALLBACK_VERSION, 'info')}`);
+  console.log(
+    `  Releases: ${color('https://github.com/router-for-me/CLIProxyAPI/releases', 'path')}`
+  );
   console.log('');
 }
 
@@ -577,6 +636,8 @@ async function showStatus(verbose: boolean): Promise<void> {
   }
 
   console.log('');
+  console.log(dim(`Run "ccs cliproxy --help" for all available commands`));
+  console.log('');
 }
 
 /**
@@ -585,7 +646,7 @@ async function showStatus(verbose: boolean): Promise<void> {
 async function installVersion(version: string, verbose: boolean): Promise<void> {
   // Validate version format (basic semver check)
   if (!/^\d+\.\d+\.\d+$/.test(version)) {
-    console.error('[X] Invalid version format. Expected format: X.Y.Z (e.g., 6.5.40)');
+    console.error('[X] Invalid version format. Expected format: X.Y.Z (e.g., 6.5.53)');
     process.exit(1);
   }
 
@@ -657,7 +718,7 @@ export async function handleCliproxyCommand(args: string[]): Promise<void> {
 
   // Handle --help
   if (args.includes('--help') || args.includes('-h')) {
-    showHelp();
+    await showHelp();
     return;
   }
 
@@ -684,7 +745,7 @@ export async function handleCliproxyCommand(args: string[]): Promise<void> {
     if (!version || version.startsWith('-')) {
       console.error('[X] Missing version argument for --install');
       console.error('    Usage: ccs cliproxy --install <version>');
-      console.error('    Example: ccs cliproxy --install 6.5.40');
+      console.error('    Example: ccs cliproxy --install 6.5.53');
       process.exit(1);
     }
     await installVersion(version, verbose);

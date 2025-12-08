@@ -38,6 +38,49 @@ bun run format       # Auto-fix formatting
 - `src/` - TypeScript source (55 modules)
 - `dist/` - Compiled JavaScript (npm package)
 - `lib/` - Native shell scripts (bash, PowerShell)
+- `ui/` - React dashboard (Vite + React 19 + shadcn/ui)
+
+## UI Quality Gates (React Dashboard)
+
+**The ui/ directory has IDENTICAL quality gates to the main project.**
+
+**Package Manager: bun** (same as root)
+```bash
+cd ui
+bun install          # Install dependencies
+bun run build        # TypeScript + Vite build
+bun run validate     # Full validation: typecheck + lint:fix + format:check
+```
+
+**Fix issues before committing:**
+```bash
+cd ui
+bun run typecheck    # Type check only
+bun run lint:fix     # Auto-fix lint issues
+bun run format       # Auto-fix formatting
+bun run format:check # Verify formatting (no changes)
+```
+
+**Linting rules (ui/eslint.config.js) - ALL errors:**
+- `@typescript-eslint/no-unused-vars` - error (ignore `_` prefix)
+- `@typescript-eslint/no-explicit-any` - error
+- `@typescript-eslint/no-non-null-assertion` - error
+- `prefer-const`, `no-var`, `eqeqeq` - error
+- `react-hooks/exhaustive-deps` - warning
+- `react-refresh/only-export-components` - error
+
+**Type safety (ui/tsconfig.app.json):**
+- `strict: true` with `verbatimModuleSyntax` enabled
+- `noUnusedLocals`, `noUnusedParameters` - enabled
+- Type-only imports required: `import type { X }` for types
+
+**UI file structure:**
+- `ui/src/` - React components, hooks, pages
+- `ui/src/components/ui/` - shadcn/ui components
+- `ui/src/hooks/` - Custom React hooks
+- `ui/src/pages/` - Route pages
+- `ui/src/providers/` - Context providers
+- `dist/ui/` - Built bundle (served by Express)
 
 **Linting rules (eslint.config.mjs) - ALL errors:**
 - `@typescript-eslint/no-unused-vars` - error (ignore `_` prefix)

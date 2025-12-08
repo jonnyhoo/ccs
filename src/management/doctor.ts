@@ -13,12 +13,12 @@ import packageJson from '../../package.json';
 import {
   isCLIProxyInstalled,
   getCLIProxyPath,
-  isPortAvailable,
   getAllAuthStatus,
   getConfigPath,
   getInstalledCliproxyVersion,
   CLIPROXY_DEFAULT_PORT,
 } from '../cliproxy';
+import { getPortProcess, isCLIProxyProcess } from '../utils/port-utils';
 
 // Make ora optional (might not be available during npm install postinstall)
 // ora v9+ is an ES module, need to use .default for CommonJS
@@ -843,26 +843,40 @@ class Doctor {
       }
     }
 
-    // 4. Port availability
+    // 4. Port status (check if CLIProxy or other process)
     const portSpinner = ora(`Checking port ${CLIPROXY_DEFAULT_PORT}`).start();
-    const portAvailable = await isPortAvailable(CLIPROXY_DEFAULT_PORT);
+    const portProcess = await getPortProcess(CLIPROXY_DEFAULT_PORT);
 
-    if (portAvailable) {
-      portSpinner.succeed();
-      console.log(`  ${ok('CLIProxy Port'.padEnd(22))}  ${CLIPROXY_DEFAULT_PORT} available`);
+    if (!portProcess) {
+      // Port is free
+      portSpinner.info();
+      console.log(
+        `  ${info('CLIProxy Port'.padEnd(22))}  ${CLIPROXY_DEFAULT_PORT} free (proxy not running)`
+      );
       this.results.addCheck('CLIProxy Port', 'success', undefined, undefined, {
         status: 'OK',
-        info: `Port ${CLIPROXY_DEFAULT_PORT} available`,
+        info: `Port ${CLIPROXY_DEFAULT_PORT} free`,
+      });
+    } else if (isCLIProxyProcess(portProcess)) {
+      // CLIProxy is running (expected)
+      portSpinner.succeed();
+      console.log(`  ${ok('CLIProxy Port'.padEnd(22))}  CLIProxy running (PID ${portProcess.pid})`);
+      this.results.addCheck('CLIProxy Port', 'success', undefined, undefined, {
+        status: 'OK',
+        info: `CLIProxy running (PID ${portProcess.pid})`,
       });
     } else {
+      // Port conflict - different process
       portSpinner.warn();
-      console.log(`  ${warn('CLIProxy Port'.padEnd(22))}  ${CLIPROXY_DEFAULT_PORT} in use`);
+      console.log(
+        `  ${warn('CLIProxy Port'.padEnd(22))}  ${CLIPROXY_DEFAULT_PORT} occupied by ${portProcess.processName}`
+      );
       this.results.addCheck(
         'CLIProxy Port',
         'warning',
-        `Port ${CLIPROXY_DEFAULT_PORT} is in use`,
-        `Check: lsof -i :${CLIPROXY_DEFAULT_PORT}`,
-        { status: 'WARN', info: `Port ${CLIPROXY_DEFAULT_PORT} in use` }
+        `Port ${CLIPROXY_DEFAULT_PORT} occupied by ${portProcess.processName} (PID ${portProcess.pid})`,
+        `Kill process: kill ${portProcess.pid} (or restart conflicting application)`,
+        { status: 'WARN', info: `Occupied by ${portProcess.processName}` }
       );
     }
   }
