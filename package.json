@@ -1,6 +1,6 @@
 {
   "name": "@kaitranntt/ccs",
-  "version": "5.9.0-dev.7",
+  "version": "5.10.0",
   "description": "Claude Code Switch - Instant profile switching between Claude Sonnet 4.5 and GLM 4.6",
   "keywords": [
     "cli",

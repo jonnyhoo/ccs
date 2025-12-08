@@ -1,3 +1,38 @@
+# [5.10.0](https://github.com/kaitranntt/ccs/compare/v5.9.0...v5.10.0) (2025-12-08)
+
+
+### Bug Fixes
+
+* **glmt:** add bearer prefix for openai-compatible endpoints ([077a406](https://github.com/kaitranntt/ccs/commit/077a406df6f79fdd0e343c3b6b3d0860a3d41a87)), closes [#61](https://github.com/kaitranntt/ccs/issues/61)
+* **glmt:** pass env vars to proxy subprocess ([e17a068](https://github.com/kaitranntt/ccs/commit/e17a068a58c7dee67a33852860e5bcae051a7f37))
+* **ui:** adjust layout of localhost disclaimer ([ad5859c](https://github.com/kaitranntt/ccs/commit/ad5859c157271c111f1bbc437060770746d3394e))
+* **ui:** improve table column widths and spacing ([9b4a5d8](https://github.com/kaitranntt/ccs/commit/9b4a5d80c5c398c7165426dac2a88a8e9443ff3a))
+* **ui:** prettier formatting for documentation link ([d11071a](https://github.com/kaitranntt/ccs/commit/d11071ad90d6ed3886b437b3ac15b3818d5b2585))
+* **ui:** suppress react compiler warning in profiles-table ([cf072c0](https://github.com/kaitranntt/ccs/commit/cf072c03b269d9df93ec014905b50d41a78a83bd))
+
+
+### Features
+
+* **build:** disable commitlint subject-case rule and add clean-dist script ([5947532](https://github.com/kaitranntt/ccs/commit/5947532fc65ba39a70f422b314fad103603e00af))
+* **cliproxy:** add authentication status display to web dashboard ([a283f94](https://github.com/kaitranntt/ccs/commit/a283f942a9712f97c5789ea39a508da1d5305a79))
+* **cliproxy:** deprecate claude thinking models in agy provider ([63b3ca7](https://github.com/kaitranntt/ccs/commit/63b3ca776079634fcf59f231e51ad8947795b2a0))
+* **completions:** enhance cliproxy help and update shell completion scripts ([59a2f2b](https://github.com/kaitranntt/ccs/commit/59a2f2b717a97447759ff68fdb8eca81908a9d88))
+* **doctor:** improve port detection with process identification ([98fd1be](https://github.com/kaitranntt/ccs/commit/98fd1bedb9b38c4900f8cc4049d74347d407d499))
+* **ui:** add accounts and cliproxy management dashboard ([03059db](https://github.com/kaitranntt/ccs/commit/03059dbdccaca9736ae45c0754543e59c2a3e0f6))
+* **ui:** add ccs branding assets and logo component ([1b16305](https://github.com/kaitranntt/ccs/commit/1b163050f795f1a7a75be203895f1addd6d21f8e))
+* **ui:** add comprehensive quality gates and fix linting issues ([707af2f](https://github.com/kaitranntt/ccs/commit/707af2f01a67264f7722afcd53ac3f6246aefc89))
+* **ui:** enhance settings dialog with tabbed interface and scrollable areas ([4adb94b](https://github.com/kaitranntt/ccs/commit/4adb94b90cf9e16929fef14ed46d474e07e9c131))
+* **ui:** enhance visual contrast and update project link ([c65d9c9](https://github.com/kaitranntt/ccs/commit/c65d9c9c3484f8053e2b4315198ee29a4c3be2b0))
+* **ui:** redesign sidebar and fix disclaimer ([c8890f3](https://github.com/kaitranntt/ccs/commit/c8890f33c2e9e15fdf89bb2b467eda2c836d95d2))
+* **ui:** reorganize theme colors and add dev script ([235bd6b](https://github.com/kaitranntt/ccs/commit/235bd6b36a28e63661123344c983f5d06ee1b3aa))
+* **ui:** update theme colors to match brand palette ([b5f22e4](https://github.com/kaitranntt/ccs/commit/b5f22e415b865eba59c6458488409f2db4e29f5a))
+* **web-dashboard:** add dev mode with hmr and optimize build ([23a3382](https://github.com/kaitranntt/ccs/commit/23a33820c03fe26bcf12bd3b2432ce50a88b90d1))
+* **web-dashboard:** add express server and react ui scaffolding ([6a6f2a2](https://github.com/kaitranntt/ccs/commit/6a6f2a24638cdaeec7868e9742da066c0d8cdc6b))
+* **web-dashboard:** add rest api and real-time sync ([56502ab](https://github.com/kaitranntt/ccs/commit/56502ab6a8deae4d7cafe76de46b5cc156398f85))
+* **web-dashboard:** complete settings, health, shared data and build integration ([5975802](https://github.com/kaitranntt/ccs/commit/59758024c92005016087264ed5caa0738cbcb1b2))
+* **web:** enhance dashboard functionality and ui components ([6e2da64](https://github.com/kaitranntt/ccs/commit/6e2da6458a0f574dbe32e555c9725d766e3c861c))
+* **web:** update shared routes and home page for dashboard ([e078f15](https://github.com/kaitranntt/ccs/commit/e078f152976661c410ca0a8cd502a6bd3b56e056))
+
 # [5.9.0](https://github.com/kaitranntt/ccs/compare/v5.8.0...v5.9.0) (2025-12-06)
 
 
