@@ -77,13 +77,8 @@ export async function startServer(options: ServerOptions): Promise<ServerInstanc
   // Start listening
   return new Promise<ServerInstance>((resolve) => {
     server.listen(options.port, () => {
-      // Non-blocking prewarm: load usage cache in background
-      import('./usage-routes').then(({ prewarmUsageCache }) => {
-        prewarmUsageCache().catch(() => {
-          // Error already logged in prewarmUsageCache
-        });
-      });
-
+      // Usage cache loads on-demand when Analytics page is visited
+      // This keeps server startup instant for users who don't need analytics
       resolve({ server, wss, cleanup });
     });
   });

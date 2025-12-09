@@ -5,8 +5,10 @@
  * Supports daily, monthly, and session-based usage data aggregation.
  *
  * Performance optimizations:
- * - TTL-based caching to reduce better-ccusage library calls
+ * - Persistent disk cache to avoid re-parsing JSONL files on startup
+ * - TTL-based in-memory caching for fast repeated requests
  * - Request coalescing to prevent duplicate concurrent requests
+ * - Non-blocking prewarm with instant stale data serving
  */
 
 import { Router, Request, Response } from 'express';
@@ -18,6 +20,14 @@ import {
   type MonthlyUsage,
   type SessionUsage,
 } from 'better-ccusage/data-loader';
+import {
+  readDiskCache,
+  writeDiskCache,
+  isDiskCacheFresh,
+  isDiskCacheStale,
+  clearDiskCache,
+  getCacheAge,
+} from './usage-disk-cache';
 
 export const usageRoutes = Router();
 
@@ -50,8 +60,9 @@ const CACHE_TTL = {
   session: 60 * 1000, // 1 minute - user may refresh
 };
 
-// Stale-while-revalidate: max age for stale data (1 hour)
-const STALE_TTL = 60 * 60 * 1000;
+/// Stale-while-revalidate: max age for stale data (7 days)
+// We always show cached data to avoid blocking UI, refresh happens in background
+const STALE_TTL = 7 * 24 * 60 * 60 * 1000;
 
 // Track when data was last fetched (for UI indicator)
 let lastFetchTimestamp: number | null = null;
@@ -67,12 +78,34 @@ const cache = new Map<string, CacheEntry<unknown>>();
 // Pending requests for coalescing (prevents duplicate concurrent calls)
 const pendingRequests = new Map<string, Promise<unknown>>();
 
+// Track if disk cache has been loaded into memory
+let diskCacheInitialized = false;
+
+/**
+ * Persist cache to disk when we have enough data to be useful.
+ * Writes immediately with whatever data is available (empty arrays for missing).
+ * This ensures disk cache is created after first Analytics page visit.
+ */
+function persistCacheIfComplete(): void {
+  const daily = cache.get('daily') as CacheEntry<DailyUsage[]> | undefined;
+  const monthly = cache.get('monthly') as CacheEntry<MonthlyUsage[]> | undefined;
+  const session = cache.get('session') as CacheEntry<SessionUsage[]> | undefined;
+
+  // Write if we have at least daily data (the most essential)
+  if (daily) {
+    writeDiskCache(daily.data, monthly?.data ?? [], session?.data ?? []);
+  }
+}
+
 /**
  * Get cached data or fetch from loader with TTL
  * Also coalesces concurrent requests to prevent duplicate library calls
  * Implements stale-while-revalidate pattern for instant responses
  */
 async function getCachedData<T>(key: string, ttl: number, loader: () => Promise<T>): Promise<T> {
+  // Ensure disk cache is loaded on first request
+  ensureDiskCacheLoaded();
+
   const cached = cache.get(key) as CacheEntry<T> | undefined;
   const now = Date.now();
 
@@ -89,6 +122,8 @@ async function getCachedData<T>(key: string, ttl: number, loader: () => Promise<
         .then((data) => {
           cache.set(key, { data, timestamp: Date.now() });
           lastFetchTimestamp = Date.now();
+          // Persist to disk if all data types are cached
+          persistCacheIfComplete();
         })
         .catch((err) => {
           console.error(`[!] Background refresh failed for ${key}:`, err);
@@ -112,6 +147,8 @@ async function getCachedData<T>(key: string, ttl: number, loader: () => Promise<
     .then((data) => {
       cache.set(key, { data, timestamp: Date.now() });
       lastFetchTimestamp = Date.now();
+      // Persist to disk if all data types are cached
+      persistCacheIfComplete();
       return data;
     })
     .finally(() => {
@@ -148,24 +185,135 @@ async function getCachedSessionData(): Promise<SessionUsage[]> {
  */
 export function clearUsageCache(): void {
   cache.clear();
+  clearDiskCache();
+  // Reset so next API call will try to reload from disk/source
+  diskCacheInitialized = false;
+}
+
+// Track if background refresh is in progress
+let isRefreshing = false;
+
+/**
+ * Load fresh data from better-ccusage and update both memory and disk caches
+ */
+async function refreshFromSource(): Promise<{
+  daily: DailyUsage[];
+  monthly: MonthlyUsage[];
+  session: SessionUsage[];
+}> {
+  const [daily, monthly, session] = await Promise.all([
+    loadDailyUsageData() as Promise<DailyUsage[]>,
+    loadMonthlyUsageData() as Promise<MonthlyUsage[]>,
+    loadSessionData() as Promise<SessionUsage[]>,
+  ]);
+
+  // Update in-memory cache
+  const now = Date.now();
+  cache.set('daily', { data: daily, timestamp: now });
+  cache.set('monthly', { data: monthly, timestamp: now });
+  cache.set('session', { data: session, timestamp: now });
+  lastFetchTimestamp = now;
+
+  // Persist to disk
+  writeDiskCache(daily, monthly, session);
+
+  return { daily, monthly, session };
+}
+
+// ============================================================================
+// Module Initialization - Load disk cache immediately for instant API responses
+// ============================================================================
+
+/**
+ * Initialize in-memory cache from disk cache (lazy - called on first API request).
+ * This ensures first API request gets instant data without calling better-ccusage.
+ * Background refresh is NOT triggered here - it happens via SWR pattern in getCachedData().
+ */
+function ensureDiskCacheLoaded(): void {
+  if (diskCacheInitialized) return;
+  diskCacheInitialized = true;
+
+  const diskCache = readDiskCache();
+  if (!diskCache) return;
+
+  // Load disk cache into memory (regardless of freshness)
+  // SWR pattern in getCachedData() will handle background refresh
+  cache.set('daily', { data: diskCache.daily, timestamp: diskCache.timestamp });
+  cache.set('monthly', { data: diskCache.monthly, timestamp: diskCache.timestamp });
+  cache.set('session', { data: diskCache.session, timestamp: diskCache.timestamp });
+  lastFetchTimestamp = diskCache.timestamp;
 }
 
 /**
  * Pre-warm usage caches on server startup
- * Loads all usage data into cache so first user request is instant
- * Returns timestamp when cache was populated
+ *
+ * Strategy:
+ * 1. Check disk cache - if fresh, use it (instant startup)
+ * 2. If stale, use it immediately but trigger background refresh
+ * 3. If no cache, return immediately and let first request trigger load
+ *
+ * This ensures dashboard opens in <1s regardless of cache state
  */
-export async function prewarmUsageCache(): Promise<{ timestamp: number; elapsed: number }> {
+export async function prewarmUsageCache(): Promise<{
+  timestamp: number;
+  elapsed: number;
+  source: string;
+}> {
   const start = Date.now();
   console.log('[i] Pre-warming usage cache...');
 
   try {
-    await Promise.all([getCachedDailyData(), getCachedMonthlyData(), getCachedSessionData()]);
+    const diskCache = readDiskCache();
+
+    // Fresh disk cache - use it directly
+    if (diskCache && isDiskCacheFresh(diskCache)) {
+      const now = Date.now();
+      cache.set('daily', { data: diskCache.daily, timestamp: diskCache.timestamp });
+      cache.set('monthly', { data: diskCache.monthly, timestamp: diskCache.timestamp });
+      cache.set('session', { data: diskCache.session, timestamp: diskCache.timestamp });
+      lastFetchTimestamp = diskCache.timestamp;
+
+      const elapsed = Date.now() - start;
+      console.log(
+        `[OK] Usage cache ready from disk (${elapsed}ms, cached ${getCacheAge(diskCache)})`
+      );
+      return { timestamp: now, elapsed, source: 'disk-fresh' };
+    }
+
+    // Stale disk cache - use it immediately, refresh in background
+    if (diskCache && isDiskCacheStale(diskCache)) {
+      const now = Date.now();
+      cache.set('daily', { data: diskCache.daily, timestamp: diskCache.timestamp });
+      cache.set('monthly', { data: diskCache.monthly, timestamp: diskCache.timestamp });
+      cache.set('session', { data: diskCache.session, timestamp: diskCache.timestamp });
+      lastFetchTimestamp = diskCache.timestamp;
+
+      const elapsed = Date.now() - start;
+      console.log(
+        `[OK] Usage cache ready from disk (${elapsed}ms, stale ${getCacheAge(diskCache)}, refreshing...)`
+      );
+
+      // Background refresh
+      if (!isRefreshing) {
+        isRefreshing = true;
+        refreshFromSource()
+          .then(() => console.log('[OK] Background refresh complete'))
+          .catch((err) => console.error('[!] Background refresh failed:', err))
+          .finally(() => {
+            isRefreshing = false;
+          });
+      }
+
+      return { timestamp: now, elapsed, source: 'disk-stale' };
+    }
+
+    // No usable disk cache - refresh from source (blocking for first startup only)
+    console.log('[i] No disk cache, loading from source...');
+    await refreshFromSource();
 
     const elapsed = Date.now() - start;
-    lastFetchTimestamp = Date.now();
     console.log(`[OK] Usage cache ready (${elapsed}ms)`);
-    return { timestamp: lastFetchTimestamp, elapsed };
+    return { timestamp: Date.now(), elapsed, source: 'fresh' };
   } catch (err) {
     console.error('[!] Failed to prewarm usage cache:', err);
     throw err;

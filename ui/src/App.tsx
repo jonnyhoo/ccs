@@ -1,3 +1,4 @@
+import { lazy, Suspense } from 'react';
 import { BrowserRouter, Routes, Route, Outlet } from 'react-router-dom';
 import { QueryClientProvider } from '@tanstack/react-query';
 import { SidebarProvider } from '@/components/ui/sidebar';
@@ -7,16 +8,36 @@ import { ConnectionIndicator } from '@/components/connection-indicator';
 import { LocalhostDisclaimer } from '@/components/localhost-disclaimer';
 import { Toaster } from 'sonner';
 import { queryClient } from '@/lib/query-client';
-import {
-  HomePage,
-  ApiPage,
-  CliproxyPage,
-  AccountsPage,
-  SettingsPage,
-  HealthPage,
-  SharedPage,
-  AnalyticsPage,
-} from '@/pages';
+import { Skeleton } from '@/components/ui/skeleton';
+// Eager load: HomePage (initial route)
+import { HomePage } from '@/pages';
+
+// Lazy load: heavy pages with charts or complex dependencies
+const AnalyticsPage = lazy(() =>
+  import('@/pages/analytics').then((m) => ({ default: m.AnalyticsPage }))
+);
+const ApiPage = lazy(() => import('@/pages/api').then((m) => ({ default: m.ApiPage })));
+const CliproxyPage = lazy(() =>
+  import('@/pages/cliproxy').then((m) => ({ default: m.CliproxyPage }))
+);
+const AccountsPage = lazy(() =>
+  import('@/pages/accounts').then((m) => ({ default: m.AccountsPage }))
+);
+const SettingsPage = lazy(() =>
+  import('@/pages/settings').then((m) => ({ default: m.SettingsPage }))
+);
+const HealthPage = lazy(() => import('@/pages/health').then((m) => ({ default: m.HealthPage })));
+const SharedPage = lazy(() => import('@/pages/shared').then((m) => ({ default: m.SharedPage })));
+
+// Loading fallback for lazy-loaded pages
+function PageLoader() {
+  return (
+    <div className="p-6 space-y-4">
+      <Skeleton className="h-8 w-48" />
+      <Skeleton className="h-64 w-full" />
+    </div>
+  );
+}
 
 function Layout() {
   return (
@@ -29,7 +50,9 @@ function Layout() {
             <ThemeToggle />
           </div>
         </header>
-        <Outlet />
+        <Suspense fallback={<PageLoader />}>
+          <Outlet />
+        </Suspense>
         <LocalhostDisclaimer />
       </main>
     </SidebarProvider>
