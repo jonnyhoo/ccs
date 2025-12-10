@@ -4,7 +4,7 @@
  * Caches aggregated usage data to disk to avoid re-parsing 6000+ JSONL files
  * on every dashboard startup. Uses TTL-based invalidation with stale-while-revalidate.
  *
- * Cache location: ~/.ccs/usage-cache.json
+ * Cache location: ~/.ccs/cache/usage.json
  * Default TTL: 5 minutes (configurable)
  */
 
@@ -15,7 +15,8 @@ import type { DailyUsage, MonthlyUsage, SessionUsage } from './usage-types';
 
 // Cache configuration
 const CCS_DIR = path.join(os.homedir(), '.ccs');
-const CACHE_FILE = path.join(CCS_DIR, 'usage-cache.json');
+const CACHE_DIR = path.join(CCS_DIR, 'cache');
+const CACHE_FILE = path.join(CACHE_DIR, 'usage.json');
 const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
 const STALE_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days (max age for stale data)
 
@@ -33,11 +34,11 @@ export interface UsageDiskCache {
 const CACHE_VERSION = 2;
 
 /**
- * Ensure ~/.ccs directory exists
+ * Ensure ~/.ccs/cache directory exists
  */
-function ensureCcsDir(): void {
-  if (!fs.existsSync(CCS_DIR)) {
-    fs.mkdirSync(CCS_DIR, { recursive: true });
+function ensureCacheDir(): void {
+  if (!fs.existsSync(CACHE_DIR)) {
+    fs.mkdirSync(CACHE_DIR, { recursive: true });
   }
 }
 
@@ -97,7 +98,7 @@ export function writeDiskCache(
   session: SessionUsage[]
 ): void {
   try {
-    ensureCcsDir();
+    ensureCacheDir();
 
     const cache: UsageDiskCache = {
       version: CACHE_VERSION,

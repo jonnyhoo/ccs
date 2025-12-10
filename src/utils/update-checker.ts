@@ -8,7 +8,8 @@ import * as os from 'os';
 import * as https from 'https';
 import { colored } from './helpers';
 
-const UPDATE_CHECK_FILE = path.join(os.homedir(), '.ccs', 'update-check.json');
+const CACHE_DIR = path.join(os.homedir(), '.ccs', 'cache');
+const UPDATE_CHECK_FILE = path.join(CACHE_DIR, 'update-check.json');
 const CHECK_INTERVAL = 24 * 60 * 60 * 1000; // 24 hours
 const GITHUB_API_URL = 'https://api.github.com/repos/kaitranntt/ccs/releases/latest';
 const NPM_REGISTRY_BASE = 'https://registry.npmjs.org/@kaitranntt/ccs';
@@ -208,9 +209,8 @@ export function readCache(): UpdateCache {
  */
 export function writeCache(cache: UpdateCache): void {
   try {
-    const ccsDir = path.join(os.homedir(), '.ccs');
-    if (!fs.existsSync(ccsDir)) {
-      fs.mkdirSync(ccsDir, { recursive: true, mode: 0o700 });
+    if (!fs.existsSync(CACHE_DIR)) {
+      fs.mkdirSync(CACHE_DIR, { recursive: true, mode: 0o700 });
     }
 
     fs.writeFileSync(UPDATE_CHECK_FILE, JSON.stringify(cache, null, 2), 'utf8');
