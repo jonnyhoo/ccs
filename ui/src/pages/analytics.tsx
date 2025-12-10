@@ -18,7 +18,7 @@ import { UsageTrendChart } from '@/components/analytics/usage-trend-chart';
 import { ModelBreakdownChart } from '@/components/analytics/model-breakdown-chart';
 import { ModelDetailsContent } from '@/components/analytics/model-details-content';
 import { SessionStatsCard } from '@/components/analytics/session-stats-card';
-import { AnomalyAlertBadge } from '@/components/analytics/anomaly-alert-badge';
+import { UsageInsightsCard } from '@/components/analytics/usage-insights-card';
 import { TrendingUp, PieChart, RefreshCw, DollarSign, ChevronRight } from 'lucide-react';
 import {
   useUsageSummary,
@@ -105,10 +105,6 @@ export function AnalyticsPage() {
             <p className="text-sm text-muted-foreground">Track usage & insights</p>
           </div>
           <div className="flex items-center gap-2">
-            {/* Anomaly Alert Badge */}
-            {!isInsightsLoading && insights && (
-              <AnomalyAlertBadge anomalies={insights.anomalies} summary={insights.summary} />
-            )}
             <DateRangeFilter
               value={dateRange}
               onChange={setDateRange}
@@ -289,11 +285,19 @@ export function AnalyticsPage() {
               </CardContent>
             </Card>
 
-            {/* Session Stats - 4/10 width */}
+            {/* Session Stats - 2/10 width */}
             <SessionStatsCard
               data={sessions}
               isLoading={isSessionsLoading}
-              className="lg:col-span-4"
+              className="lg:col-span-2"
+            />
+
+            {/* Usage Insights - 2/10 width */}
+            <UsageInsightsCard
+              anomalies={insights?.anomalies}
+              summary={insights?.summary}
+              isLoading={isInsightsLoading}
+              className="lg:col-span-2"
             />
           </div>
 
