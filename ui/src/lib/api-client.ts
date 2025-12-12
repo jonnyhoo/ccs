@@ -172,7 +172,7 @@ export const api = {
   },
   cliproxy: {
     list: () => request<{ variants: Variant[] }>('/cliproxy'),
-    auth: () => request<{ authStatus: AuthStatus[] }>('/cliproxy/auth'),
+    getAuthStatus: () => request<{ authStatus: AuthStatus[] }>('/cliproxy/auth'),
     create: (data: CreateVariant) =>
       request('/cliproxy', {
         method: 'POST',
@@ -234,6 +234,15 @@ export const api = {
         }),
       remove: (provider: string, accountId: string) =>
         request(`/cliproxy/accounts/${provider}/${accountId}`, { method: 'DELETE' }),
+    },
+    // OAuth flow
+    auth: {
+      /** Start OAuth flow - opens browser for authentication */
+      start: (provider: string, nickname?: string) =>
+        request<{ success: boolean; account: OAuthAccount }>(`/cliproxy/auth/${provider}/start`, {
+          method: 'POST',
+          body: JSON.stringify({ nickname }),
+        }),
     },
   },
   accounts: {

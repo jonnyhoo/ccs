@@ -18,7 +18,7 @@ export function useCliproxy() {
 export function useCliproxyAuth() {
   return useQuery({
     queryKey: ['cliproxy-auth'],
-    queryFn: () => api.cliproxy.auth(),
+    queryFn: () => api.cliproxy.getAuthStatus(),
   });
 }
 
@@ -111,6 +111,24 @@ export function useRemoveAccount() {
       queryClient.invalidateQueries({ queryKey: ['cliproxy-accounts'] });
       queryClient.invalidateQueries({ queryKey: ['cliproxy-auth'] });
       toast.success('Account removed');
+    },
+    onError: (error: Error) => {
+      toast.error(error.message);
+    },
+  });
+}
+
+// OAuth flow hook
+export function useStartAuth() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({ provider, nickname }: { provider: string; nickname?: string }) =>
+      api.cliproxy.auth.start(provider, nickname),
+    onSuccess: (_data, variables) => {
+      queryClient.invalidateQueries({ queryKey: ['cliproxy-accounts'] });
+      queryClient.invalidateQueries({ queryKey: ['cliproxy-auth'] });
+      toast.success(`Account added for ${variables.provider}`);
     },
     onError: (error: Error) => {
       toast.error(error.message);

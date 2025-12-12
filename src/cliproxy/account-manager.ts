@@ -131,10 +131,53 @@ export function saveAccountsRegistry(registry: AccountsRegistry): void {
 }
 
 /**
+ * Sync registry with actual token files
+ * Removes stale entries where token file no longer exists
+ * Called automatically when loading accounts
+ */
+function syncRegistryWithTokenFiles(registry: AccountsRegistry): boolean {
+  const authDir = getAuthDir();
+  let modified = false;
+
+  for (const [_providerName, providerAccounts] of Object.entries(registry.providers)) {
+    if (!providerAccounts) continue;
+
+    const staleIds: string[] = [];
+
+    for (const [accountId, meta] of Object.entries(providerAccounts.accounts)) {
+      const tokenPath = path.join(authDir, meta.tokenFile);
+      if (!fs.existsSync(tokenPath)) {
+        staleIds.push(accountId);
+      }
+    }
+
+    // Remove stale accounts
+    for (const id of staleIds) {
+      delete providerAccounts.accounts[id];
+      modified = true;
+
+      // Update default if deleted
+      if (providerAccounts.default === id) {
+        const remainingIds = Object.keys(providerAccounts.accounts);
+        providerAccounts.default = remainingIds[0] || 'default';
+      }
+    }
+  }
+
+  return modified;
+}
+
+/**
  * Get all accounts for a provider
  */
 export function getProviderAccounts(provider: CLIProxyProvider): AccountInfo[] {
   const registry = loadAccountsRegistry();
+
+  // Sync with actual token files (removes stale entries)
+  if (syncRegistryWithTokenFiles(registry)) {
+    saveAccountsRegistry(registry);
+  }
+
   const providerAccounts = registry.providers[provider];
 
   if (!providerAccounts) {

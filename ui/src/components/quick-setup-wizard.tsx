@@ -18,6 +18,13 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent } from '@/components/ui/card';
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import {
   Copy,
   Check,
   RefreshCw,
@@ -26,9 +33,12 @@ import {
   Terminal,
   User,
   Sparkles,
+  ExternalLink,
+  Loader2,
 } from 'lucide-react';
-import { useCliproxyAuth, useCreateVariant } from '@/hooks/use-cliproxy';
+import { useCliproxyAuth, useCreateVariant, useStartAuth } from '@/hooks/use-cliproxy';
 import type { AuthStatus, OAuthAccount } from '@/lib/api-client';
+import { MODEL_CATALOGS } from '@/lib/model-catalogs';
 
 interface QuickSetupWizardProps {
   open: boolean;
@@ -53,9 +63,11 @@ export function QuickSetupWizard({ open, onClose }: QuickSetupWizardProps) {
   const [modelName, setModelName] = useState('');
   const [copied, setCopied] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [isAddingNewAccount, setIsAddingNewAccount] = useState(false); // Track explicit "add account" action
 
   const { data: authData, refetch } = useCliproxyAuth();
   const createMutation = useCreateVariant();
+  const startAuthMutation = useStartAuth();
 
   // Get auth status for selected provider
   const providerAuth = authData?.authStatus.find(
@@ -73,26 +85,22 @@ export function QuickSetupWizard({ open, onClose }: QuickSetupWizardProps) {
         setVariantName('');
         setModelName('');
         setCopied(false);
+        setIsAddingNewAccount(false);
       }, 0);
       return () => clearTimeout(timer);
     }
   }, [open]);
 
   // Auto-advance from auth step when account detected
-  // Use timeout to avoid synchronous setState in effect (React lint rule)
+  // BUT only if user didn't explicitly click "Add new account"
   useEffect(() => {
-    if (step === 'auth' && accounts.length > 0) {
+    if (step === 'auth' && accounts.length > 0 && !isAddingNewAccount) {
       const timer = setTimeout(() => {
-        if (accounts.length === 1) {
-          setSelectedAccount(accounts[0]);
-          setStep('variant');
-        } else {
-          setStep('account');
-        }
+        setStep('account');
       }, 0);
       return () => clearTimeout(timer);
     }
-  }, [step, accounts]);
+  }, [step, accounts, isAddingNewAccount]);
 
   const copyCommand = async (cmd: string) => {
     await navigator.clipboard.writeText(cmd);
@@ -106,17 +114,32 @@ export function QuickSetupWizard({ open, onClose }: QuickSetupWizardProps) {
     setIsRefreshing(false);
   };
 
+  const handleStartAuth = () => {
+    startAuthMutation.mutate(
+      { provider: selectedProvider },
+      {
+        onSuccess: (data) => {
+          // Account created, select it and advance to variant step
+          if (data.account) {
+            setSelectedAccount(data.account as OAuthAccount);
+            setStep('variant');
+          }
+          refetch(); // Refresh auth status
+        },
+      }
+    );
+  };
+
   const handleProviderSelect = (providerId: string) => {
     setSelectedProvider(providerId);
     const auth = authData?.authStatus.find((s: AuthStatus) => s.provider === providerId);
     const provAccounts = auth?.accounts || [];
 
     if (provAccounts.length === 0) {
+      // No accounts - go to auth step to add first account
       setStep('auth');
-    } else if (provAccounts.length === 1) {
-      setSelectedAccount(provAccounts[0]);
-      setStep('variant');
     } else {
+      // Has accounts - always show account selection (includes "Add new account" option)
       setStep('account');
     }
   };
@@ -152,9 +175,36 @@ export function QuickSetupWizard({ open, onClose }: QuickSetupWizardProps) {
   };
   const currentProgress = getStepProgress(step);
 
+  // Prevent accidental close when user has made progress
+  const handleOpenChange = (isOpen: boolean) => {
+    if (!isOpen) {
+      // Allow closing from success step or provider step (no progress yet)
+      if (step === 'success' || step === 'provider') {
+        onClose();
+        return;
+      }
+      // For other steps, require explicit close via Cancel/Back
+      // The X button still works, but clicking outside doesn't close
+    }
+  };
+
   return (
-    <Dialog open={open} onOpenChange={onClose}>
-      <DialogContent className="sm:max-w-lg">
+    <Dialog open={open} onOpenChange={handleOpenChange}>
+      <DialogContent
+        className="sm:max-w-lg"
+        onPointerDownOutside={(e) => {
+          // Prevent closing on outside click when user has made progress
+          if (step !== 'success' && step !== 'provider') {
+            e.preventDefault();
+          }
+        }}
+        onEscapeKeyDown={(e) => {
+          // Prevent ESC close during auth or variant creation
+          if (startAuthMutation.isPending || createMutation.isPending) {
+            e.preventDefault();
+          }
+        }}
+      >
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Sparkles className="w-5 h-5 text-primary" />
@@ -192,6 +242,48 @@ export function QuickSetupWizard({ open, onClose }: QuickSetupWizardProps) {
           {/* Step: Authentication */}
           {step === 'auth' && (
             <div className="space-y-4">
+              {/* Primary: OAuth Button */}
+              <div className="text-center space-y-3">
+                <p className="text-sm text-muted-foreground">
+                  Authenticate with {providers.find((p) => p.id === selectedProvider)?.name} to add
+                  an account
+                </p>
+                <Button
+                  onClick={handleStartAuth}
+                  disabled={startAuthMutation.isPending}
+                  className="w-full gap-2"
+                  size="lg"
+                >
+                  {startAuthMutation.isPending ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      Authenticating...
+                    </>
+                  ) : (
+                    <>
+                      <ExternalLink className="w-4 h-4" />
+                      Authenticate in Browser
+                    </>
+                  )}
+                </Button>
+                {startAuthMutation.isPending && (
+                  <p className="text-xs text-muted-foreground">
+                    Complete the OAuth flow in your browser...
+                  </p>
+                )}
+              </div>
+
+              {/* Divider */}
+              <div className="relative">
+                <div className="absolute inset-0 flex items-center">
+                  <span className="w-full border-t" />
+                </div>
+                <div className="relative flex justify-center text-xs uppercase">
+                  <span className="bg-background px-2 text-muted-foreground">Or use terminal</span>
+                </div>
+              </div>
+
+              {/* Secondary: CLI Command */}
               <Card>
                 <CardContent className="p-4 space-y-3">
                   <div className="flex items-center gap-2 text-sm text-muted-foreground">
@@ -210,21 +302,25 @@ export function QuickSetupWizard({ open, onClose }: QuickSetupWizardProps) {
                       )}
                     </Button>
                   </div>
-                  <div className="text-xs text-muted-foreground">
-                    This will open your browser to authenticate with{' '}
-                    {providers.find((p) => p.id === selectedProvider)?.name}
-                  </div>
                 </CardContent>
               </Card>
 
               <div className="flex items-center justify-between">
-                <Button variant="ghost" onClick={() => setStep('provider')}>
+                <Button
+                  variant="ghost"
+                  onClick={() => setStep('provider')}
+                  disabled={startAuthMutation.isPending}
+                >
                   <ArrowLeft className="w-4 h-4 mr-2" />
                   Back
                 </Button>
-                <Button onClick={handleRefresh} disabled={isRefreshing}>
+                <Button
+                  variant="outline"
+                  onClick={handleRefresh}
+                  disabled={isRefreshing || startAuthMutation.isPending}
+                >
                   <RefreshCw className={`w-4 h-4 mr-2 ${isRefreshing ? 'animate-spin' : ''}`} />
-                  {isRefreshing ? 'Checking...' : 'I ran the command'}
+                  {isRefreshing ? 'Checking...' : 'Refresh Status'}
                 </Button>
               </div>
             </div>
@@ -233,15 +329,23 @@ export function QuickSetupWizard({ open, onClose }: QuickSetupWizardProps) {
           {/* Step: Account Selection */}
           {step === 'account' && (
             <div className="space-y-4">
+              {/* Existing accounts header */}
+              <div className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+                Select an account ({accounts.length})
+              </div>
+
               <div className="grid gap-2">
                 {accounts.map((acc: OAuthAccount) => (
                   <button
                     key={acc.id}
+                    type="button"
                     onClick={() => handleAccountSelect(acc)}
                     className="flex items-center justify-between p-3 border rounded-lg hover:bg-muted/50 transition-colors text-left"
                   >
                     <div className="flex items-center gap-3">
-                      <User className="w-5 h-5 text-muted-foreground" />
+                      <div className="w-8 h-8 rounded-full bg-muted flex items-center justify-center">
+                        <User className="w-4 h-4 text-muted-foreground" />
+                      </div>
                       <div>
                         <div className="font-medium">{acc.email || acc.id}</div>
                         {acc.isDefault && (
@@ -253,10 +357,41 @@ export function QuickSetupWizard({ open, onClose }: QuickSetupWizardProps) {
                   </button>
                 ))}
               </div>
-              <div className="flex items-center justify-between">
-                <Button variant="ghost" onClick={() => setStep('auth')}>
+
+              {/* Divider */}
+              <div className="relative">
+                <div className="absolute inset-0 flex items-center">
+                  <span className="w-full border-t" />
+                </div>
+                <div className="relative flex justify-center text-xs uppercase">
+                  <span className="bg-background px-2 text-muted-foreground">Or</span>
+                </div>
+              </div>
+
+              {/* Add new account button - more prominent */}
+              <button
+                type="button"
+                className="w-full flex items-center gap-3 p-3 border-2 border-dashed border-primary/50 rounded-lg hover:border-primary hover:bg-primary/5 transition-colors text-left"
+                onClick={() => {
+                  setIsAddingNewAccount(true);
+                  setStep('auth');
+                }}
+              >
+                <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
+                  <ExternalLink className="w-4 h-4 text-primary" />
+                </div>
+                <div>
+                  <div className="font-medium text-primary">Add new account</div>
+                  <div className="text-xs text-muted-foreground">
+                    Authenticate with a different account
+                  </div>
+                </div>
+              </button>
+
+              <div className="flex items-center justify-between pt-2">
+                <Button variant="ghost" onClick={() => setStep('provider')}>
                   <ArrowLeft className="w-4 h-4 mr-2" />
-                  Add different account
+                  Back
                 </Button>
               </div>
             </div>
@@ -286,30 +421,54 @@ export function QuickSetupWizard({ open, onClose }: QuickSetupWizardProps) {
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="model-name">Model (optional)</Label>
-                <Input
-                  id="model-name"
-                  value={modelName}
-                  onChange={(e) => setModelName(e.target.value)}
-                  placeholder="e.g., gemini-2.5-pro"
-                />
+                <Label>Model</Label>
+                <Select value={modelName} onValueChange={setModelName}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select a model" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {MODEL_CATALOGS[selectedProvider]?.models.map((m) => (
+                      <SelectItem key={m.id} value={m.id}>
+                        <div className="flex items-center gap-2">
+                          <span>{m.name}</span>
+                          {m.description && (
+                            <span className="text-xs text-muted-foreground">
+                              - {m.description}
+                            </span>
+                          )}
+                        </div>
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <div className="text-xs text-muted-foreground">
+                  Default: {MODEL_CATALOGS[selectedProvider]?.defaultModel || 'provider default'}
+                </div>
               </div>
 
               <div className="flex items-center justify-between pt-2">
                 <Button
                   variant="ghost"
-                  onClick={() => (accounts.length > 1 ? setStep('account') : setStep('auth'))}
+                  onClick={() => (accounts.length > 0 ? setStep('account') : setStep('provider'))}
                 >
                   <ArrowLeft className="w-4 h-4 mr-2" />
                   Back
                 </Button>
-                <Button
-                  onClick={handleCreateVariant}
-                  disabled={!variantName || createMutation.isPending}
-                >
-                  {createMutation.isPending ? 'Creating...' : 'Create Variant'}
-                </Button>
+                <div className="flex items-center gap-2">
+                  <Button variant="ghost" onClick={onClose}>
+                    Skip
+                  </Button>
+                  <Button
+                    onClick={handleCreateVariant}
+                    disabled={!variantName || createMutation.isPending}
+                  >
+                    {createMutation.isPending ? 'Creating...' : 'Create Variant'}
+                  </Button>
+                </div>
               </div>
+              <p className="text-xs text-center text-muted-foreground">
+                Skip if you just wanted to add an account without creating a variant
+              </p>
             </div>
           )}
 

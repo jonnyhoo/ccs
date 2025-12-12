@@ -1,8 +1,6 @@
 /**
  * Add Account Dialog Component
- * Simple dialog to add another OAuth account to a provider
- *
- * Shows auth command + refresh button (no variant creation)
+ * Triggers OAuth flow server-side to add another account to a provider
  */
 
 import { useState } from 'react';
@@ -14,9 +12,10 @@ import {
   DialogDescription,
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent } from '@/components/ui/card';
-import { Copy, Check, RefreshCw, Terminal } from 'lucide-react';
-import { useCliproxyAuth } from '@/hooks/use-cliproxy';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Loader2, ExternalLink, User } from 'lucide-react';
+import { useStartAuth } from '@/hooks/use-cliproxy';
 
 interface AddAccountDialogProps {
   open: boolean;
@@ -26,69 +25,82 @@ interface AddAccountDialogProps {
 }
 
 export function AddAccountDialog({ open, onClose, provider, displayName }: AddAccountDialogProps) {
-  const [copied, setCopied] = useState(false);
-  const [isRefreshing, setIsRefreshing] = useState(false);
-  const { refetch } = useCliproxyAuth();
+  const [nickname, setNickname] = useState('');
+  const startAuthMutation = useStartAuth();
 
-  const authCommand = `ccs ${provider} --auth --add`;
-
-  const copyCommand = async () => {
-    await navigator.clipboard.writeText(authCommand);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+  const handleStartAuth = () => {
+    startAuthMutation.mutate(
+      { provider, nickname: nickname.trim() || undefined },
+      {
+        onSuccess: () => {
+          setNickname('');
+          onClose();
+        },
+      }
+    );
   };
 
-  const handleRefresh = async () => {
-    setIsRefreshing(true);
-    await refetch();
-    setIsRefreshing(false);
-    onClose();
+  const handleOpenChange = (isOpen: boolean) => {
+    if (!isOpen && !startAuthMutation.isPending) {
+      setNickname('');
+      onClose();
+    }
   };
 
   return (
-    <Dialog open={open} onOpenChange={onClose}>
+    <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle>Add {displayName} Account</DialogTitle>
           <DialogDescription>
-            Run the command below in your terminal to authenticate a new account
+            Click the button below to authenticate a new account. A browser window will open for
+            OAuth.
           </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-4 py-4">
-          <Card>
-            <CardContent className="p-4 space-y-3">
-              <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                <Terminal className="w-4 h-4" />
-                Run this command:
-              </div>
-              <div className="flex items-center gap-2">
-                <code className="flex-1 px-3 py-2 bg-muted rounded-md font-mono text-sm">
-                  {authCommand}
-                </code>
-                <Button variant="outline" size="icon" onClick={copyCommand}>
-                  {copied ? (
-                    <Check className="w-4 h-4 text-green-500" />
-                  ) : (
-                    <Copy className="w-4 h-4" />
-                  )}
-                </Button>
-              </div>
-              <div className="text-xs text-muted-foreground">
-                This will open your browser to authenticate with {displayName}
-              </div>
-            </CardContent>
-          </Card>
+          <div className="space-y-2">
+            <Label htmlFor="nickname">Nickname (optional)</Label>
+            <div className="flex items-center gap-2">
+              <User className="w-4 h-4 text-muted-foreground" />
+              <Input
+                id="nickname"
+                value={nickname}
+                onChange={(e) => setNickname(e.target.value)}
+                placeholder="e.g., work, personal"
+                disabled={startAuthMutation.isPending}
+                className="flex-1"
+              />
+            </div>
+            <p className="text-xs text-muted-foreground">
+              A friendly name to identify this account. Auto-generated from email if left empty.
+            </p>
+          </div>
 
-          <div className="flex items-center justify-end gap-2">
-            <Button variant="ghost" onClick={onClose}>
+          <div className="flex items-center justify-end gap-2 pt-2">
+            <Button variant="ghost" onClick={onClose} disabled={startAuthMutation.isPending}>
               Cancel
             </Button>
-            <Button onClick={handleRefresh} disabled={isRefreshing}>
-              <RefreshCw className={`w-4 h-4 mr-2 ${isRefreshing ? 'animate-spin' : ''}`} />
-              {isRefreshing ? 'Checking...' : 'I ran the command'}
+            <Button onClick={handleStartAuth} disabled={startAuthMutation.isPending}>
+              {startAuthMutation.isPending ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  Authenticating...
+                </>
+              ) : (
+                <>
+                  <ExternalLink className="w-4 h-4 mr-2" />
+                  Authenticate
+                </>
+              )}
             </Button>
           </div>
+
+          {startAuthMutation.isPending && (
+            <p className="text-sm text-center text-muted-foreground">
+              Complete the OAuth flow in your browser...
+            </p>
+          )}
         </div>
       </DialogContent>
     </Dialog>
