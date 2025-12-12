@@ -553,7 +553,7 @@ export async function triggerOAuth(
   return new Promise<AccountInfo | null>((resolve) => {
     // Spawn CLIProxyAPI with auth flag (and --no-browser if headless)
     const authProcess = spawn(binaryPath, args, {
-      stdio: ['ignore', 'pipe', 'pipe'],
+      stdio: ['inherit', 'pipe', 'pipe'],
       env: {
         ...process.env,
         CLI_PROXY_AUTH_DIR: tokenDir,
