@@ -1,15 +1,11 @@
-import { lazy, Suspense } from 'react';
-import { BrowserRouter, Routes, Route, Outlet } from 'react-router-dom';
+import { lazy } from 'react';
+import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import { QueryClientProvider } from '@tanstack/react-query';
-import { SidebarProvider } from '@/components/ui/sidebar';
-import { AppSidebar } from '@/components/app-sidebar';
-import { ThemeToggle } from '@/components/theme-toggle';
-import { GitHubLink } from '@/components/github-link';
-import { ConnectionIndicator } from '@/components/connection-indicator';
-import { LocalhostDisclaimer } from '@/components/localhost-disclaimer';
 import { Toaster } from 'sonner';
 import { queryClient } from '@/lib/query-client';
-import { Skeleton } from '@/components/ui/skeleton';
+import { ThemeProvider } from '@/components/theme-provider';
+import { Layout } from '@/components/layout';
+
 // Eager load: HomePage (initial route)
 import { HomePage } from '@/pages';
 
@@ -33,58 +29,27 @@ const SettingsPage = lazy(() =>
 const HealthPage = lazy(() => import('@/pages/health').then((m) => ({ default: m.HealthPage })));
 const SharedPage = lazy(() => import('@/pages/shared').then((m) => ({ default: m.SharedPage })));
 
-// Loading fallback for lazy-loaded pages
-function PageLoader() {
-  return (
-    <div className="p-6 space-y-4">
-      <Skeleton className="h-8 w-48" />
-      <Skeleton className="h-64 w-full" />
-    </div>
-  );
-}
-
-function Layout() {
-  return (
-    <SidebarProvider>
-      <AppSidebar />
-      <main className="flex-1 flex flex-col min-h-0 overflow-hidden">
-        <header className="flex h-12 items-center justify-end px-4 border-b shrink-0">
-          <div className="flex items-center gap-2">
-            <ConnectionIndicator />
-            <GitHubLink />
-            <ThemeToggle />
-          </div>
-        </header>
-        <div className="flex-1 overflow-auto min-h-0">
-          <Suspense fallback={<PageLoader />}>
-            <Outlet />
-          </Suspense>
-        </div>
-        <LocalhostDisclaimer />
-      </main>
-    </SidebarProvider>
-  );
-}
-
 export default function App() {
   return (
     <QueryClientProvider client={queryClient}>
-      <BrowserRouter>
-        <Routes>
-          <Route element={<Layout />}>
-            <Route path="/" element={<HomePage />} />
-            <Route path="/analytics" element={<AnalyticsPage />} />
-            <Route path="/api" element={<ApiPage />} />
-            <Route path="/cliproxy" element={<CliproxyPage />} />
-            <Route path="/cliproxy/control-panel" element={<CliproxyControlPanelPage />} />
-            <Route path="/accounts" element={<AccountsPage />} />
-            <Route path="/settings" element={<SettingsPage />} />
-            <Route path="/health" element={<HealthPage />} />
-            <Route path="/shared" element={<SharedPage />} />
-          </Route>
-        </Routes>
-        <Toaster position="top-right" />
-      </BrowserRouter>
+      <ThemeProvider defaultTheme="system" storageKey="vite-ui-theme">
+        <BrowserRouter>
+          <Routes>
+            <Route element={<Layout />}>
+              <Route path="/" element={<HomePage />} />
+              <Route path="/analytics" element={<AnalyticsPage />} />
+              <Route path="/api" element={<ApiPage />} />
+              <Route path="/cliproxy" element={<CliproxyPage />} />
+              <Route path="/cliproxy/control-panel" element={<CliproxyControlPanelPage />} />
+              <Route path="/accounts" element={<AccountsPage />} />
+              <Route path="/settings" element={<SettingsPage />} />
+              <Route path="/health" element={<HealthPage />} />
+              <Route path="/shared" element={<SharedPage />} />
+            </Route>
+          </Routes>
+          <Toaster position="top-right" />
+        </BrowserRouter>
+      </ThemeProvider>
     </QueryClientProvider>
   );
 }
