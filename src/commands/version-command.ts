@@ -77,9 +77,7 @@ export async function handleVersionCommand(): Promise<void> {
     console.log('');
   }
 
-  console.log(
-    `${subheader('Documentation:')} ${color('https://github.com/kaitranntt/ccs', 'path')}`
-  );
+  console.log(`${subheader('Documentation:')} ${color('https://docs.ccs.kaitran.ca', 'path')}`);
   console.log(`${subheader('License:')} MIT`);
   console.log('');
   console.log(color("Run 'ccs --help' for usage information", 'command'));

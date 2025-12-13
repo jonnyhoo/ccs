@@ -156,7 +156,7 @@ export function HomePage() {
             <Stethoscope className="w-4 h-4" /> Run Doctor
           </Button>
           <Button variant="outline" asChild className="gap-2">
-            <a href="https://github.com/kaitranntt/ccs" target="_blank" rel="noopener noreferrer">
+            <a href="https://docs.ccs.kaitran.ca" target="_blank" rel="noopener noreferrer">
               <BookOpen className="w-4 h-4" /> Documentation
             </a>
           </Button>

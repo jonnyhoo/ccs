@@ -640,10 +640,11 @@ function validateOffset(offset?: string): number {
  * Filter data by date range
  */
 function filterByDateRange<T extends { date?: string; month?: string; lastActivity?: string }>(
-  data: T[],
+  data: T[] | undefined,
   since?: string,
   until?: string
 ): T[] {
+  if (!data || !Array.isArray(data)) return [];
   if (!since && !until) return data;
 
   return data.filter((item) => {
@@ -824,6 +825,7 @@ usageRoutes.get(
  *
  * Returns hourly usage trends for chart visualization.
  * Query: ?since=YYYYMMDD&until=YYYYMMDD (defaults to last 24 hours)
+ * Fills in gaps with zero values for hours without activity.
  */
 usageRoutes.get(
   '/hourly',
@@ -834,8 +836,8 @@ usageRoutes.get(
 
       const hourlyData = await getCachedHourlyData();
 
-      // Filter by date range
-      const filtered = hourlyData.filter((h) => {
+      // Filter by date range (guard against undefined)
+      const filtered = (hourlyData || []).filter((h) => {
         // Extract date from hour format "YYYY-MM-DD HH:00"
         const hourDate = h.hour.slice(0, 10).replace(/-/g, '');
         if (since && hourDate < since) return false;
@@ -855,18 +857,115 @@ usageRoutes.get(
         requests: hour.modelBreakdowns.length,
       }));
 
-      // Sort by hour ascending for chart display
-      trends.sort((a, b) => a.hour.localeCompare(b.hour));
+      // Fill gaps with zero values for hours without activity
+      const filledTrends = fillHourlyGaps(trends, since, until);
 
       res.json({
         success: true,
-        data: trends,
+        data: filledTrends,
       });
     } catch (error) {
       errorResponse(res, error, 'Failed to fetch hourly usage');
     }
   }
 );
+
+/**
+ * Fill gaps in hourly data with zero values
+ * Ensures continuous timeline for chart display
+ */
+function fillHourlyGaps(
+  data: Array<{
+    hour: string;
+    tokens: number;
+    inputTokens: number;
+    outputTokens: number;
+    cacheTokens: number;
+    cost: number;
+    modelsUsed: number;
+    requests: number;
+  }>,
+  since?: string,
+  until?: string
+): typeof data {
+  // If no date range specified, return as-is
+  if (!since && !until) {
+    return data.sort((a, b) => a.hour.localeCompare(b.hour));
+  }
+
+  // Create a map of existing hours for O(1) lookup
+  const hourMap = new Map(data.map((d) => [d.hour, d]));
+
+  // Determine the hour range (use UTC to match stored hour keys)
+  const now = new Date();
+  const startDate = since
+    ? new Date(
+        Date.UTC(
+          parseInt(since.slice(0, 4)),
+          parseInt(since.slice(4, 6)) - 1,
+          parseInt(since.slice(6, 8)),
+          0,
+          0,
+          0
+        )
+      )
+    : new Date(now.getTime() - 24 * 60 * 60 * 1000); // Default: 24 hours ago
+
+  const endDate = until
+    ? new Date(
+        Date.UTC(
+          parseInt(until.slice(0, 4)),
+          parseInt(until.slice(4, 6)) - 1,
+          parseInt(until.slice(6, 8)),
+          23,
+          59,
+          59
+        )
+      )
+    : now;
+
+  // Cap endDate at current time to avoid filling future hours with zeros
+  const cappedEndDate = endDate > now ? now : endDate;
+
+  const result: typeof data = [];
+
+  // Iterate through each hour in the range
+  const current = new Date(startDate);
+  current.setMinutes(0, 0, 0);
+
+  while (current <= cappedEndDate) {
+    // Format hour key as "YYYY-MM-DD HH:00" in UTC to match storage format
+    const year = current.getUTCFullYear();
+    const month = String(current.getUTCMonth() + 1).padStart(2, '0');
+    const day = String(current.getUTCDate()).padStart(2, '0');
+    const hour = String(current.getUTCHours()).padStart(2, '0');
+    const hourKey = `${year}-${month}-${day} ${hour}:00`;
+
+    if (hourMap.has(hourKey)) {
+      const entry = hourMap.get(hourKey);
+      if (entry) {
+        result.push(entry);
+      }
+    } else {
+      // Insert zero entry for this hour
+      result.push({
+        hour: hourKey,
+        tokens: 0,
+        inputTokens: 0,
+        outputTokens: 0,
+        cacheTokens: 0,
+        cost: 0,
+        modelsUsed: 0,
+        requests: 0,
+      });
+    }
+
+    // Move to next hour
+    current.setTime(current.getTime() + 60 * 60 * 1000);
+  }
+
+  return result;
+}
 
 /**
  * GET /api/usage/models

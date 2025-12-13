@@ -1,24 +1,10 @@
-import { useEffect, useState } from 'react';
+import { useContext } from 'react';
+import { ThemeProviderContext } from '@/contexts/theme-context';
 
-function getInitialTheme() {
-  if (typeof window === 'undefined') return false;
-  const stored = localStorage.getItem('ccs-theme');
-  const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
-  return stored === 'dark' || (!stored && prefersDark);
-}
+export const useTheme = () => {
+  const context = useContext(ThemeProviderContext);
 
-export function useTheme() {
-  const [isDark, setIsDark] = useState(getInitialTheme);
+  if (context === undefined) throw new Error('useTheme must be used within a ThemeProvider');
 
-  useEffect(() => {
-    document.documentElement.classList.toggle('dark', isDark);
-  }, [isDark]);
-
-  const toggle = () => {
-    const newValue = !isDark;
-    setIsDark(newValue);
-    localStorage.setItem('ccs-theme', newValue ? 'dark' : 'light');
-  };
-
-  return { isDark, toggle };
-}
+  return context;
+};
