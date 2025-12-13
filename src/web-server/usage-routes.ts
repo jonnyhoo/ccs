@@ -896,29 +896,36 @@ function fillHourlyGaps(
   // Create a map of existing hours for O(1) lookup
   const hourMap = new Map(data.map((d) => [d.hour, d]));
 
-  // Determine the hour range
+  // Determine the hour range (use UTC to match stored hour keys)
   const now = new Date();
   const startDate = since
     ? new Date(
-        parseInt(since.slice(0, 4)),
-        parseInt(since.slice(4, 6)) - 1,
-        parseInt(since.slice(6, 8)),
-        0,
-        0,
-        0
+        Date.UTC(
+          parseInt(since.slice(0, 4)),
+          parseInt(since.slice(4, 6)) - 1,
+          parseInt(since.slice(6, 8)),
+          0,
+          0,
+          0
+        )
       )
     : new Date(now.getTime() - 24 * 60 * 60 * 1000); // Default: 24 hours ago
 
   const endDate = until
     ? new Date(
-        parseInt(until.slice(0, 4)),
-        parseInt(until.slice(4, 6)) - 1,
-        parseInt(until.slice(6, 8)),
-        23,
-        59,
-        59
+        Date.UTC(
+          parseInt(until.slice(0, 4)),
+          parseInt(until.slice(4, 6)) - 1,
+          parseInt(until.slice(6, 8)),
+          23,
+          59,
+          59
+        )
       )
     : now;
+
+  // Cap endDate at current time to avoid filling future hours with zeros
+  const cappedEndDate = endDate > now ? now : endDate;
 
   const result: typeof data = [];
 
@@ -926,7 +933,7 @@ function fillHourlyGaps(
   const current = new Date(startDate);
   current.setMinutes(0, 0, 0);
 
-  while (current <= endDate) {
+  while (current <= cappedEndDate) {
     // Format hour key as "YYYY-MM-DD HH:00" in UTC to match storage format
     const year = current.getUTCFullYear();
     const month = String(current.getUTCMonth() + 1).padStart(2, '0');
