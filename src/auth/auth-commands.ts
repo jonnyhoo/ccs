@@ -31,7 +31,8 @@ import {
   table,
   infoBox,
 } from '../utils/ui';
-import { detectClaudeCli } from '../utils/claude-detector';
+import { getClaudeCliInfo } from '../utils/claude-detector';
+import { escapeShellArg } from '../utils/shell-executor';
 import { InteractivePrompt } from '../utils/prompt';
 import packageJson from '../../package.json';
 import { hasUnifiedConfig } from '../config/unified-config-loader';
@@ -208,8 +209,8 @@ class AuthCommands {
       console.log('');
 
       // Detect Claude CLI
-      const claudeCli = detectClaudeCli();
-      if (!claudeCli) {
+      const claudeInfo = getClaudeCliInfo();
+      if (!claudeInfo) {
         console.log(fail('Claude CLI not found'));
         console.log('');
         console.log('Please install Claude CLI first:');
@@ -217,11 +218,26 @@ class AuthCommands {
         process.exit(1);
       }
 
+      const { path: claudeCli, needsShell } = claudeInfo;
+
       // Execute Claude in isolated instance (will auto-prompt for login if no credentials)
-      const child: ChildProcess = spawn(claudeCli, [], {
-        stdio: 'inherit',
-        env: { ...process.env, CLAUDE_CONFIG_DIR: instancePath },
-      });
+      // On Windows, .cmd/.bat/.ps1 files need shell: true to execute properly
+      let child: ChildProcess;
+      if (needsShell) {
+        const cmdString = escapeShellArg(claudeCli);
+        child = spawn(cmdString, {
+          stdio: 'inherit',
+          windowsHide: true,
+          shell: true,
+          env: { ...process.env, CLAUDE_CONFIG_DIR: instancePath },
+        });
+      } else {
+        child = spawn(claudeCli, [], {
+          stdio: 'inherit',
+          windowsHide: true,
+          env: { ...process.env, CLAUDE_CONFIG_DIR: instancePath },
+        });
+      }
 
       child.on('exit', (code: number | null) => {
         if (code === 0) {
