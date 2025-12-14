@@ -397,8 +397,12 @@ async function main(): Promise<void> {
       // Ensure instance exists (lazy init if needed)
       const instancePath = instanceMgr.ensureInstance(profileInfo.name);
 
-      // Update last_used timestamp
-      registry.touchProfile(profileInfo.name);
+      // Update last_used timestamp (check unified config first, fallback to legacy)
+      if (registry.hasAccountUnified(profileInfo.name)) {
+        registry.touchAccountUnified(profileInfo.name);
+      } else {
+        registry.touchProfile(profileInfo.name);
+      }
 
       // Execute Claude with instance isolation
       const envVars: NodeJS.ProcessEnv = { CLAUDE_CONFIG_DIR: instancePath };
