@@ -15,12 +15,10 @@
 import { execSync, spawn } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
-import { ProgressIndicator } from '../utils/progress-indicator';
 import { ok, fail, info, warn, color } from '../utils/ui';
 import { ensureCLIProxyBinary } from './binary-manager';
 import { generateConfig, getProviderAuthDir } from './config-generator';
 import { CLIProxyProvider } from './types';
-import { getKillCLIProxyCommand } from '../utils/platform-commands';
 import {
   AccountInfo,
   discoverExistingAccounts,
@@ -30,7 +28,10 @@ import {
   registerAccount,
   touchAccount,
 } from './account-manager';
-import { preflightOAuthCheck } from '../management/oauth-port-diagnostics';
+import {
+  enhancedPreflightOAuthCheck,
+  OAUTH_CALLBACK_PORTS as OAUTH_PORTS,
+} from '../management/oauth-port-diagnostics';
 
 /**
  * OAuth callback ports used by CLIProxyAPI (hardcoded in binary)
@@ -428,8 +429,53 @@ export function clearAuth(provider: CLIProxyProvider): boolean {
 }
 
 /**
+ * Display a single step status line
+ */
+function showStep(
+  step: number,
+  total: number,
+  status: 'ok' | 'fail' | 'progress',
+  message: string
+): void {
+  const statusIcon = status === 'ok' ? '[OK]' : status === 'fail' ? '[X]' : '[..]';
+  console.log(`${statusIcon} [${step}/${total}] ${message}`);
+}
+
+/**
+ * Get platform-specific troubleshooting for OAuth timeout
+ */
+function getTimeoutTroubleshooting(provider: CLIProxyProvider, port: number | null): string[] {
+  const lines: string[] = [];
+  lines.push('');
+  lines.push('TROUBLESHOOTING:');
+  lines.push('  1. Check browser completed auth (should show success page)');
+
+  if (port) {
+    if (process.platform === 'win32') {
+      lines.push(`  2. Verify port ${port} is reachable: curl http://localhost:${port}`);
+      lines.push('  3. Windows Firewall may block - run as Administrator:');
+      lines.push(
+        `     netsh advfirewall firewall add rule name="CCS OAuth" dir=in action=allow protocol=TCP localport=${port}`
+      );
+      lines.push(`  4. Try: ccs ${provider} --auth --verbose`);
+    } else if (process.platform === 'darwin') {
+      lines.push(`  2. Check for port conflicts: lsof -ti:${port}`);
+      lines.push(`  3. Try: ccs ${provider} --auth --verbose`);
+    } else {
+      lines.push(`  2. Check for port conflicts: lsof -ti:${port} or ss -tlnp | grep ${port}`);
+      lines.push(`  3. Try: ccs ${provider} --auth --verbose`);
+    }
+  } else {
+    lines.push(`  2. Try: ccs ${provider} --auth --verbose`);
+  }
+
+  return lines;
+}
+
+/**
  * Trigger OAuth flow for provider
  * Auto-detects headless environment and uses --no-browser flag accordingly
+ * Shows real-time step-by-step progress for better user feedback
  * @param provider - The CLIProxy provider to authenticate
  * @param options - OAuth options
  * @param options.add - If true, skip confirm prompt when adding another account
@@ -447,6 +493,7 @@ export async function triggerOAuth(
 ): Promise<AccountInfo | null> {
   const oauthConfig = getOAuthConfig(provider);
   const { verbose = false, add = false, nickname } = options;
+  const callbackPort = OAUTH_PORTS[provider];
 
   // Auto-detect headless if not explicitly set
   const headless = options.headless ?? isHeadlessEnvironment();
@@ -487,25 +534,49 @@ export async function triggerOAuth(
     }
   }
 
-  // Pre-flight check: verify OAuth callback port is available
-  const preflight = await preflightOAuthCheck(provider);
+  // Enhanced pre-flight check with real-time display
+  console.log('');
+  console.log(info(`Pre-flight OAuth check for ${oauthConfig.displayName}...`));
+
+  const preflight = await enhancedPreflightOAuthCheck(provider);
+
+  // Display each check result
+  for (const check of preflight.checks) {
+    const icon = check.status === 'ok' ? '[OK]' : check.status === 'warn' ? '[!]' : '[X]';
+    console.log(`  ${icon} ${check.name}: ${check.message}`);
+    if (check.fixCommand && check.status !== 'ok') {
+      console.log(`      Fix: ${check.fixCommand}`);
+    }
+  }
+
+  // Show firewall warning prominently on Windows
+  if (preflight.firewallWarning) {
+    console.log('');
+    console.log(warn('Windows Firewall may block OAuth callback'));
+    console.log('    If auth hangs, run as Administrator:');
+    console.log(`    ${color(preflight.firewallFixCommand || '', 'command')}`);
+  }
+
   if (!preflight.ready) {
     console.log('');
-    console.log(warn('OAuth pre-flight check failed:'));
-    for (const issue of preflight.issues) {
-      console.log(`    ${issue}`);
-    }
-    console.log('');
-    console.log(info('Resolve the port conflict and try again.'));
+    console.log(fail('Pre-flight check failed. Resolve issues above and retry.'));
     return null;
   }
 
-  // Ensure binary exists
+  console.log('');
+
+  // Step 1: Ensure binary exists
+  showStep(1, 4, 'progress', 'Preparing CLIProxy binary...');
   let binaryPath: string;
   try {
     binaryPath = await ensureCLIProxyBinary(verbose);
+    // Clear and rewrite with OK
+    process.stdout.write('\x1b[1A\x1b[2K'); // Move up and clear line
+    showStep(1, 4, 'ok', 'CLIProxy binary ready');
   } catch (error) {
-    console.error(fail('Failed to prepare CLIProxy binary'));
+    process.stdout.write('\x1b[1A\x1b[2K');
+    showStep(1, 4, 'fail', 'Failed to prepare CLIProxy binary');
+    console.error(fail((error as Error).message));
     throw error;
   }
 
@@ -517,13 +588,12 @@ export async function triggerOAuth(
   const configPath = generateConfig(provider);
   log(`Config generated: ${configPath}`);
 
-  // Free OAuth callback port if this provider shares it with another
-  // Qwen and Gemini both use port 8085 - kill any existing process to avoid conflict
-  const callbackPort = OAUTH_CALLBACK_PORTS[provider];
-  if (callbackPort) {
-    const killed = killProcessOnPort(callbackPort, verbose);
+  // Free OAuth callback port if needed
+  const localCallbackPort = OAUTH_CALLBACK_PORTS[provider];
+  if (localCallbackPort) {
+    const killed = killProcessOnPort(localCallbackPort, verbose);
     if (killed) {
-      log(`Freed port ${callbackPort} for OAuth callback`);
+      log(`Freed port ${localCallbackPort} for OAuth callback`);
     }
   }
 
@@ -533,31 +603,23 @@ export async function triggerOAuth(
     args.push('--no-browser');
   }
 
-  // Show appropriate message
-  console.log('');
+  // Step 2: Starting callback server
+  showStep(2, 4, 'progress', `Starting callback server on port ${callbackPort || 'N/A'}...`);
+
+  // Show headless instructions if needed
   if (headless) {
-    console.log(info('Headless mode detected - manual authentication required'));
     console.log('');
     console.log(warn('PORT FORWARDING REQUIRED'));
-    console.log('    OAuth callback uses localhost:8085 which must be reachable.');
-    console.log('    Run this on your LOCAL machine (replace <USER> and <HOST>):');
+    console.log(`    OAuth callback uses localhost:${callbackPort} which must be reachable.`);
+    console.log('    Run this on your LOCAL machine:');
+    console.log(
+      `    ${color(`ssh -L ${callbackPort}:localhost:${callbackPort} <USER>@<HOST>`, 'command')}`
+    );
     console.log('');
-    console.log(`    ${color('ssh -L 8085:localhost:8085 <USER>@<HOST>', 'command')}`);
-    console.log('');
-    console.log(info(`${oauthConfig.displayName} OAuth URL:`));
-  } else {
-    console.log(info(`Opening browser for ${oauthConfig.displayName} authentication...`));
-    console.log(info('Complete the login in your browser.'));
-    console.log('');
-  }
-
-  const spinner = new ProgressIndicator(`Authenticating with ${oauthConfig.displayName}`);
-  if (!headless) {
-    spinner.start();
   }
 
   return new Promise<AccountInfo | null>((resolve) => {
-    // Spawn CLIProxyAPI with auth flag (and --no-browser if headless)
+    // Spawn CLIProxyAPI with auth flag
     const authProcess = spawn(binaryPath, args, {
       stdio: ['inherit', 'pipe', 'pipe'],
       env: {
@@ -568,23 +630,30 @@ export async function triggerOAuth(
 
     let stderrData = '';
     let urlDisplayed = false;
+    let browserOpened = false;
+    const startTime = Date.now();
 
     authProcess.stdout?.on('data', (data: Buffer) => {
       const output = data.toString();
       log(`stdout: ${output.trim()}`);
 
+      // Detect when callback server starts or browser opens
+      if (!browserOpened && (output.includes('listening') || output.includes('http'))) {
+        process.stdout.write('\x1b[1A\x1b[2K');
+        showStep(2, 4, 'ok', `Callback server listening on port ${callbackPort}`);
+        showStep(3, 4, 'progress', 'Opening browser...');
+        browserOpened = true;
+      }
+
       // In headless mode, display OAuth URLs prominently
       if (headless) {
-        const lines = output.split('\n');
-        for (const line of lines) {
-          // Look for URLs in the output
-          const urlMatch = line.match(/https?:\/\/[^\s]+/);
-          if (urlMatch && !urlDisplayed) {
-            console.log(`    ${urlMatch[0]}`);
-            console.log('');
-            console.log(info('Waiting for authentication... (press Ctrl+C to cancel)'));
-            urlDisplayed = true;
-          }
+        const urlMatch = output.match(/https?:\/\/[^\s]+/);
+        if (urlMatch && !urlDisplayed) {
+          console.log('');
+          console.log(info(`${oauthConfig.displayName} OAuth URL:`));
+          console.log(`    ${urlMatch[0]}`);
+          console.log('');
+          urlDisplayed = true;
         }
       }
     });
@@ -594,70 +663,96 @@ export async function triggerOAuth(
       stderrData += output;
       log(`stderr: ${output.trim()}`);
 
-      // Also check stderr for URLs (some tools output there)
+      // Also check stderr for URLs
       if (headless && !urlDisplayed) {
         const urlMatch = output.match(/https?:\/\/[^\s]+/);
         if (urlMatch) {
+          console.log('');
+          console.log(info(`${oauthConfig.displayName} OAuth URL:`));
           console.log(`    ${urlMatch[0]}`);
           console.log('');
-          console.log(info('Waiting for authentication... (press Ctrl+C to cancel)'));
           urlDisplayed = true;
         }
       }
     });
 
-    // Timeout after 5 minutes for headless (user needs time to copy URL)
+    // After a short delay, assume browser opened and show waiting
+    setTimeout(() => {
+      if (!browserOpened) {
+        process.stdout.write('\x1b[1A\x1b[2K');
+        showStep(2, 4, 'ok', `Callback server ready (port ${callbackPort})`);
+        showStep(3, 4, 'ok', 'Browser opened');
+        browserOpened = true;
+      }
+      showStep(4, 4, 'progress', 'Waiting for OAuth callback...');
+      console.log('');
+      console.log(info('Complete the login in your browser. This page will update automatically.'));
+      if (!verbose) {
+        console.log(info('If stuck, try: ccs ' + provider + ' --auth --verbose'));
+      }
+    }, 2000);
+
+    // Timeout after 5 minutes for headless, 2 minutes for normal
     const timeoutMs = headless ? 300000 : 120000;
     const timeout = setTimeout(() => {
-      if (!headless) spinner.fail('Authentication timeout');
       authProcess.kill();
-      console.error(fail(`OAuth timed out after ${headless ? 5 : 2} minutes`));
-      console.error('');
-      if (!headless) {
-        console.error('Troubleshooting:');
-        console.error('  - Make sure a browser is available');
-        console.error('  - Try running with --verbose for details');
+      console.log('');
+      console.log(fail(`OAuth timed out after ${headless ? 5 : 2} minutes`));
+
+      // Show platform-specific troubleshooting
+      const troubleshooting = getTimeoutTroubleshooting(provider, callbackPort);
+      for (const line of troubleshooting) {
+        console.log(line);
       }
+
       resolve(null);
     }, timeoutMs);
 
     authProcess.on('exit', (code) => {
       clearTimeout(timeout);
+      const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
 
       if (code === 0) {
         // Verify token was created BEFORE showing success
         if (isAuthenticated(provider)) {
-          if (!headless) spinner.succeed(`Authenticated with ${oauthConfig.displayName}`);
-          console.log(ok('Authentication successful'));
+          console.log('');
+          console.log(ok(`Authentication successful (${elapsed}s)`));
 
           // Register the account in accounts registry
           const account = registerAccountFromToken(provider, tokenDir, nickname);
           resolve(account);
         } else {
-          if (!headless) spinner.fail('Authentication incomplete');
-          console.error(fail('Token not found after authentication'));
-          // Qwen uses Device Code Flow (polling), others use Authorization Code Flow (callback)
-          if (provider === 'qwen') {
-            console.error('    Qwen uses Device Code Flow - ensure you completed auth in browser');
-            console.error('    The polling may have timed out or been cancelled');
-            console.error('    Try: ccs qwen --auth --verbose');
-          } else {
-            console.error('    The OAuth flow may have been cancelled or callback port was in use');
-            console.error(`    Try: ${getKillCLIProxyCommand()} && ccs ${provider} --auth`);
-            console.error('    Or run: ccs doctor --fix');
+          console.log('');
+          console.log(fail('Token not found after authentication'));
+          console.log('');
+          console.log('The browser showed success but callback was not received.');
+
+          // Show platform-specific guidance
+          if (process.platform === 'win32') {
+            console.log('');
+            console.log('On Windows, this usually means:');
+            console.log('  1. Windows Firewall blocked the callback');
+            console.log('  2. Antivirus software blocked the connection');
+            console.log('');
+            console.log('Try running as Administrator:');
+            console.log(
+              `  netsh advfirewall firewall add rule name="CCS OAuth" dir=in action=allow protocol=TCP localport=${callbackPort}`
+            );
           }
+
+          console.log('');
+          console.log(`Try: ccs ${provider} --auth --verbose`);
           resolve(null);
         }
       } else {
-        if (!headless) spinner.fail('Authentication failed');
-        console.error(fail(`CLIProxyAPI auth exited with code ${code}`));
+        console.log('');
+        console.log(fail(`CLIProxyAPI auth exited with code ${code}`));
         if (stderrData && !urlDisplayed) {
-          console.error(`    ${stderrData.trim().split('\n')[0]}`);
+          console.log(`    ${stderrData.trim().split('\n')[0]}`);
         }
-        // Show headless hint if we detected headless environment
         if (headless && !urlDisplayed) {
-          console.error('');
-          console.error(info('No OAuth URL was displayed. Try with --verbose for details.'));
+          console.log('');
+          console.log(info('No OAuth URL was displayed. Try with --verbose for details.'));
         }
         resolve(null);
       }
@@ -665,8 +760,8 @@ export async function triggerOAuth(
 
     authProcess.on('error', (error) => {
       clearTimeout(timeout);
-      if (!headless) spinner.fail('Authentication error');
-      console.error(fail(`Failed to start auth process: ${error.message}`));
+      console.log('');
+      console.log(fail(`Failed to start auth process: ${error.message}`));
       resolve(null);
     });
   });

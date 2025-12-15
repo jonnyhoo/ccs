@@ -128,3 +128,91 @@ export function isCLIProxyProcess(process: PortProcess | null): boolean {
     'cli-proxy-api.exe',
   ].includes(name);
 }
+
+/**
+ * Windows firewall check result
+ */
+export interface FirewallCheckResult {
+  checked: boolean;
+  mayBlock: boolean;
+  message: string;
+  fixCommand?: string;
+}
+
+/**
+ * Check if Windows Firewall might block a port
+ * Returns immediately on non-Windows platforms
+ */
+export async function checkWindowsFirewall(port: number): Promise<FirewallCheckResult> {
+  if (process.platform !== 'win32') {
+    return { checked: false, mayBlock: false, message: 'Not Windows' };
+  }
+
+  try {
+    // Check for inbound rules allowing our port
+    const { stdout } = await execAsync(
+      `netsh advfirewall firewall show rule name=all dir=in | findstr /C:"LocalPort" | findstr /C:"${port}"`,
+      { timeout: 5000 }
+    );
+
+    // If we find the port in firewall rules, it's likely allowed
+    if (stdout.trim()) {
+      return { checked: true, mayBlock: false, message: `Port ${port} found in firewall rules` };
+    }
+
+    // Port not in rules - might be blocked
+    return {
+      checked: true,
+      mayBlock: true,
+      message: `Port ${port} may be blocked by Windows Firewall`,
+      fixCommand: `netsh advfirewall firewall add rule name="CCS OAuth" dir=in action=allow protocol=TCP localport=${port}`,
+    };
+  } catch {
+    // Command failed - could be no matching rules, assume might block
+    return {
+      checked: true,
+      mayBlock: true,
+      message: `Could not verify firewall rules for port ${port}`,
+      fixCommand: `netsh advfirewall firewall add rule name="CCS OAuth" dir=in action=allow protocol=TCP localport=${port}`,
+    };
+  }
+}
+
+/**
+ * Localhost binding test result
+ */
+export interface BindingTestResult {
+  success: boolean;
+  message: string;
+}
+
+/**
+ * Test if we can bind to localhost on a specific port
+ * This verifies network stack is working and port is actually available
+ */
+export async function testLocalhostBinding(port: number): Promise<BindingTestResult> {
+  const net = await import('net');
+
+  return new Promise((resolve) => {
+    const server = net.createServer();
+
+    server.once('error', (err: NodeJS.ErrnoException) => {
+      if (err.code === 'EADDRINUSE') {
+        resolve({ success: false, message: `Port ${port} is already in use` });
+      } else if (err.code === 'EACCES') {
+        resolve({ success: false, message: `Permission denied for port ${port}` });
+      } else {
+        resolve({ success: false, message: `Cannot bind to port ${port}: ${err.message}` });
+      }
+    });
+
+    server.once('listening', () => {
+      server.close(() => {
+        resolve({ success: true, message: `Port ${port} is available` });
+      });
+    });
+
+    // Try to bind to localhost only (like CLIProxyAPI does)
+    server.listen(port, '127.0.0.1');
+  });
+}
