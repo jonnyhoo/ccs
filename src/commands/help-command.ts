@@ -141,6 +141,8 @@ Claude Code Profile & Model Switcher`.trim();
       ['ccs auth --help', 'Show account management commands'],
       ['ccs auth create <name>', 'Create new account profile'],
       ['ccs auth list', 'List all account profiles'],
+      ['ccs auth default <name>', 'Set default profile'],
+      ['ccs auth reset-default', 'Restore original CCS default'],
     ]
   );
 

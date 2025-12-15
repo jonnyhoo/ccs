@@ -45,3 +45,34 @@ declare module 'ora' {
   function ora(options?: string | Options): Ora;
   export = ora;
 }
+
+// gradient-string v2.x is CJS without bundled types
+declare module 'gradient-string' {
+  interface Gradient {
+    (text: string): string;
+    multiline(text: string): string;
+  }
+
+  interface GradientString {
+    // Preset gradients
+    atlas: Gradient;
+    cristal: Gradient;
+    teen: Gradient;
+    mind: Gradient;
+    morning: Gradient;
+    vice: Gradient;
+    passion: Gradient;
+    fruit: Gradient;
+    instagram: Gradient;
+    retro: Gradient;
+    summer: Gradient;
+    rainbow: Gradient;
+    pastel: Gradient;
+    // Custom gradient creator
+    (colors: string[]): Gradient;
+    (...colors: string[]): Gradient;
+  }
+
+  const gradient: GradientString;
+  export = gradient;
+}

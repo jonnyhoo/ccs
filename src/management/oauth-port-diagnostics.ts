@@ -11,7 +11,15 @@
  * - Qwen: Device Code Flow (no port needed)
  */
 
-import { getPortProcess, PortProcess, isCLIProxyProcess } from '../utils/port-utils';
+import {
+  getPortProcess,
+  PortProcess,
+  isCLIProxyProcess,
+  checkWindowsFirewall,
+  testLocalhostBinding,
+  FirewallCheckResult,
+  BindingTestResult,
+} from '../utils/port-utils';
 import { CLIProxyProvider } from '../cliproxy/types';
 
 /**
@@ -200,27 +208,138 @@ export function formatOAuthPortDiagnostics(diagnostics: OAuthPortDiagnostic[]): 
 }
 
 /**
+ * Enhanced pre-flight check result with detailed diagnostics
+ */
+export interface EnhancedPreflightResult {
+  ready: boolean;
+  issues: string[];
+  checks: PreflightCheck[];
+  firewallWarning?: string;
+  firewallFixCommand?: string;
+}
+
+/**
+ * Individual pre-flight check result
+ */
+export interface PreflightCheck {
+  name: string;
+  status: 'ok' | 'warn' | 'fail';
+  message: string;
+  fixCommand?: string;
+}
+
+/**
  * Pre-flight check before OAuth - returns issues or empty array if OK
+ * @deprecated Use enhancedPreflightOAuthCheck for more detailed diagnostics
  */
 export async function preflightOAuthCheck(provider: CLIProxyProvider): Promise<{
   ready: boolean;
   issues: string[];
 }> {
-  const diagnostic = await checkOAuthPort(provider);
+  const result = await enhancedPreflightOAuthCheck(provider);
+  return {
+    ready: result.ready,
+    issues: result.issues,
+  };
+}
+
+/**
+ * Enhanced pre-flight check with detailed step-by-step diagnostics
+ * Returns structured results for real-time display
+ */
+export async function enhancedPreflightOAuthCheck(
+  provider: CLIProxyProvider
+): Promise<EnhancedPreflightResult> {
+  const port = OAUTH_CALLBACK_PORTS[provider];
+  const flowType = OAUTH_FLOW_TYPES[provider];
+  const checks: PreflightCheck[] = [];
   const issues: string[] = [];
 
-  if (diagnostic.status === 'occupied' && diagnostic.process) {
-    issues.push(
-      `OAuth callback port ${diagnostic.port} is blocked by ${diagnostic.process.processName} (PID ${diagnostic.process.pid})`
-    );
-    if (diagnostic.recommendation) {
-      issues.push(`Fix: ${diagnostic.recommendation}`);
+  // Device code flow doesn't need port checks
+  if (flowType === 'device_code' || port === null) {
+    checks.push({
+      name: 'OAuth Flow',
+      status: 'ok',
+      message: 'Uses Device Code Flow (no callback port needed)',
+    });
+    return { ready: true, issues: [], checks };
+  }
+
+  // Check 1: Port availability via process detection
+  const portProcess = await getPortProcess(port);
+  if (portProcess && !isCLIProxyProcess(portProcess)) {
+    checks.push({
+      name: 'Port Availability',
+      status: 'fail',
+      message: `Port ${port} blocked by ${portProcess.processName} (PID ${portProcess.pid})`,
+      fixCommand:
+        process.platform === 'win32'
+          ? `taskkill /F /PID ${portProcess.pid}`
+          : `kill ${portProcess.pid}`,
+    });
+    issues.push(`Port ${port} is blocked by ${portProcess.processName} (PID ${portProcess.pid})`);
+  } else if (portProcess && isCLIProxyProcess(portProcess)) {
+    checks.push({
+      name: 'Port Availability',
+      status: 'ok',
+      message: `Port ${port} in use by CLIProxy (OK)`,
+    });
+  } else {
+    checks.push({
+      name: 'Port Availability',
+      status: 'ok',
+      message: `Port ${port} is available`,
+    });
+  }
+
+  // Check 2: Localhost binding test (verifies we can actually listen)
+  const bindingResult: BindingTestResult = await testLocalhostBinding(port);
+  if (!bindingResult.success && !portProcess) {
+    // Only fail if no process found but binding failed (weird state)
+    checks.push({
+      name: 'Localhost Binding',
+      status: 'warn',
+      message: bindingResult.message,
+    });
+  } else if (bindingResult.success) {
+    checks.push({
+      name: 'Localhost Binding',
+      status: 'ok',
+      message: 'Can bind to localhost',
+    });
+  }
+
+  // Check 3: Windows Firewall (only on Windows)
+  let firewallWarning: string | undefined;
+  let firewallFixCommand: string | undefined;
+
+  if (process.platform === 'win32') {
+    const firewallResult: FirewallCheckResult = await checkWindowsFirewall(port);
+    if (firewallResult.mayBlock) {
+      checks.push({
+        name: 'Windows Firewall',
+        status: 'warn',
+        message: firewallResult.message,
+        fixCommand: firewallResult.fixCommand,
+      });
+      firewallWarning = firewallResult.message;
+      firewallFixCommand = firewallResult.fixCommand;
+      // Don't add to issues - just a warning, not a blocker
+    } else if (firewallResult.checked) {
+      checks.push({
+        name: 'Windows Firewall',
+        status: 'ok',
+        message: 'Firewall rules allow port',
+      });
     }
   }
 
   return {
     ready: issues.length === 0,
     issues,
+    checks,
+    firewallWarning,
+    firewallFixCommand,
   };
 }
 
@@ -233,4 +352,5 @@ export default {
   getPortConflicts,
   formatOAuthPortDiagnostics,
   preflightOAuthCheck,
+  enhancedPreflightOAuthCheck,
 };

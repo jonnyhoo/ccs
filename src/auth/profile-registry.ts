@@ -218,6 +218,15 @@ export class ProfileRegistry {
   }
 
   /**
+   * Clear default profile (restore original CCS behavior)
+   */
+  clearDefaultProfile(): void {
+    const data = this._read();
+    data.default = null;
+    this._write(data);
+  }
+
+  /**
    * Check if profile exists
    */
   hasProfile(name: string): boolean {
@@ -281,6 +290,15 @@ export class ProfileRegistry {
       throw new Error(`Profile not found: ${name}`);
     }
     config.default = name;
+    saveUnifiedConfig(config);
+  }
+
+  /**
+   * Clear default profile in unified config (restore original CCS behavior)
+   */
+  clearDefaultUnified(): void {
+    const config = loadOrCreateUnifiedConfig();
+    config.default = undefined;
     saveUnifiedConfig(config);
   }
 

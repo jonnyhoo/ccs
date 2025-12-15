@@ -30,6 +30,7 @@ import {
   info,
   table,
   infoBox,
+  warnBox,
 } from '../utils/ui';
 import { getClaudeCliInfo } from '../utils/claude-detector';
 import { escapeShellArg } from '../utils/shell-executor';
@@ -98,6 +99,9 @@ class AuthCommands {
     console.log(`  ${color('show <profile>', 'command')}         Show profile details`);
     console.log(`  ${color('remove <profile>', 'command')}       Remove saved profile`);
     console.log(`  ${color('default <profile>', 'command')}      Set default profile`);
+    console.log(
+      `  ${color('reset-default', 'command')}          Clear default (restore original CCS)`
+    );
     console.log('');
     console.log(subheader('Examples'));
     console.log(`  ${dim('# Create & login to work profile')}`);
@@ -105,6 +109,9 @@ class AuthCommands {
     console.log('');
     console.log(`  ${dim('# Set work as default')}`);
     console.log(`  ${color('ccs auth default work', 'command')}`);
+    console.log('');
+    console.log(`  ${dim('# Restore original CCS behavior')}`);
+    console.log(`  ${color('ccs auth reset-default', 'command')}`);
     console.log('');
     console.log(`  ${dim('# List all profiles')}`);
     console.log(`  ${color('ccs auth list', 'command')}`);
@@ -252,8 +259,17 @@ class AuthCommands {
           console.log(header('Usage'));
           console.log(`  ${color(`ccs ${profileName} "your prompt here"`, 'command')}`);
           console.log('');
-          console.log('To set as default (so you can use just "ccs"):');
-          console.log(`  ${color(`ccs auth default ${profileName}`, 'command')}`);
+          console.log(
+            warnBox(
+              `Running the command below will SWITCH your default\n` +
+                `CCS account to "${profileName}". After this, running\n` +
+                `"ccs" without a profile name will use this account.\n\n` +
+                `  ${color(`ccs auth default ${profileName}`, 'command')}\n\n` +
+                `To restore the original default, run:\n` +
+                `  ${color('ccs auth reset-default', 'command')}`,
+              'Set as Default?'
+            )
+          );
           console.log('');
           process.exit(0);
         } else {
@@ -612,6 +628,32 @@ class AuthCommands {
   }
 
   /**
+   * Reset default profile (clear the custom default, restore original CCS behavior)
+   */
+  async handleResetDefault(): Promise<void> {
+    await initUI();
+
+    try {
+      // Use unified or legacy based on config mode
+      if (this.isUnifiedMode()) {
+        this.registry.clearDefaultUnified();
+      } else {
+        this.registry.clearDefaultProfile();
+      }
+
+      console.log(ok('Default profile cleared'));
+      console.log('');
+      console.log('CCS will now use the original behavior:');
+      console.log(`  ${dim('# Uses your primary Claude account')}`);
+      console.log(`  ${color('ccs "your prompt"', 'command')}`);
+      console.log('');
+    } catch (error) {
+      console.log(fail((error as Error).message));
+      process.exit(1);
+    }
+  }
+
+  /**
    * Route auth command to appropriate handler
    */
   async route(args: string[]): Promise<void> {
@@ -651,6 +693,10 @@ class AuthCommands {
 
       case 'default':
         await this.handleDefault(commandArgs);
+        break;
+
+      case 'reset-default':
+        await this.handleResetDefault();
         break;
 
       case 'current':
