@@ -24,10 +24,14 @@ import type {
 // ESM MODULE TYPES & LAZY LOADING
 // =============================================================================
 
-// Type definitions for dynamically imported ESM modules
-type ChalkInstance = typeof import('chalk').default;
-type BoxenFunction = typeof import('boxen').default;
-type GradientStringInstance = typeof import('gradient-string').default;
+// Type definitions for dynamically imported modules (CJS-compatible versions)
+// chalk@4.x, boxen@5.x are CJS, ora@5.x is CJS, listr2@3.x is CJS, gradient-string@2.x is CJS
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type ChalkInstance = any;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type BoxenFunction = any;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type GradientStringInstance = any;
 // ora v9 is ESM-only, imported dynamically at runtime
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type OraModule = any;
@@ -76,11 +80,12 @@ export async function initUI(): Promise<void> {
       import('listr2'),
     ]);
 
-    chalkModule = chalkImport.default;
-    boxenModule = boxenImport.default;
-    gradientModule = gradientImport.default;
-    oraModule = oraImport.default;
-    listrModule = listrImport.Listr;
+    // CJS modules: use .default if available (ESM interop), otherwise use module directly
+    chalkModule = chalkImport.default || chalkImport;
+    boxenModule = boxenImport.default || boxenImport;
+    gradientModule = gradientImport.default || gradientImport;
+    oraModule = oraImport.default || oraImport;
+    listrModule = listrImport.Listr || listrImport.default?.Listr;
     initialized = true;
   } catch (_e) {
     // Fallback: UI works without colors if imports fail
