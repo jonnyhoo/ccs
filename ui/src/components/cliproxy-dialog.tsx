@@ -12,6 +12,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useCreateVariant, useCliproxyAuth } from '@/hooks/use-cliproxy';
+import { usePrivacy } from '@/contexts/privacy-context';
 
 const providers = ['gemini', 'codex', 'agy', 'qwen', 'iflow'] as const;
 
@@ -43,6 +44,7 @@ const providerOptions = [
 export function CliproxyDialog({ open, onClose }: CliproxyDialogProps) {
   const createMutation = useCreateVariant();
   const { data: authData } = useCliproxyAuth();
+  const { privacyMode } = usePrivacy();
 
   const {
     register,
@@ -115,7 +117,7 @@ export function CliproxyDialog({ open, onClose }: CliproxyDialogProps) {
                 <option value="">Use default account</option>
                 {providerAccounts.map((acc) => (
                   <option key={acc.id} value={acc.id}>
-                    {acc.email || acc.id}
+                    {privacyMode ? '••••••' : acc.email || acc.id}
                     {acc.isDefault ? ' (default)' : ''}
                   </option>
                 ))}

@@ -3,6 +3,7 @@ import { Outlet } from 'react-router-dom';
 import { SidebarProvider } from '@/components/ui/sidebar';
 import { AppSidebar } from '@/components/app-sidebar';
 import { ThemeToggle } from '@/components/theme-toggle';
+import { PrivacyToggle } from '@/components/privacy-toggle';
 import { GitHubLink } from '@/components/github-link';
 import { DocsLink } from '@/components/docs-link';
 import { ConnectionIndicator } from '@/components/connection-indicator';
@@ -29,6 +30,7 @@ export function Layout() {
             <ConnectionIndicator />
             <DocsLink />
             <GitHubLink />
+            <PrivacyToggle />
             <ThemeToggle />
           </div>
         </header>

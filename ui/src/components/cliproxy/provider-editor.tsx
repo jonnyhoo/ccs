@@ -57,6 +57,7 @@ import {
   useDeletePreset,
 } from '@/hooks/use-cliproxy';
 import { cn } from '@/lib/utils';
+import { usePrivacy, PRIVACY_BLUR_CLASS } from '@/contexts/privacy-context';
 
 // Lazy load CodeEditor
 const CodeEditor = lazy(() =>
@@ -100,6 +101,7 @@ export function ProviderEditor({
   const [conflictDialog, setConflictDialog] = useState(false);
   const [customPresetOpen, setCustomPresetOpen] = useState(false);
   const queryClient = useQueryClient();
+  const { privacyMode } = usePrivacy();
 
   // Fetch available models from CLIProxy API
   const { data: modelsData } = useCliproxyModels();
@@ -343,9 +345,9 @@ export function ProviderEditor({
                       ))}
 
                       <Button
-                        variant="ghost"
+                        variant="outline"
                         size="sm"
-                        className="text-xs h-7 gap-1 border border-dashed"
+                        className="text-xs h-7 gap-1 border-primary/50 text-primary hover:bg-primary/10 hover:border-primary"
                         onClick={() => setCustomPresetOpen(true)}
                       >
                         <Plus className="w-3 h-3" />
@@ -414,7 +416,7 @@ export function ProviderEditor({
                       )}
                     </h3>
                     <Button
-                      variant="outline"
+                      variant="default"
                       size="sm"
                       className="h-7 text-xs gap-1"
                       onClick={onAddAccount}
@@ -433,6 +435,7 @@ export function ProviderEditor({
                           onSetDefault={() => onSetDefault(account.id)}
                           onRemove={() => onRemoveAccount(account.id)}
                           isRemoving={isRemovingAccount}
+                          privacyMode={privacyMode}
                         />
                       ))}
                     </div>
@@ -685,11 +688,13 @@ function AccountItem({
   onSetDefault,
   onRemove,
   isRemoving,
+  privacyMode,
 }: {
   account: OAuthAccount;
   onSetDefault: () => void;
   onRemove: () => void;
   isRemoving?: boolean;
+  privacyMode?: boolean;
 }) {
   return (
     <div
@@ -709,7 +714,9 @@ function AccountItem({
         </div>
         <div>
           <div className="flex items-center gap-2">
-            <span className="font-medium text-sm">{account.email || account.id}</span>
+            <span className={cn('font-medium text-sm', privacyMode && PRIVACY_BLUR_CLASS)}>
+              {account.email || account.id}
+            </span>
             {account.isDefault && (
               <Badge variant="secondary" className="text-[10px] h-4 px-1.5 gap-0.5">
                 <Star className="w-2.5 h-2.5 fill-current" />

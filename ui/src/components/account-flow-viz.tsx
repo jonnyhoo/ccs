@@ -9,6 +9,7 @@ import { cn } from '@/lib/utils';
 import { ProviderIcon } from '@/components/provider-icon';
 import { PROVIDER_COLORS } from '@/lib/provider-config';
 import { STATUS_COLORS } from '@/lib/utils';
+import { usePrivacy, PRIVACY_BLUR_CLASS } from '@/contexts/privacy-context';
 import {
   ChevronRight,
   X,
@@ -94,7 +95,13 @@ function formatTimelineTime(date: Date): string {
 }
 
 /** Connection Timeline Component - right sidebar panel */
-function ConnectionTimeline({ events }: { events: ConnectionEvent[] }) {
+function ConnectionTimeline({
+  events,
+  privacyMode,
+}: {
+  events: ConnectionEvent[];
+  privacyMode: boolean;
+}) {
   if (events.length === 0) {
     return (
       <div className="h-full flex items-center justify-center rounded-xl bg-muted/20 dark:bg-zinc-900/40 border border-border/30 dark:border-white/[0.05]">
@@ -149,7 +156,12 @@ function ConnectionTimeline({ events }: { events: ConnectionEvent[] }) {
                   {/* Event content */}
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center justify-between gap-2">
-                      <span className="text-[10px] font-mono text-foreground truncate">
+                      <span
+                        className={cn(
+                          'text-[10px] font-mono text-foreground truncate',
+                          privacyMode && PRIVACY_BLUR_CLASS
+                        )}
+                      >
                         {cleanEmail(event.accountEmail)}
                       </span>
                       <span className="text-[9px] text-muted-foreground font-mono flex-shrink-0">
@@ -216,6 +228,9 @@ export function AccountFlowViz({ providerData, onBack }: AccountFlowVizProps) {
   const [hoveredAccount, setHoveredAccount] = useState<number | null>(null);
   const [selectedAccount, setSelectedAccount] = useState<AccountData | null>(null);
   const [paths, setPaths] = useState<string[]>([]);
+
+  // Privacy mode for demo purposes
+  const { privacyMode } = usePrivacy();
 
   // Drag state for all cards (account IDs + 'provider')
   const [dragOffsets, setDragOffsets] = useState<Record<string, DragOffset>>({});
@@ -494,7 +509,12 @@ export function AccountFlowViz({ providerData, onBack }: AccountFlowVizProps) {
                   {/* Drag handle indicator */}
                   <GripVertical className="absolute top-1/2 left-1 -translate-y-1/2 w-3 h-3 text-muted-foreground/40" />
                   <div className="flex justify-between items-start mb-1 ml-3">
-                    <span className="text-xs font-semibold text-foreground tracking-tight truncate max-w-[100px]">
+                    <span
+                      className={cn(
+                        'text-xs font-semibold text-foreground tracking-tight truncate max-w-[100px]',
+                        privacyMode && PRIVACY_BLUR_CLASS
+                      )}
+                    >
                       {cleanEmail(account.email)}
                     </span>
                     <ChevronRight
@@ -672,7 +692,12 @@ export function AccountFlowViz({ providerData, onBack }: AccountFlowVizProps) {
                           isHovered ? 'opacity-100' : 'opacity-0'
                         )}
                       />
-                      <span className="text-xs font-semibold text-foreground tracking-tight truncate max-w-[100px]">
+                      <span
+                        className={cn(
+                          'text-xs font-semibold text-foreground tracking-tight truncate max-w-[100px]',
+                          privacyMode && PRIVACY_BLUR_CLASS
+                        )}
+                      >
                         {cleanEmail(account.email)}
                       </span>
                     </div>
@@ -704,7 +729,7 @@ export function AccountFlowViz({ providerData, onBack }: AccountFlowVizProps) {
 
         {/* Right Section: Connection Timeline - Fixed compact width */}
         <div className="w-56 flex-shrink-0">
-          <ConnectionTimeline events={connectionEvents} />
+          <ConnectionTimeline events={connectionEvents} privacyMode={privacyMode} />
         </div>
       </div>
 
@@ -733,7 +758,12 @@ export function AccountFlowViz({ providerData, onBack }: AccountFlowVizProps) {
                       className="w-2 h-2 rounded-full"
                       style={{ backgroundColor: selectedAccount.color }}
                     />
-                    <span className="text-sm font-semibold text-foreground tracking-tight truncate">
+                    <span
+                      className={cn(
+                        'text-sm font-semibold text-foreground tracking-tight truncate',
+                        privacyMode && PRIVACY_BLUR_CLASS
+                      )}
+                    >
                       {cleanEmail(selectedAccount.email)}
                     </span>
                   </div>

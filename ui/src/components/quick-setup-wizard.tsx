@@ -39,6 +39,8 @@ import {
 import { useCliproxyAuth, useCreateVariant, useStartAuth } from '@/hooks/use-cliproxy';
 import type { AuthStatus, OAuthAccount } from '@/lib/api-client';
 import { MODEL_CATALOGS } from '@/lib/model-catalogs';
+import { cn } from '@/lib/utils';
+import { usePrivacy, PRIVACY_BLUR_CLASS } from '@/contexts/privacy-context';
 
 interface QuickSetupWizardProps {
   open: boolean;
@@ -68,6 +70,7 @@ export function QuickSetupWizard({ open, onClose }: QuickSetupWizardProps) {
   const { data: authData, refetch } = useCliproxyAuth();
   const createMutation = useCreateVariant();
   const startAuthMutation = useStartAuth();
+  const { privacyMode } = usePrivacy();
 
   // Get auth status for selected provider
   const providerAuth = authData?.authStatus.find(
@@ -347,7 +350,9 @@ export function QuickSetupWizard({ open, onClose }: QuickSetupWizardProps) {
                         <User className="w-4 h-4 text-muted-foreground" />
                       </div>
                       <div>
-                        <div className="font-medium">{acc.email || acc.id}</div>
+                        <div className={cn('font-medium', privacyMode && PRIVACY_BLUR_CLASS)}>
+                          {acc.email || acc.id}
+                        </div>
                         {acc.isDefault && (
                           <div className="text-xs text-muted-foreground">Default account</div>
                         )}
@@ -403,7 +408,12 @@ export function QuickSetupWizard({ open, onClose }: QuickSetupWizardProps) {
               {selectedAccount && (
                 <div className="flex items-center gap-2 p-2 bg-muted/50 rounded-md text-sm">
                   <User className="w-4 h-4" />
-                  <span>Using: {selectedAccount.email || selectedAccount.id}</span>
+                  <span>
+                    Using:{' '}
+                    <span className={cn(privacyMode && PRIVACY_BLUR_CLASS)}>
+                      {selectedAccount.email || selectedAccount.id}
+                    </span>
+                  </span>
                 </div>
               )}
 

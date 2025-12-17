@@ -4,6 +4,7 @@ import { QueryClientProvider } from '@tanstack/react-query';
 import { Toaster } from 'sonner';
 import { queryClient } from '@/lib/query-client';
 import { ThemeProvider } from '@/components/theme-provider';
+import { PrivacyProvider } from '@/contexts/privacy-context';
 import { Layout } from '@/components/layout';
 
 // Eager load: HomePage (initial route)
@@ -33,22 +34,24 @@ export default function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <ThemeProvider defaultTheme="system" storageKey="vite-ui-theme">
-        <BrowserRouter>
-          <Routes>
-            <Route element={<Layout />}>
-              <Route path="/" element={<HomePage />} />
-              <Route path="/analytics" element={<AnalyticsPage />} />
-              <Route path="/api" element={<ApiPage />} />
-              <Route path="/cliproxy" element={<CliproxyPage />} />
-              <Route path="/cliproxy/control-panel" element={<CliproxyControlPanelPage />} />
-              <Route path="/accounts" element={<AccountsPage />} />
-              <Route path="/settings" element={<SettingsPage />} />
-              <Route path="/health" element={<HealthPage />} />
-              <Route path="/shared" element={<SharedPage />} />
-            </Route>
-          </Routes>
-          <Toaster position="top-right" />
-        </BrowserRouter>
+        <PrivacyProvider>
+          <BrowserRouter>
+            <Routes>
+              <Route element={<Layout />}>
+                <Route path="/" element={<HomePage />} />
+                <Route path="/analytics" element={<AnalyticsPage />} />
+                <Route path="/api" element={<ApiPage />} />
+                <Route path="/cliproxy" element={<CliproxyPage />} />
+                <Route path="/cliproxy/control-panel" element={<CliproxyControlPanelPage />} />
+                <Route path="/accounts" element={<AccountsPage />} />
+                <Route path="/settings" element={<SettingsPage />} />
+                <Route path="/health" element={<HealthPage />} />
+                <Route path="/shared" element={<SharedPage />} />
+              </Route>
+            </Routes>
+            <Toaster position="top-right" />
+          </BrowserRouter>
+        </PrivacyProvider>
       </ThemeProvider>
     </QueryClientProvider>
   );

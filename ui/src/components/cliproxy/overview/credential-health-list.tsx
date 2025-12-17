@@ -9,6 +9,7 @@ import { Badge } from '@/components/ui/badge';
 import { CheckCircle2, AlertCircle, XCircle, MinusCircle, RefreshCw } from 'lucide-react';
 import { useCliproxyAuth } from '@/hooks/use-cliproxy';
 import { cn } from '@/lib/utils';
+import { usePrivacy, PRIVACY_BLUR_CLASS } from '@/contexts/privacy-context';
 
 type CredentialStatus = 'ready' | 'warning' | 'error' | 'disabled';
 
@@ -20,6 +21,7 @@ interface CredentialRowProps {
   email?: string;
   expiresAt?: string;
   onRefresh?: () => void;
+  privacyMode?: boolean;
 }
 
 function CredentialRow({
@@ -30,6 +32,7 @@ function CredentialRow({
   email,
   expiresAt,
   onRefresh,
+  privacyMode,
 }: CredentialRowProps) {
   const statusConfig = {
     ready: {
@@ -76,7 +79,9 @@ function CredentialRow({
           <Icon className={cn('w-4 h-4', config.color)} />
         </div>
         <div>
-          <div className="font-medium text-sm">{email ?? name}</div>
+          <div className={cn('font-medium text-sm', privacyMode && PRIVACY_BLUR_CLASS)}>
+            {email ?? name}
+          </div>
           <div className="text-xs text-muted-foreground capitalize">{provider}</div>
         </div>
       </div>
@@ -124,6 +129,7 @@ function CredentialHealthSkeleton() {
 
 export function CredentialHealthList() {
   const { data: authData, isLoading } = useCliproxyAuth();
+  const { privacyMode } = usePrivacy();
 
   if (isLoading) {
     return <CredentialHealthSkeleton />;
@@ -164,7 +170,11 @@ export function CredentialHealthList() {
       </CardHeader>
       <CardContent className="p-0">
         {credentials.map((cred, i) => (
-          <CredentialRow key={`${cred.provider}-${cred.name}-${i}`} {...cred} />
+          <CredentialRow
+            key={`${cred.provider}-${cred.name}-${i}`}
+            {...cred}
+            privacyMode={privacyMode}
+          />
         ))}
       </CardContent>
     </Card>

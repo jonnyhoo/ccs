@@ -12,6 +12,7 @@ import { getProviderDisplayName, PROVIDER_COLORS } from '@/lib/provider-config';
 import { Skeleton } from '@/components/ui/skeleton';
 import { ProviderIcon } from '@/components/provider-icon';
 import { AccountFlowViz } from '@/components/account-flow-viz';
+import { usePrivacy } from '@/contexts/privacy-context';
 import type { AuthStatus, OAuthAccount } from '@/lib/api-client';
 import { Activity, CheckCircle2, XCircle, ChevronRight, Radio } from 'lucide-react';
 
@@ -114,6 +115,7 @@ function InlineStatsBadge({ success, failure }: { success: number; failure: numb
 export function AuthMonitor() {
   const { data, isLoading, error } = useCliproxyAuth();
   const { data: statsData, isLoading: statsLoading, dataUpdatedAt } = useCliproxyStats();
+  const { privacyMode } = usePrivacy();
   const [selectedProvider, setSelectedProvider] = useState<string | null>(null);
   const [hoveredProvider, setHoveredProvider] = useState<string | null>(null);
   const [timeSinceUpdate, setTimeSinceUpdate] = useState('');
@@ -406,7 +408,7 @@ export function AuthMonitor() {
                           key={acc.id}
                           className="w-2 h-2 rounded-full"
                           style={{ backgroundColor: acc.color }}
-                          title={cleanEmail(acc.email)}
+                          title={privacyMode ? '••••••' : cleanEmail(acc.email)}
                         />
                       ))}
                       {ps.accounts.length > 5 && (

@@ -17,6 +17,7 @@ const PROVIDER_IMAGES: Record<string, string> = {
   codex: '/assets/providers/openai.svg',
   agy: '/assets/providers/agy.png',
   qwen: '/assets/providers/qwen-color.svg',
+  iflow: '/assets/providers/iflow.png',
 };
 
 /** Provider color configuration (for fallback only - no background for image logos) */
