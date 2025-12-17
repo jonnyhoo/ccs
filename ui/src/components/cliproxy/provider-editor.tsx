@@ -343,9 +343,9 @@ export function ProviderEditor({
                       ))}
 
                       <Button
-                        variant="ghost"
+                        variant="outline"
                         size="sm"
-                        className="text-xs h-7 gap-1 border border-dashed"
+                        className="text-xs h-7 gap-1 border-primary/50 text-primary hover:bg-primary/10 hover:border-primary"
                         onClick={() => setCustomPresetOpen(true)}
                       >
                         <Plus className="w-3 h-3" />
@@ -414,7 +414,7 @@ export function ProviderEditor({
                       )}
                     </h3>
                     <Button
-                      variant="outline"
+                      variant="default"
                       size="sm"
                       className="h-7 text-xs gap-1"
                       onClick={onAddAccount}

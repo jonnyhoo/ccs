@@ -247,7 +247,7 @@ export function CliproxyPage() {
           <p className="text-xs text-muted-foreground mb-3">CCS-level account management</p>
 
           <Button
-            variant="outline"
+            variant="default"
             size="sm"
             className="w-full gap-2"
             onClick={() => setWizardOpen(true)}
