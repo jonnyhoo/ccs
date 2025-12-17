@@ -45,6 +45,13 @@ import {
   installWebSearchHook,
   displayWebSearchStatus,
 } from '../utils/websearch-manager';
+import {
+  getExistingProxy,
+  registerSession,
+  unregisterSession,
+  hasActiveSessions,
+  cleanupOrphanedSessions,
+} from './session-tracker';
 
 /** Default executor configuration */
 const DEFAULT_CONFIG: ExecutorConfig = {
@@ -303,85 +310,116 @@ export async function execClaudeWithCLIProxy(
   const configPath = generateConfig(provider, cfg.port);
   log(`Config written: ${configPath}`);
 
-  // 6a. Pre-flight check: ensure port is free (auto-kill zombie CLIProxy)
-  const portProcess = await getPortProcess(cfg.port);
-  if (portProcess) {
-    if (isCLIProxyProcess(portProcess)) {
-      // Zombie CLIProxy from previous run - auto-kill it
-      log(`Found zombie CLIProxy on port ${cfg.port} (PID ${portProcess.pid}), killing...`);
-      const killed = killProcessOnPort(cfg.port, verbose);
-      if (killed) {
-        console.log(info(`Cleaned up zombie CLIProxy process`));
-        // Wait a bit for port to be released
-        await new Promise((r) => setTimeout(r, 500));
+  // 6a. Pre-flight check: handle existing proxy or port conflicts
+  // Clean up orphaned sessions first (from crashed proxies)
+  cleanupOrphanedSessions(cfg.port);
+
+  // Check if there's an existing healthy proxy we can reuse
+  const existingProxy = getExistingProxy(cfg.port);
+  let proxy: ChildProcess | null = null;
+  let sessionId: string;
+  let isReusingProxy = false;
+
+  if (existingProxy) {
+    // Reuse existing proxy - another CCS session started it
+    log(`Reusing existing CLIProxy on port ${cfg.port} (PID ${existingProxy.pid})`);
+    sessionId = registerSession(cfg.port, existingProxy.pid);
+    isReusingProxy = true;
+    console.log(
+      info(`Joined existing CLIProxy (${existingProxy.sessions.length + 1} sessions active)`)
+    );
+  } else {
+    // No existing proxy - check if port is free
+    const portProcess = await getPortProcess(cfg.port);
+    if (portProcess) {
+      if (isCLIProxyProcess(portProcess)) {
+        // CLIProxy on port but no session lock - likely orphaned/zombie
+        // Only kill if no active sessions registered
+        if (!hasActiveSessions()) {
+          log(`Found zombie CLIProxy on port ${cfg.port} (PID ${portProcess.pid}), killing...`);
+          const killed = killProcessOnPort(cfg.port, verbose);
+          if (killed) {
+            console.log(info(`Cleaned up zombie CLIProxy process`));
+            // Wait a bit for port to be released
+            await new Promise((r) => setTimeout(r, 500));
+          }
+        } else {
+          // Active sessions exist but getExistingProxy returned null - something's wrong
+          // Try to connect anyway
+          log(`CLIProxy on port ${cfg.port} has active sessions, attempting to join...`);
+        }
+      } else {
+        // Non-CLIProxy process blocking the port - warn user
+        console.error('');
+        console.error(
+          warn(`Port ${cfg.port} is blocked by ${portProcess.processName} (PID ${portProcess.pid})`)
+        );
+        console.error('');
+        console.error('To fix this, close the blocking application or run:');
+        console.error(`  ${getPortCheckCommand(cfg.port)}`);
+        console.error('');
+        throw new Error(`Port ${cfg.port} is in use by another application`);
       }
-    } else {
-      // Non-CLIProxy process blocking the port - warn user
-      console.error('');
-      console.error(
-        warn(`Port ${cfg.port} is blocked by ${portProcess.processName} (PID ${portProcess.pid})`)
-      );
-      console.error('');
-      console.error('To fix this, close the blocking application or run:');
-      console.error(`  ${getPortCheckCommand(cfg.port)}`);
-      console.error('');
-      throw new Error(`Port ${cfg.port} is in use by another application`);
     }
-  }
 
-  // 6b. Spawn CLIProxyAPI binary
-  const proxyArgs = ['--config', configPath];
+    // 6b. Spawn CLIProxyAPI binary (only if not reusing existing proxy)
+    const proxyArgs = ['--config', configPath];
 
-  log(`Spawning: ${binaryPath} ${proxyArgs.join(' ')}`);
+    log(`Spawning: ${binaryPath} ${proxyArgs.join(' ')}`);
 
-  const proxy = spawn(binaryPath, proxyArgs, {
-    stdio: ['ignore', verbose ? 'pipe' : 'ignore', verbose ? 'pipe' : 'ignore'],
-    detached: false,
-  });
-
-  // Forward proxy output in verbose mode
-  if (verbose) {
-    proxy.stdout?.on('data', (data: Buffer) => {
-      process.stderr.write(`[cliproxy-out] ${data.toString()}`);
+    proxy = spawn(binaryPath, proxyArgs, {
+      stdio: ['ignore', verbose ? 'pipe' : 'ignore', verbose ? 'pipe' : 'ignore'],
+      detached: false,
     });
-    proxy.stderr?.on('data', (data: Buffer) => {
-      process.stderr.write(`[cliproxy-err] ${data.toString()}`);
+
+    // Forward proxy output in verbose mode
+    if (verbose) {
+      proxy.stdout?.on('data', (data: Buffer) => {
+        process.stderr.write(`[cliproxy-out] ${data.toString()}`);
+      });
+      proxy.stderr?.on('data', (data: Buffer) => {
+        process.stderr.write(`[cliproxy-err] ${data.toString()}`);
+      });
+    }
+
+    // Handle proxy errors
+    proxy.on('error', (error) => {
+      console.error(fail(`CLIProxy spawn error: ${error.message}`));
     });
-  }
 
-  // Handle proxy errors
-  proxy.on('error', (error) => {
-    console.error(fail(`CLIProxy spawn error: ${error.message}`));
-  });
+    // 7. Wait for proxy readiness via TCP polling
+    const readySpinner = new ProgressIndicator(`Waiting for CLIProxy on port ${cfg.port}`);
+    readySpinner.start();
 
-  // 7. Wait for proxy readiness via TCP polling
-  const readySpinner = new ProgressIndicator(`Waiting for CLIProxy on port ${cfg.port}`);
-  readySpinner.start();
+    try {
+      await waitForProxyReady(cfg.port, cfg.timeout, cfg.pollInterval);
+      readySpinner.succeed(`CLIProxy ready on port ${cfg.port}`);
+    } catch (error) {
+      readySpinner.fail('CLIProxy startup failed');
+      proxy.kill('SIGTERM');
 
-  try {
-    await waitForProxyReady(cfg.port, cfg.timeout, cfg.pollInterval);
-    readySpinner.succeed(`CLIProxy ready on port ${cfg.port}`);
-  } catch (error) {
-    readySpinner.fail('CLIProxy startup failed');
-    proxy.kill('SIGTERM');
+      const err = error as Error;
+      console.error('');
+      console.error(fail('CLIProxy failed to start'));
+      console.error('');
+      console.error('Possible causes:');
+      console.error(`  1. Port ${cfg.port} already in use`);
+      console.error('  2. Binary crashed on startup');
+      console.error('  3. Invalid configuration');
+      console.error('');
+      console.error('Troubleshooting:');
+      console.error(`  - Check port: ${getPortCheckCommand(cfg.port)}`);
+      console.error('  - Run with --verbose for detailed logs');
+      console.error(`  - View config: ${getCatCommand(configPath)}`);
+      console.error('  - Try: ccs doctor --fix');
+      console.error('');
 
-    const err = error as Error;
-    console.error('');
-    console.error(fail('CLIProxy failed to start'));
-    console.error('');
-    console.error('Possible causes:');
-    console.error(`  1. Port ${cfg.port} already in use`);
-    console.error('  2. Binary crashed on startup');
-    console.error('  3. Invalid configuration');
-    console.error('');
-    console.error('Troubleshooting:');
-    console.error(`  - Check port: ${getPortCheckCommand(cfg.port)}`);
-    console.error('  - Run with --verbose for detailed logs');
-    console.error(`  - View config: ${getCatCommand(configPath)}`);
-    console.error('  - Try: ccs doctor --fix');
-    console.error('');
+      throw new Error(`CLIProxy startup failed: ${err.message}`);
+    }
 
-    throw new Error(`CLIProxy startup failed: ${err.message}`);
+    // Register this session with the new proxy
+    sessionId = registerSession(cfg.port, proxy.pid as number);
+    log(`Registered session ${sessionId} with new proxy (PID ${proxy.pid})`);
   }
 
   // 7. Execute Claude CLI with proxied environment
@@ -435,10 +473,25 @@ export async function execClaudeWithCLIProxy(
     });
   }
 
-  // 8. Cleanup: kill proxy when Claude exits
+  // 8. Cleanup: unregister session when Claude exits, kill proxy only if last session
   claude.on('exit', (code, signal) => {
     log(`Claude exited: code=${code}, signal=${signal}`);
-    proxy.kill('SIGTERM');
+
+    // Unregister this session - returns true if we were the last session
+    const shouldKillProxy = unregisterSession(sessionId);
+    log(`Session ${sessionId} unregistered, shouldKillProxy=${shouldKillProxy}`);
+
+    if (shouldKillProxy && proxy) {
+      // We were the last session and we own the proxy - kill it
+      log('Last session, killing proxy');
+      proxy.kill('SIGTERM');
+    } else if (shouldKillProxy && isReusingProxy) {
+      // We were the last session but don't own the proxy process
+      // The proxy will be cleaned up as zombie on next session start
+      log('Last session but reusing proxy, proxy will be cleaned up later');
+    } else {
+      log(`Other sessions still active, keeping proxy running`);
+    }
 
     if (signal) {
       process.kill(process.pid, signal as NodeJS.Signals);
@@ -449,27 +502,39 @@ export async function execClaudeWithCLIProxy(
 
   claude.on('error', (error) => {
     console.error(fail(`Claude CLI error: ${error}`));
-    proxy.kill('SIGTERM');
+
+    // Unregister and conditionally kill proxy
+    const shouldKillProxy = unregisterSession(sessionId);
+    if (shouldKillProxy && proxy) {
+      proxy.kill('SIGTERM');
+    }
     process.exit(1);
   });
 
   // Handle parent process termination (SIGTERM, SIGINT)
   const cleanup = () => {
     log('Parent signal received, cleaning up');
-    proxy.kill('SIGTERM');
+
+    // Unregister and conditionally kill proxy
+    const shouldKillProxy = unregisterSession(sessionId);
+    if (shouldKillProxy && proxy) {
+      proxy.kill('SIGTERM');
+    }
     claude.kill('SIGTERM');
   };
 
   process.once('SIGTERM', cleanup);
   process.once('SIGINT', cleanup);
 
-  // Handle proxy crash
-  proxy.on('exit', (code, signal) => {
-    if (code !== 0 && code !== null) {
-      log(`Proxy exited unexpectedly: code=${code}, signal=${signal}`);
-      // Don't kill Claude - it may have already exited
-    }
-  });
+  // Handle proxy crash (only if we own the proxy)
+  if (proxy) {
+    proxy.on('exit', (code, signal) => {
+      if (code !== 0 && code !== null) {
+        log(`Proxy exited unexpectedly: code=${code}, signal=${signal}`);
+        // Don't kill Claude - it may have already exited
+      }
+    });
+  }
 }
 
 /**
