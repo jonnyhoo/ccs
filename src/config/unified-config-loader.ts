@@ -261,19 +261,17 @@ function generateYamlWithComments(config: UnifiedConfig): string {
   // WebSearch section
   if (config.websearch) {
     lines.push('# ----------------------------------------------------------------------------');
-    lines.push('# WebSearch: Provider configuration for third-party profiles');
+    lines.push('# WebSearch: CLI-based web search for third-party profiles');
     lines.push('# Dashboard (`ccs config`) is the source of truth for provider selection.');
     lines.push('#');
-    lines.push('# enabled: Master switch - auto-disables when no providers enabled');
-    lines.push('# mode: sequential (try in order) | parallel (merge all results)');
+    lines.push('# Third-party providers (gemini, codex, agy, etc.) do not have access to');
+    lines.push("# Anthropic's WebSearch tool. These CLI tools provide fallback web search.");
     lines.push('#');
     lines.push('# providers:');
-    lines.push('#   gemini: Uses Gemini CLI with google_web_search tool');
-    lines.push('#   web-search-prime: HTTP MCP endpoint (z.ai subscription)');
-    lines.push('#   brave: Brave Search API (requires BRAVE_API_KEY)');
-    lines.push('#   tavily: Tavily Search API (requires TAVILY_API_KEY)');
+    lines.push('#   gemini: Gemini CLI (FREE) - npm i -g @google/gemini-cli');
+    lines.push('#   grok: Grok CLI (paid) - npm i -g @vibe-kit/grok-cli (needs GROK_API_KEY)');
     lines.push('#');
-    lines.push('# customMcp: User-defined MCP servers (BYOM - Bring Your Own MCP)');
+    lines.push('# enabled: Master switch - auto-disables when no providers enabled');
     lines.push('# ----------------------------------------------------------------------------');
     lines.push(
       yaml

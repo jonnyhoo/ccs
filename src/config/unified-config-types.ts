@@ -112,21 +112,29 @@ export interface GeminiWebSearchConfig {
 }
 
 /**
+ * Grok CLI WebSearch configuration.
+ */
+export interface GrokWebSearchConfig {
+  /** Enable Grok CLI for WebSearch (default: false - requires GROK_API_KEY) */
+  enabled?: boolean;
+  /** Timeout in seconds (default: 55) */
+  timeout?: number;
+}
+
+/**
  * WebSearch providers configuration.
- * Currently supports Gemini CLI only.
- * Future: opencode, grok-cli, etc.
+ * Currently supports Gemini CLI and Grok CLI.
  */
 export interface WebSearchProvidersConfig {
-  /** Gemini CLI - uses google_web_search tool */
+  /** Gemini CLI - uses google_web_search tool (FREE tier: 1000 req/day) */
   gemini?: GeminiWebSearchConfig;
-  // Future CLI tools can be added here:
-  // opencode?: { enabled?: boolean; model?: string; };
-  // grok?: { enabled?: boolean; };
+  /** Grok CLI - xAI web search (requires GROK_API_KEY) */
+  grok?: GrokWebSearchConfig;
 }
 
 /**
  * WebSearch configuration.
- * Uses CLI tools (Gemini CLI) to provide WebSearch for third-party profiles.
+ * Uses CLI tools (Gemini CLI, Grok CLI) to provide WebSearch for third-party profiles.
  * Third-party providers don't have server-side WebSearch access.
  */
 export interface WebSearchConfig {

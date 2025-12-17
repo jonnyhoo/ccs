@@ -1466,7 +1466,7 @@ apiRoutes.put('/websearch', (req: Request, res: Response): void => {
       return;
     }
 
-    // Merge updates - simple structure (Gemini CLI only for now)
+    // Merge updates - supports Gemini CLI and Grok CLI
     existingConfig.websearch = {
       enabled: enabled ?? existingConfig.websearch?.enabled ?? true,
       providers: providers
@@ -1480,6 +1480,14 @@ apiRoutes.put('/websearch', (req: Request, res: Response): void => {
                 providers.gemini?.timeout ??
                 existingConfig.websearch?.providers?.gemini?.timeout ??
                 55,
+            },
+            grok: {
+              enabled:
+                providers.grok?.enabled ??
+                existingConfig.websearch?.providers?.grok?.enabled ??
+                false,
+              timeout:
+                providers.grok?.timeout ?? existingConfig.websearch?.providers?.grok?.timeout ?? 55,
             },
           }
         : existingConfig.websearch?.providers,
