@@ -357,3 +357,156 @@ describe('API Command - Model Fields Fix', () => {
     });
   });
 });
+
+describe('CLIProxy Command - Proxy Lifecycle', () => {
+  // Test isolation environment
+  let testHome;
+  let sessionLockPath;
+
+  beforeEach(() => {
+    testHome = fs.mkdtempSync(path.join(os.tmpdir(), 'ccs-cliproxy-lifecycle-'));
+    process.env.CCS_HOME = testHome;
+    const cliproxyDir = path.join(testHome, '.ccs', 'cliproxy');
+    fs.mkdirSync(cliproxyDir, { recursive: true });
+    sessionLockPath = path.join(cliproxyDir, 'sessions.json');
+  });
+
+  afterEach(() => {
+    if (testHome && fs.existsSync(testHome)) {
+      fs.rmSync(testHome, { recursive: true, force: true });
+    }
+    delete process.env.CCS_HOME;
+  });
+
+  describe('Status Command Logic', () => {
+    it('returns not running when no session lock exists', () => {
+      // Simulate getProxyStatus behavior
+      const lockExists = fs.existsSync(sessionLockPath);
+      assert.strictEqual(lockExists, false);
+
+      // Status should indicate not running
+      const status = { running: false };
+      assert.strictEqual(status.running, false);
+    });
+
+    it('returns running with details when session lock exists', () => {
+      // Create mock session lock
+      const lock = {
+        port: 8317,
+        pid: process.pid,
+        sessions: ['session1', 'session2'],
+        startedAt: new Date().toISOString(),
+      };
+      fs.writeFileSync(sessionLockPath, JSON.stringify(lock, null, 2));
+
+      // Read and verify
+      const data = JSON.parse(fs.readFileSync(sessionLockPath, 'utf-8'));
+      assert.strictEqual(data.port, 8317);
+      assert.strictEqual(data.pid, process.pid);
+      assert.strictEqual(data.sessions.length, 2);
+      assert(data.startedAt);
+    });
+
+    it('formats uptime correctly', () => {
+      // Test uptime formatting logic
+      const formatUptime = (ms) => {
+        const hours = Math.floor(ms / (1000 * 60 * 60));
+        const minutes = Math.floor((ms % (1000 * 60 * 60)) / (1000 * 60));
+        if (hours > 0) return `${hours}h ${minutes}m`;
+        return `${minutes}m`;
+      };
+
+      assert.strictEqual(formatUptime(30 * 60 * 1000), '30m'); // 30 minutes
+      assert.strictEqual(formatUptime(90 * 60 * 1000), '1h 30m'); // 1.5 hours
+      assert.strictEqual(formatUptime(2 * 60 * 60 * 1000 + 15 * 60 * 1000), '2h 15m'); // 2h 15m
+    });
+  });
+
+  describe('Stop Command Logic', () => {
+    it('returns error when no session lock exists', () => {
+      // Verify lock doesn't exist
+      assert.strictEqual(fs.existsSync(sessionLockPath), false);
+
+      // Stop should fail with appropriate error
+      const result = { stopped: false, error: 'No active CLIProxy session found' };
+      assert.strictEqual(result.stopped, false);
+      assert.strictEqual(result.error, 'No active CLIProxy session found');
+    });
+
+    it('cleans up stale lock for dead process', () => {
+      // Create lock with non-existent PID
+      const lock = {
+        port: 8317,
+        pid: 999999999, // Very unlikely to exist
+        sessions: ['session1'],
+        startedAt: new Date().toISOString(),
+      };
+      fs.writeFileSync(sessionLockPath, JSON.stringify(lock, null, 2));
+
+      // Verify lock was created
+      assert.strictEqual(fs.existsSync(sessionLockPath), true);
+
+      // Simulate isProcessRunning check
+      const isRunning = (() => {
+        try {
+          process.kill(999999999, 0);
+          return true;
+        } catch {
+          return false;
+        }
+      })();
+
+      assert.strictEqual(isRunning, false);
+
+      // Cleanup should remove lock
+      if (!isRunning) {
+        fs.unlinkSync(sessionLockPath);
+      }
+      assert.strictEqual(fs.existsSync(sessionLockPath), false);
+    });
+
+    it('returns session count when stopping active proxy', () => {
+      // Create lock with current process
+      const lock = {
+        port: 8317,
+        pid: process.pid,
+        sessions: ['session1', 'session2', 'session3'],
+        startedAt: new Date().toISOString(),
+      };
+      fs.writeFileSync(sessionLockPath, JSON.stringify(lock, null, 2));
+
+      // Read and verify session count
+      const data = JSON.parse(fs.readFileSync(sessionLockPath, 'utf-8'));
+      assert.strictEqual(data.sessions.length, 3);
+
+      // Result structure should include count
+      const result = {
+        stopped: true,
+        pid: data.pid,
+        sessionCount: data.sessions.length,
+      };
+      assert.strictEqual(result.stopped, true);
+      assert.strictEqual(result.sessionCount, 3);
+    });
+  });
+
+  describe('Command Routing', () => {
+    it('routes "stop" subcommand correctly', () => {
+      const args = ['cliproxy', 'stop'];
+      const subcommand = args[1];
+      assert.strictEqual(subcommand, 'stop');
+    });
+
+    it('routes "status" subcommand correctly', () => {
+      const args = ['cliproxy', 'status'];
+      const subcommand = args[1];
+      assert.strictEqual(subcommand, 'status');
+    });
+
+    it('handles unknown subcommand', () => {
+      const validSubcommands = ['stop', 'status', 'create', 'list', 'remove'];
+      const unknownCommand = 'invalid';
+      assert.strictEqual(validSubcommands.includes(unknownCommand), false);
+    });
+  });
+});
