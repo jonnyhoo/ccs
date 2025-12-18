@@ -8,7 +8,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { useCopilot } from '@/hooks/use-copilot';
-import { CheckCircle2, XCircle, AlertTriangle, Loader2 } from 'lucide-react';
+import { CheckCircle2, XCircle, AlertTriangle, Loader2, Download } from 'lucide-react';
 
 export function CopilotStatusCard() {
   const {
@@ -20,6 +20,8 @@ export function CopilotStatusCard() {
     isStartingDaemon,
     stopDaemon,
     isStoppingDaemon,
+    install,
+    isInstalling,
   } = useCopilot();
 
   if (statusLoading) {
@@ -80,7 +82,7 @@ export function CopilotStatusCard() {
               <XCircle className="h-5 w-5 text-red-500" />
             )}
             <span className="text-sm">
-              copilot-api {status.installed ? 'Installed' : 'Not Installed'}
+              copilot-api {status.installed ? `v${status.version}` : 'Not Installed'}
             </span>
           </div>
 
@@ -116,6 +118,22 @@ export function CopilotStatusCard() {
 
         {/* Actions */}
         <div className="flex flex-wrap gap-2 pt-2">
+          {!status.installed && (
+            <Button onClick={() => install(undefined)} disabled={isInstalling} size="sm">
+              {isInstalling ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Installing...
+                </>
+              ) : (
+                <>
+                  <Download className="mr-2 h-4 w-4" />
+                  Install copilot-api
+                </>
+              )}
+            </Button>
+          )}
+
           {!status.authenticated && (
             <Button
               onClick={() => startAuth()}

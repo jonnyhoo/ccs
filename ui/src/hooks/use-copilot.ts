@@ -12,6 +12,7 @@ const API_BASE = '/api';
 export interface CopilotStatus {
   enabled: boolean;
   installed: boolean;
+  version: string | null;
   authenticated: boolean;
   daemon_running: boolean;
   port: number;
@@ -20,6 +21,20 @@ export interface CopilotStatus {
   auto_start: boolean;
   rate_limit: number | null;
   wait_on_limit: boolean;
+}
+
+export interface CopilotInfo {
+  installed: boolean;
+  version: string | null;
+  path: string;
+  pinnedVersion: string | null;
+}
+
+export interface CopilotInstallResult {
+  success: boolean;
+  installed: boolean;
+  version: string | null;
+  path: string;
 }
 
 export interface CopilotConfig {
@@ -120,6 +135,22 @@ async function stopCopilotDaemon(): Promise<{ success: boolean; error?: string }
   return res.json();
 }
 
+async function fetchCopilotInfo(): Promise<CopilotInfo> {
+  const res = await fetch(`${API_BASE}/copilot/info`);
+  if (!res.ok) throw new Error('Failed to fetch copilot info');
+  return res.json();
+}
+
+async function installCopilotApi(version?: string): Promise<CopilotInstallResult> {
+  const res = await fetch(`${API_BASE}/copilot/install`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(version ? { version } : {}),
+  });
+  if (!res.ok) throw new Error('Failed to install copilot-api');
+  return res.json();
+}
+
 // Hook
 export function useCopilot() {
   const queryClient = useQueryClient();
@@ -144,6 +175,11 @@ export function useCopilot() {
   const rawSettingsQuery = useQuery({
     queryKey: ['copilot-raw-settings'],
     queryFn: fetchCopilotRawSettings,
+  });
+
+  const infoQuery = useQuery({
+    queryKey: ['copilot-info'],
+    queryFn: fetchCopilotInfo,
   });
 
   // Mutations
@@ -189,6 +225,14 @@ export function useCopilot() {
     },
   });
 
+  const installMutation = useMutation({
+    mutationFn: installCopilotApi,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['copilot-status'] });
+      queryClient.invalidateQueries({ queryKey: ['copilot-info'] });
+    },
+  });
+
   return {
     // Status
     status: statusQuery.data,
@@ -227,5 +271,14 @@ export function useCopilot() {
 
     stopDaemon: stopDaemonMutation.mutate,
     isStoppingDaemon: stopDaemonMutation.isPending,
+
+    // Install
+    info: infoQuery.data,
+    infoLoading: infoQuery.isLoading,
+    refetchInfo: infoQuery.refetch,
+
+    install: installMutation.mutate,
+    installAsync: installMutation.mutateAsync,
+    isInstalling: installMutation.isPending,
   };
 }
