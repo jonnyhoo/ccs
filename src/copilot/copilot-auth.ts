@@ -2,25 +2,22 @@
  * Copilot Auth Handler
  *
  * Handles GitHub OAuth authentication for copilot-api.
+ * Uses local installation from ~/.ccs/copilot/ (managed by copilot-package-manager).
  */
 
-import { spawn, spawnSync } from 'child_process';
+import { spawn } from 'child_process';
 import { CopilotAuthStatus, CopilotDebugInfo } from './types';
+import {
+  isCopilotApiInstalled as checkInstalled,
+  getCopilotApiBinPath,
+} from './copilot-package-manager';
 
 /**
- * Check if copilot-api is installed (available via npx).
+ * Check if copilot-api is installed locally.
+ * Uses copilot-package-manager to check ~/.ccs/copilot/node_modules/.bin/copilot-api
  */
 export function isCopilotApiInstalled(): boolean {
-  try {
-    const result = spawnSync('npx', ['copilot-api', '--version'], {
-      stdio: 'pipe',
-      timeout: 10000,
-      shell: process.platform === 'win32',
-    });
-    return result.status === 0;
-  } catch {
-    return false;
-  }
+  return checkInstalled();
 }
 
 /**
@@ -28,9 +25,11 @@ export function isCopilotApiInstalled(): boolean {
  * Returns authentication status and version info.
  */
 export async function getCopilotDebugInfo(): Promise<CopilotDebugInfo | null> {
+  const binPath = getCopilotApiBinPath();
+
   return new Promise((resolve) => {
     try {
-      const proc = spawn('npx', ['copilot-api', 'debug', '--json'], {
+      const proc = spawn(binPath, ['debug', '--json'], {
         stdio: ['ignore', 'pipe', 'pipe'],
         shell: process.platform === 'win32',
         timeout: 15000,
@@ -100,12 +99,14 @@ export async function checkAuthStatus(): Promise<CopilotAuthStatus> {
  * @returns Promise that resolves when auth flow completes
  */
 export function startAuthFlow(): Promise<{ success: boolean; error?: string }> {
+  const binPath = getCopilotApiBinPath();
+
   return new Promise((resolve) => {
     console.log('[i] Starting GitHub authentication for Copilot...');
     console.log('[i] A browser window will open for GitHub OAuth.');
     console.log('');
 
-    const proc = spawn('npx', ['copilot-api', 'auth'], {
+    const proc = spawn(binPath, ['auth'], {
       stdio: 'inherit',
       shell: process.platform === 'win32',
     });

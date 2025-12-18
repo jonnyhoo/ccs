@@ -2,13 +2,14 @@
  * Copilot Executor
  *
  * Main execution flow for running Claude Code with copilot-api proxy.
- * Similar to CLIProxy executor but for GitHub Copilot.
+ * Uses local installation from ~/.ccs/copilot/ (managed by copilot-package-manager).
  */
 
 import { spawn } from 'child_process';
 import { CopilotConfig } from '../config/unified-config-types';
 import { checkAuthStatus, isCopilotApiInstalled } from './copilot-auth';
 import { isDaemonRunning, startDaemon } from './copilot-daemon';
+import { ensureCopilotApi } from './copilot-package-manager';
 import { CopilotStatus } from './types';
 
 /**
@@ -65,12 +66,24 @@ export async function executeCopilotProfile(
   config: CopilotConfig,
   claudeArgs: string[]
 ): Promise<number> {
-  // Check if copilot-api is installed
+  // Ensure copilot-api is installed (auto-install if missing, auto-update if outdated)
+  try {
+    await ensureCopilotApi();
+  } catch (error) {
+    console.error('[X] Failed to install copilot-api.');
+    console.error('');
+    console.error(`Error: ${(error as Error).message}`);
+    console.error('');
+    console.error('Try installing manually:');
+    console.error('  npm install -g copilot-api');
+    return 1;
+  }
+
+  // Check if copilot-api is installed (should be after ensureCopilotApi)
   if (!isCopilotApiInstalled()) {
     console.error('[X] copilot-api is not installed.');
     console.error('');
-    console.error('Install with: npm install -g copilot-api');
-    console.error('Or run via npx: npx copilot-api auth');
+    console.error('Install with: ccs copilot --install');
     return 1;
   }
 

@@ -7,13 +7,24 @@
 // Types
 export * from './types';
 
-// Auth
+// Package Manager (self-managed installation)
 export {
+  getCopilotDir,
+  getCopilotApiBinPath,
   isCopilotApiInstalled,
-  checkAuthStatus,
-  startAuthFlow,
-  getCopilotDebugInfo,
-} from './copilot-auth';
+  getInstalledVersion,
+  getPinnedVersion,
+  savePinnedVersion,
+  clearPinnedVersion,
+  checkForUpdates,
+  ensureCopilotApi,
+  installCopilotApiVersion,
+  uninstallCopilotApi,
+  getCopilotApiInfo,
+} from './copilot-package-manager';
+
+// Auth
+export { checkAuthStatus, startAuthFlow, getCopilotDebugInfo } from './copilot-auth';
 
 // Daemon
 export { isDaemonRunning, getDaemonStatus, startDaemon, stopDaemon } from './copilot-daemon';

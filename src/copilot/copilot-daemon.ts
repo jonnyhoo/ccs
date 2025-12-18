@@ -2,18 +2,18 @@
  * Copilot Daemon Manager
  *
  * Manages the copilot-api daemon lifecycle (start/stop/status).
- * Only used when auto_start is enabled in config.
+ * Uses local installation from ~/.ccs/copilot/ (managed by copilot-package-manager).
  */
 
 import { spawn, ChildProcess } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
-import * as os from 'os';
 import * as http from 'http';
 import { CopilotDaemonStatus } from './types';
 import { CopilotConfig } from '../config/unified-config-types';
+import { getCopilotDir, getCopilotApiBinPath } from './copilot-package-manager';
 
-const PID_FILE = path.join(os.homedir(), '.ccs', 'copilot.pid');
+const PID_FILE = path.join(getCopilotDir(), 'daemon.pid');
 
 /**
  * Check if copilot-api daemon is running on the specified port.
@@ -118,7 +118,8 @@ export async function startDaemon(
     return { success: true, pid: getPidFromFile() ?? undefined };
   }
 
-  const args = ['copilot-api', 'start', '--port', config.port.toString()];
+  const binPath = getCopilotApiBinPath();
+  const args = ['start', '--port', config.port.toString()];
 
   // Add account type
   if (config.account_type !== 'individual') {
@@ -137,7 +138,7 @@ export async function startDaemon(
     let proc: ChildProcess;
 
     try {
-      proc = spawn('npx', args, {
+      proc = spawn(binPath, args, {
         stdio: ['ignore', 'pipe', 'pipe'],
         detached: true,
         shell: process.platform === 'win32',
