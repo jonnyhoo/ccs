@@ -24,7 +24,14 @@ export {
 } from './copilot-package-manager';
 
 // Auth
-export { checkAuthStatus, startAuthFlow, getCopilotDebugInfo } from './copilot-auth';
+export {
+  checkAuthStatus,
+  startAuthFlow,
+  getCopilotDebugInfo,
+  hasTokenFile,
+  getTokenPath,
+} from './copilot-auth';
+export type { AuthFlowResult } from './copilot-auth';
 
 // Daemon
 export { isDaemonRunning, getDaemonStatus, startDaemon, stopDaemon } from './copilot-daemon';

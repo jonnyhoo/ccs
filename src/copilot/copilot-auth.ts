@@ -6,11 +6,38 @@
  */
 
 import { spawn } from 'child_process';
+import * as fs from 'fs';
+import * as path from 'path';
+import * as os from 'os';
 import { CopilotAuthStatus, CopilotDebugInfo } from './types';
 import {
   isCopilotApiInstalled as checkInstalled,
   getCopilotApiBinPath,
 } from './copilot-package-manager';
+
+/**
+ * Get the path to copilot-api's GitHub token file.
+ * copilot-api stores tokens in ~/.local/share/copilot-api/github_token (Linux/macOS)
+ * or %APPDATA%/copilot-api/github_token (Windows)
+ */
+export function getTokenPath(): string {
+  if (process.platform === 'win32') {
+    return path.join(process.env.APPDATA || os.homedir(), 'copilot-api', 'github_token');
+  }
+  return path.join(os.homedir(), '.local', 'share', 'copilot-api', 'github_token');
+}
+
+/**
+ * Check if GitHub token file exists.
+ * Fast check that doesn't require spawning copilot-api process.
+ */
+export function hasTokenFile(): boolean {
+  try {
+    return fs.existsSync(getTokenPath());
+  } catch {
+    return false;
+  }
+}
 
 /**
  * Check if copilot-api is installed locally.
@@ -76,48 +103,95 @@ export async function getCopilotDebugInfo(): Promise<CopilotDebugInfo | null> {
 
 /**
  * Check copilot authentication status.
+ * Uses fast token file check first, falls back to copilot-api debug if needed.
  */
 export async function checkAuthStatus(): Promise<CopilotAuthStatus> {
+  // Fast path: check if token file exists (instant, no subprocess)
+  if (hasTokenFile()) {
+    return { authenticated: true };
+  }
+
+  // Slow path: try copilot-api debug --json (may timeout)
+  // Only used if token file doesn't exist
   const debugInfo = await getCopilotDebugInfo();
 
-  if (!debugInfo) {
-    return {
-      authenticated: false,
-      error: 'Could not check auth status. Is copilot-api installed?',
-    };
+  if (debugInfo?.authenticated) {
+    return { authenticated: true };
   }
 
   return {
-    authenticated: debugInfo.authenticated ?? false,
+    authenticated: false,
   };
 }
 
 /**
- * Start GitHub OAuth authentication flow.
- * Opens browser for user to authenticate with GitHub.
- *
- * @returns Promise that resolves when auth flow completes
+ * Auth flow result with optional device code info.
  */
-export function startAuthFlow(): Promise<{ success: boolean; error?: string }> {
+export interface AuthFlowResult {
+  success: boolean;
+  error?: string;
+  /** Device code for user to enter at GitHub */
+  deviceCode?: string;
+  /** URL where user enters the device code */
+  verificationUrl?: string;
+}
+
+/**
+ * Start GitHub OAuth authentication flow.
+ * Captures device code from copilot-api output and returns it.
+ *
+ * @returns Promise that resolves with auth result including device code
+ */
+export function startAuthFlow(): Promise<AuthFlowResult> {
   const binPath = getCopilotApiBinPath();
 
   return new Promise((resolve) => {
     console.log('[i] Starting GitHub authentication for Copilot...');
-    console.log('[i] A browser window will open for GitHub OAuth.');
     console.log('');
 
     const proc = spawn(binPath, ['auth'], {
-      stdio: 'inherit',
+      stdio: ['ignore', 'pipe', 'pipe'],
       shell: process.platform === 'win32',
+    });
+
+    let stdout = '';
+    let deviceCode: string | undefined;
+    let verificationUrl: string | undefined;
+
+    proc.stdout.on('data', (data) => {
+      const chunk = data.toString();
+      stdout += chunk;
+
+      // Echo to console for terminal users
+      process.stdout.write(chunk);
+
+      // Parse device code from output like:
+      // "Please enter the code "5653-38A1" in https://github.com/login/device"
+      const codeMatch = stdout.match(/code\s+"([A-Z0-9]{4}-[A-Z0-9]{4})"/i);
+      const urlMatch = stdout.match(/(https:\/\/github\.com\/login\/device)/i);
+
+      if (codeMatch && !deviceCode) {
+        deviceCode = codeMatch[1];
+      }
+      if (urlMatch && !verificationUrl) {
+        verificationUrl = urlMatch[1];
+      }
+    });
+
+    proc.stderr.on('data', (data) => {
+      // Echo stderr to console
+      process.stderr.write(data.toString());
     });
 
     proc.on('close', (code) => {
       if (code === 0) {
-        resolve({ success: true });
+        resolve({ success: true, deviceCode, verificationUrl });
       } else {
         resolve({
           success: false,
           error: `Authentication failed with exit code ${code}`,
+          deviceCode,
+          verificationUrl,
         });
       }
     });
