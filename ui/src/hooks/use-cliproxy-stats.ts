@@ -130,3 +130,60 @@ export function useCliproxyModels(enabled = true) {
     retry: 1,
   });
 }
+
+/** Error log file metadata from CLIProxyAPI */
+export interface CliproxyErrorLog {
+  name: string;
+  size: number;
+  modified: number;
+}
+
+/**
+ * Fetch CLIProxy error logs from API
+ */
+async function fetchCliproxyErrorLogs(): Promise<CliproxyErrorLog[]> {
+  const response = await fetch('/api/cliproxy/error-logs');
+  if (!response.ok) {
+    const error = await response.json();
+    throw new Error(error.message || 'Failed to fetch error logs');
+  }
+  const data = await response.json();
+  return data.files ?? [];
+}
+
+/**
+ * Fetch specific error log content
+ */
+async function fetchCliproxyErrorLogContent(name: string): Promise<string> {
+  const response = await fetch(`/api/cliproxy/error-logs/${encodeURIComponent(name)}`);
+  if (!response.ok) {
+    throw new Error('Failed to fetch error log content');
+  }
+  return response.text();
+}
+
+/**
+ * Hook to get CLIProxy error logs list
+ */
+export function useCliproxyErrorLogs(enabled = true) {
+  return useQuery({
+    queryKey: ['cliproxy-error-logs'],
+    queryFn: fetchCliproxyErrorLogs,
+    enabled,
+    refetchInterval: 30000, // Refresh every 30 seconds
+    retry: 1,
+    staleTime: 10000,
+  });
+}
+
+/**
+ * Hook to get specific error log content
+ */
+export function useCliproxyErrorLogContent(name: string | null) {
+  return useQuery({
+    queryKey: ['cliproxy-error-log-content', name],
+    queryFn: () => (name ? fetchCliproxyErrorLogContent(name) : Promise.resolve('')),
+    enabled: !!name,
+    staleTime: 60000, // Cache log content for 1 minute
+  });
+}

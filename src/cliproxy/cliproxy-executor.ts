@@ -24,6 +24,7 @@ import {
   getProviderConfig,
   ensureProviderSettings,
   CLIPROXY_DEFAULT_PORT,
+  getCliproxyWritablePath,
 } from './config-generator';
 import { isAuthenticated } from './auth-handler';
 import { CLIProxyProvider, ExecutorConfig } from './types';
@@ -369,6 +370,10 @@ export async function execClaudeWithCLIProxy(
     proxy = spawn(binaryPath, proxyArgs, {
       stdio: ['ignore', 'ignore', 'ignore'],
       detached: true, // Persist after parent terminal closes
+      env: {
+        ...process.env,
+        WRITABLE_PATH: getCliproxyWritablePath(), // Logs stored in ~/.ccs/cliproxy/logs/
+      },
     });
 
     // Unref so parent process can exit independently

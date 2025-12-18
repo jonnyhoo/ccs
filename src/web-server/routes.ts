@@ -22,6 +22,8 @@ import {
   fetchCliproxyStats,
   fetchCliproxyModels,
   isCliproxyRunning,
+  fetchCliproxyErrorLogs,
+  fetchCliproxyErrorLogContent,
 } from '../cliproxy/stats-fetcher';
 import {
   listOpenAICompatProviders,
@@ -1413,6 +1415,77 @@ apiRoutes.get('/cliproxy/models', async (_req: Request, res: Response): Promise<
     }
 
     res.json(modelsResponse);
+  } catch (error) {
+    res.status(500).json({ error: (error as Error).message });
+  }
+});
+
+// ==================== Error Logs ====================
+
+/**
+ * GET /api/cliproxy/error-logs - Get list of error log files
+ * Returns: { files: CliproxyErrorLog[] } or error if proxy not running
+ */
+apiRoutes.get('/cliproxy/error-logs', async (_req: Request, res: Response): Promise<void> => {
+  try {
+    const running = await isCliproxyRunning();
+    if (!running) {
+      res.status(503).json({
+        error: 'CLIProxyAPI not running',
+        message: 'Start a CLIProxy session to view error logs',
+      });
+      return;
+    }
+
+    const files = await fetchCliproxyErrorLogs();
+    if (files === null) {
+      res.status(503).json({
+        error: 'Error logs unavailable',
+        message: 'CLIProxyAPI is running but error logs endpoint not responding',
+      });
+      return;
+    }
+
+    res.json({ files });
+  } catch (error) {
+    res.status(500).json({ error: (error as Error).message });
+  }
+});
+
+/**
+ * GET /api/cliproxy/error-logs/:name - Get content of a specific error log
+ * Returns: plain text log content
+ */
+apiRoutes.get('/cliproxy/error-logs/:name', async (req: Request, res: Response): Promise<void> => {
+  const { name } = req.params;
+
+  // Validate filename format and prevent path traversal
+  if (
+    !name ||
+    !name.startsWith('error-') ||
+    !name.endsWith('.log') ||
+    name.includes('..') ||
+    name.includes('/') ||
+    name.includes('\\')
+  ) {
+    res.status(400).json({ error: 'Invalid error log filename' });
+    return;
+  }
+
+  try {
+    const running = await isCliproxyRunning();
+    if (!running) {
+      res.status(503).json({ error: 'CLIProxyAPI not running' });
+      return;
+    }
+
+    const content = await fetchCliproxyErrorLogContent(name);
+    if (content === null) {
+      res.status(404).json({ error: 'Error log not found' });
+      return;
+    }
+
+    res.type('text/plain').send(content);
   } catch (error) {
     res.status(500).json({ error: (error as Error).message });
   }

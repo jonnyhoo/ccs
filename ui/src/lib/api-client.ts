@@ -163,6 +163,16 @@ export interface ProxyProcessStatus {
   startedAt?: string;
 }
 
+/** Error log file metadata from CLIProxyAPI */
+export interface CliproxyErrorLog {
+  /** Filename (e.g., "error-v1-chat-completions-2025-01-15T10-30-00.log") */
+  name: string;
+  /** File size in bytes */
+  size: number;
+  /** Last modified timestamp (Unix seconds) */
+  modified: number;
+}
+
 /** Result from starting proxy service */
 export interface ProxyStartResult {
   started: boolean;
@@ -265,6 +275,17 @@ export const api = {
           method: 'POST',
           body: JSON.stringify({ nickname }),
         }),
+    },
+    // Error logs
+    errorLogs: {
+      /** List error log files */
+      list: () => request<{ files: CliproxyErrorLog[] }>('/cliproxy/error-logs'),
+      /** Get content of a specific error log */
+      getContent: async (name: string): Promise<string> => {
+        const res = await fetch(`${BASE_URL}/cliproxy/error-logs/${encodeURIComponent(name)}`);
+        if (!res.ok) throw new Error('Failed to load error log');
+        return res.text();
+      },
     },
   },
   accounts: {

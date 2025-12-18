@@ -1,6 +1,7 @@
 import { useNavigate } from 'react-router-dom';
 import { HeroSection } from '@/components/hero-section';
 import { AuthMonitor } from '@/components/auth-monitor';
+import { ErrorLogsMonitor } from '@/components/error-logs-monitor';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Key, Zap, Users, Activity, AlertTriangle } from 'lucide-react';
@@ -175,6 +176,9 @@ export function HomePage() {
 
       {/* Auth Monitor */}
       <AuthMonitor />
+
+      {/* Error Logs Monitor - shows only when there are errors */}
+      <ErrorLogsMonitor />
     </div>
   );
 }

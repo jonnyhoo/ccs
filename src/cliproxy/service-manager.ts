@@ -19,6 +19,7 @@ import {
   regenerateConfig,
   configNeedsRegeneration,
   CLIPROXY_DEFAULT_PORT,
+  getCliproxyWritablePath,
 } from './config-generator';
 import { isCliproxyRunning } from './stats-fetcher';
 
@@ -171,6 +172,10 @@ export async function ensureCliproxyService(
   proxyProcess = spawn(binaryPath, proxyArgs, {
     stdio: ['ignore', verbose ? 'pipe' : 'ignore', verbose ? 'pipe' : 'ignore'],
     detached: true, // Allow process to run independently
+    env: {
+      ...process.env,
+      WRITABLE_PATH: getCliproxyWritablePath(), // Logs stored in ~/.ccs/cliproxy/logs/
+    },
   });
 
   // Forward output in verbose mode

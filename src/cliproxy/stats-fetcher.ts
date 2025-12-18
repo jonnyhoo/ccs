@@ -271,6 +271,90 @@ export async function fetchCliproxyModels(
   }
 }
 
+/** Error log file metadata from CLIProxyAPI */
+export interface CliproxyErrorLog {
+  /** Filename (e.g., "error-v1-chat-completions-2025-01-15T10-30-00.log") */
+  name: string;
+  /** File size in bytes */
+  size: number;
+  /** Last modified timestamp (Unix seconds) */
+  modified: number;
+}
+
+/** Response from /v0/management/request-error-logs endpoint */
+interface ErrorLogsApiResponse {
+  files: CliproxyErrorLog[];
+}
+
+/**
+ * Fetch error log file list from CLIProxyAPI management API
+ * @param port CLIProxyAPI port (default: 8317)
+ * @returns Array of error log metadata or null if unavailable
+ */
+export async function fetchCliproxyErrorLogs(
+  port: number = CLIPROXY_DEFAULT_PORT
+): Promise<CliproxyErrorLog[] | null> {
+  try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 3000);
+
+    const response = await fetch(`http://127.0.0.1:${port}/v0/management/request-error-logs`, {
+      signal: controller.signal,
+      headers: {
+        Accept: 'application/json',
+        Authorization: `Bearer ${CCS_CONTROL_PANEL_SECRET}`,
+      },
+    });
+
+    clearTimeout(timeoutId);
+
+    if (!response.ok) {
+      return null;
+    }
+
+    const data = (await response.json()) as ErrorLogsApiResponse;
+    return data.files ?? [];
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Fetch error log file content from CLIProxyAPI management API
+ * @param name Error log filename
+ * @param port CLIProxyAPI port (default: 8317)
+ * @returns Log file content as string or null if unavailable
+ */
+export async function fetchCliproxyErrorLogContent(
+  name: string,
+  port: number = CLIPROXY_DEFAULT_PORT
+): Promise<string | null> {
+  try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 5000);
+
+    const response = await fetch(
+      `http://127.0.0.1:${port}/v0/management/request-error-logs/${encodeURIComponent(name)}`,
+      {
+        signal: controller.signal,
+        headers: {
+          Authorization: `Bearer ${CCS_CONTROL_PANEL_SECRET}`,
+        },
+      }
+    );
+
+    clearTimeout(timeoutId);
+
+    if (!response.ok) {
+      return null;
+    }
+
+    return await response.text();
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Check if CLIProxyAPI is running and responsive
  * @param port CLIProxyAPI port (default: 8317)

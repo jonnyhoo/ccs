@@ -31,6 +31,15 @@ export const CCS_INTERNAL_API_KEY = 'ccs-internal-managed';
 export const CCS_CONTROL_PANEL_SECRET = 'ccs';
 
 /**
+ * Get CLIProxy writable directory for logs and runtime files.
+ * This directory is set as WRITABLE_PATH env var when spawning CLIProxy.
+ * Logs will be stored in ~/.ccs/cliproxy/logs/
+ */
+export function getCliproxyWritablePath(): string {
+  return path.join(getCcsDir(), 'cliproxy');
+}
+
+/**
  * Config version - bump when config format changes to trigger regeneration
  * v1: Initial config (port, auth-dir, api-keys only)
  * v2: Full-featured config with dashboard, quota mgmt, simplified key
