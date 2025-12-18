@@ -339,8 +339,21 @@ async function main(): Promise<void> {
   }
 
   // Special case: copilot command (GitHub Copilot integration)
-  if (firstArg === 'copilot') {
-    // `ccs copilot [subcommand]` - route to copilot command handler
+  // Only route to command handler for known subcommands, otherwise treat as profile
+  const COPILOT_SUBCOMMANDS = [
+    'auth',
+    'status',
+    'models',
+    'start',
+    'stop',
+    'enable',
+    'disable',
+    'help',
+    '--help',
+    '-h',
+  ];
+  if (firstArg === 'copilot' && args.length > 1 && COPILOT_SUBCOMMANDS.includes(args[1])) {
+    // `ccs copilot <subcommand>` - route to copilot command handler
     const { handleCopilotCommand } = await import('./commands/copilot-command');
     const exitCode = await handleCopilotCommand(args.slice(1));
     process.exit(exitCode);
