@@ -1,3 +1,9 @@
+## [6.6.0-dev.2](https://github.com/kaitranntt/ccs/compare/v6.6.0-dev.1...v6.6.0-dev.2) (2025-12-19)
+
+### Bug Fixes
+
+* **ci:** remove sync-version.js that depends on deleted VERSION file ([18729c9](https://github.com/kaitranntt/ccs/commit/18729c9983ecd1f9d857b0de2753e99c675c624a))
+
 ## [6.6.0-dev.1](https://github.com/kaitranntt/ccs/compare/v6.5.0...v6.6.0-dev.1) (2025-12-19)
 
 ### ⚠ BREAKING CHANGES
