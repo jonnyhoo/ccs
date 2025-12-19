@@ -240,3 +240,36 @@ export function useStartProxy() {
     },
   });
 }
+
+export function useStopProxy() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: () => api.cliproxy.proxyStop(),
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ['proxy-status'] });
+      if (data.stopped) {
+        toast.success(
+          `CLIProxy stopped${data.sessionCount ? ` (${data.sessionCount} session(s) disconnected)` : ''}`
+        );
+      } else {
+        toast.error(data.error || 'Failed to stop CLIProxy');
+      }
+    },
+    onError: (error: Error) => {
+      toast.error(error.message);
+    },
+  });
+}
+
+// ==================== Update Check ====================
+
+export function useCliproxyUpdateCheck() {
+  return useQuery({
+    queryKey: ['cliproxy-update-check'],
+    queryFn: () => api.cliproxy.updateCheck(),
+    staleTime: 60 * 60 * 1000, // 1 hour (matches backend cache)
+    refetchInterval: 60 * 60 * 1000, // Refresh every hour
+    refetchOnWindowFocus: false, // Don't refresh on window focus (save API calls)
+  });
+}

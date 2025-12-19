@@ -19,7 +19,8 @@ import * as crypto from 'crypto';
 import * as zlib from 'zlib';
 import { ProgressIndicator } from '../utils/progress-indicator';
 import { ok, info } from '../utils/ui';
-import { getBinDir, getCliproxyDir } from './config-generator';
+import { getBinDir, getCliproxyDir, CLIPROXY_DEFAULT_PORT } from './config-generator';
+import { isCliproxyRunning } from './stats-fetcher';
 import {
   BinaryInfo,
   BinaryManagerConfig,
@@ -58,6 +59,7 @@ interface UpdateCheckResult {
   currentVersion: string;
   latestVersion: string;
   fromCache: boolean;
+  checkedAt: number; // Unix timestamp of last check
 }
 
 /** Default configuration */
@@ -103,17 +105,31 @@ export class BinaryManager {
       try {
         const updateResult = await this.checkForUpdates();
         if (updateResult.hasUpdate) {
-          console.log(
-            info(
-              `CLIProxyAPI update available: v${updateResult.currentVersion} -> v${updateResult.latestVersion}`
-            )
-          );
-          console.log(info('Updating CLIProxyAPI...'));
+          // Check if CLIProxyAPI is currently running - can't update while running
+          const proxyRunning = await isCliproxyRunning(CLIPROXY_DEFAULT_PORT);
+          if (proxyRunning) {
+            // Proxy is running - can't update, just notify user
+            console.log(
+              info(
+                `CLIProxyAPI update available: v${updateResult.currentVersion} -> v${updateResult.latestVersion}`
+              )
+            );
+            console.log(info('Run "ccs cliproxy stop" then restart to apply update'));
+            this.log('Skipping update: CLIProxyAPI is currently running');
+          } else {
+            // Proxy not running - safe to update
+            console.log(
+              info(
+                `CLIProxyAPI update available: v${updateResult.currentVersion} -> v${updateResult.latestVersion}`
+              )
+            );
+            console.log(info('Updating CLIProxyAPI...'));
 
-          // Delete old binary and download new version
-          this.deleteBinary();
-          this.config.version = updateResult.latestVersion;
-          await this.downloadAndInstall();
+            // Delete old binary and download new version
+            this.deleteBinary();
+            this.config.version = updateResult.latestVersion;
+            await this.downloadAndInstall();
+          }
         }
       } catch (error) {
         // Silent fail - don't block startup if update check fails
@@ -157,19 +173,21 @@ export class BinaryManager {
     const currentVersion = this.getInstalledVersion();
 
     // Try cache first
-    const cachedVersion = this.getCachedLatestVersion();
-    if (cachedVersion) {
-      this.log(`Using cached version: ${cachedVersion}`);
+    const cache = this.getVersionCache();
+    if (cache) {
+      this.log(`Using cached version: ${cache.latestVersion}`);
       return {
-        hasUpdate: this.isNewerVersion(cachedVersion, currentVersion),
+        hasUpdate: this.isNewerVersion(cache.latestVersion, currentVersion),
         currentVersion,
-        latestVersion: cachedVersion,
+        latestVersion: cache.latestVersion,
         fromCache: true,
+        checkedAt: cache.checkedAt,
       };
     }
 
     // Fetch from GitHub API
     const latestVersion = await this.fetchLatestVersion();
+    const now = Date.now();
     this.cacheLatestVersion(latestVersion);
 
     return {
@@ -177,6 +195,7 @@ export class BinaryManager {
       currentVersion,
       latestVersion,
       fromCache: false,
+      checkedAt: now,
     };
   }
 
@@ -272,9 +291,9 @@ export class BinaryManager {
   }
 
   /**
-   * Get cached latest version if still valid
+   * Get version cache data if still valid
    */
-  private getCachedLatestVersion(): string | null {
+  private getVersionCache(): VersionCache | null {
     const cachePath = this.getVersionCachePath();
     if (!fs.existsSync(cachePath)) {
       return null;
@@ -286,7 +305,7 @@ export class BinaryManager {
 
       // Check if cache is still valid
       if (Date.now() - cache.checkedAt < VERSION_CACHE_DURATION_MS) {
-        return cache.latestVersion;
+        return cache;
       }
 
       // Cache expired
@@ -978,6 +997,24 @@ export async function fetchLatestCliproxyVersion(): Promise<string> {
   const manager = new BinaryManager();
   const result = await manager.checkForUpdates();
   return result.latestVersion;
+}
+
+/** Update check result for API response */
+export interface CliproxyUpdateCheckResult {
+  hasUpdate: boolean;
+  currentVersion: string;
+  latestVersion: string;
+  fromCache: boolean;
+  checkedAt: number; // Unix timestamp of last check
+}
+
+/**
+ * Check for CLIProxyAPI binary updates
+ * @returns Update check result with version info
+ */
+export async function checkCliproxyUpdate(): Promise<CliproxyUpdateCheckResult> {
+  const manager = new BinaryManager();
+  return manager.checkForUpdates();
 }
 
 /**
