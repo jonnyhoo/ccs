@@ -36,8 +36,9 @@ import { getClaudeCliInfo } from '../utils/claude-detector';
 import { escapeShellArg } from '../utils/shell-executor';
 import { InteractivePrompt } from '../utils/prompt';
 import packageJson from '../../package.json';
-import { hasUnifiedConfig } from '../config/unified-config-loader';
-import { isUnifiedConfigEnabled } from '../config/feature-flags';
+import { isUnifiedMode } from '../config/unified-config-loader';
+import { exitWithError } from '../errors';
+import { ExitCode } from '../errors/exit-codes';
 
 interface AuthCommandArgs {
   profileName?: string;
@@ -73,13 +74,6 @@ class AuthCommands {
   constructor() {
     this.registry = new ProfileRegistry();
     this.instanceMgr = new InstanceManager();
-  }
-
-  /**
-   * Check if unified config mode is active
-   */
-  private isUnifiedMode(): boolean {
-    return hasUnifiedConfig() || isUnifiedConfigEnabled();
   }
 
   /**
@@ -171,7 +165,7 @@ class AuthCommands {
       console.log('');
       console.log('Example:');
       console.log(`  ${color('ccs auth create work', 'command')}`);
-      process.exit(1);
+      exitWithError('Profile name is required', ExitCode.PROFILE_ERROR);
     }
 
     // Check if profile already exists (check both legacy and unified)
@@ -180,7 +174,7 @@ class AuthCommands {
     if (!force && (existsLegacy || existsUnified)) {
       console.log(fail(`Profile already exists: ${profileName}`));
       console.log(`    Use ${color('--force', 'command')} to overwrite`);
-      process.exit(1);
+      exitWithError(`Profile already exists: ${profileName}`, ExitCode.PROFILE_ERROR);
     }
 
     try {
@@ -189,7 +183,7 @@ class AuthCommands {
       const instancePath = this.instanceMgr.ensureInstance(profileName);
 
       // Create/update profile entry based on config mode
-      if (this.isUnifiedMode()) {
+      if (isUnifiedMode()) {
         // Use unified config (config.yaml)
         if (existsUnified) {
           this.registry.touchAccountUnified(profileName);
@@ -222,7 +216,7 @@ class AuthCommands {
         console.log('');
         console.log('Please install Claude CLI first:');
         console.log(`  ${color('https://claude.ai/download', 'path')}`);
-        process.exit(1);
+        exitWithError('Claude CLI not found', ExitCode.BINARY_ERROR);
       }
 
       const { path: claudeCli, needsShell } = claudeInfo;
@@ -279,17 +273,18 @@ class AuthCommands {
           console.log('To retry:');
           console.log(`  ${color(`ccs auth create ${profileName} --force`, 'command')}`);
           console.log('');
-          process.exit(1);
+          exitWithError('Login failed or cancelled', ExitCode.AUTH_ERROR);
         }
       });
 
       child.on('error', (err: Error) => {
-        console.log(fail(`Failed to execute Claude CLI: ${err.message}`));
-        process.exit(1);
+        exitWithError(`Failed to execute Claude CLI: ${err.message}`, ExitCode.BINARY_ERROR);
       });
     } catch (error) {
-      console.log(fail(`Failed to create profile: ${(error as Error).message}`));
-      process.exit(1);
+      exitWithError(
+        `Failed to create profile: ${(error as Error).message}`,
+        ExitCode.GENERAL_ERROR
+      );
     }
   }
 
@@ -437,8 +432,7 @@ class AuthCommands {
       console.log(dim(`Total: ${profileNames.length} profile(s)`));
       console.log('');
     } catch (error) {
-      console.log(fail(`Failed to list profiles: ${(error as Error).message}`));
-      process.exit(1);
+      exitWithError(`Failed to list profiles: ${(error as Error).message}`, ExitCode.GENERAL_ERROR);
     }
   }
 
@@ -453,7 +447,7 @@ class AuthCommands {
       console.log(fail('Profile name is required'));
       console.log('');
       console.log(`Usage: ${color('ccs auth show <profile> [--json]', 'command')}`);
-      process.exit(1);
+      exitWithError('Profile name is required', ExitCode.PROFILE_ERROR);
     }
 
     try {
@@ -510,8 +504,7 @@ class AuthCommands {
       );
       console.log('');
     } catch (error) {
-      console.log(fail((error as Error).message));
-      process.exit(1);
+      exitWithError((error as Error).message, ExitCode.PROFILE_ERROR);
     }
   }
 
@@ -526,7 +519,7 @@ class AuthCommands {
       console.log(fail('Profile name is required'));
       console.log('');
       console.log(`Usage: ${color('ccs auth remove <profile> [--yes]', 'command')}`);
-      process.exit(1);
+      exitWithError('Profile name is required', ExitCode.PROFILE_ERROR);
     }
 
     // Check existence in both legacy and unified
@@ -535,7 +528,7 @@ class AuthCommands {
 
     if (!existsLegacy && !existsUnified) {
       console.log(fail(`Profile not found: ${profileName}`));
-      process.exit(1);
+      exitWithError(`Profile not found: ${profileName}`, ExitCode.PROFILE_ERROR);
     }
 
     try {
@@ -577,7 +570,7 @@ class AuthCommands {
       this.instanceMgr.deleteInstance(profileName);
 
       // Delete profile from appropriate config
-      if (this.isUnifiedMode() && existsUnified) {
+      if (isUnifiedMode() && existsUnified) {
         this.registry.removeAccountUnified(profileName);
       }
       if (existsLegacy) {
@@ -587,8 +580,10 @@ class AuthCommands {
       console.log(ok(`Profile removed: ${profileName}`));
       console.log('');
     } catch (error) {
-      console.log(fail(`Failed to remove profile: ${(error as Error).message}`));
-      process.exit(1);
+      exitWithError(
+        `Failed to remove profile: ${(error as Error).message}`,
+        ExitCode.GENERAL_ERROR
+      );
     }
   }
 
@@ -603,12 +598,12 @@ class AuthCommands {
       console.log(fail('Profile name is required'));
       console.log('');
       console.log(`Usage: ${color('ccs auth default <profile>', 'command')}`);
-      process.exit(1);
+      exitWithError('Profile name is required', ExitCode.PROFILE_ERROR);
     }
 
     try {
       // Use unified or legacy based on config mode
-      if (this.isUnifiedMode()) {
+      if (isUnifiedMode()) {
         this.registry.setDefaultUnified(profileName);
       } else {
         this.registry.setDefaultProfile(profileName);
@@ -622,8 +617,7 @@ class AuthCommands {
       );
       console.log('');
     } catch (error) {
-      console.log(fail((error as Error).message));
-      process.exit(1);
+      exitWithError((error as Error).message, ExitCode.PROFILE_ERROR);
     }
   }
 
@@ -635,7 +629,7 @@ class AuthCommands {
 
     try {
       // Use unified or legacy based on config mode
-      if (this.isUnifiedMode()) {
+      if (isUnifiedMode()) {
         this.registry.clearDefaultUnified();
       } else {
         this.registry.clearDefaultProfile();

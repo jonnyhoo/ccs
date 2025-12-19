@@ -15,9 +15,8 @@ import * as os from 'os';
 import { findSimilarStrings } from '../utils/helpers';
 import { Config, Settings, ProfileMetadata } from '../types';
 import { UnifiedConfig, CopilotConfig } from '../config/unified-config-types';
-import { hasUnifiedConfig, loadUnifiedConfig } from '../config/unified-config-loader';
+import { loadUnifiedConfig, isUnifiedMode } from '../config/unified-config-loader';
 import { getProfileSecrets } from '../config/secrets-manager';
-import { isUnifiedConfigEnabled } from '../config/feature-flags';
 
 export type ProfileType = 'settings' | 'account' | 'cliproxy' | 'copilot' | 'default';
 
@@ -80,19 +79,11 @@ class ProfileDetector {
   }
 
   /**
-   * Check if unified config mode is active.
-   * Returns true if config.yaml exists or CCS_UNIFIED_CONFIG=1.
-   */
-  private isUnifiedMode(): boolean {
-    return hasUnifiedConfig() || isUnifiedConfigEnabled();
-  }
-
-  /**
    * Load unified config if available.
    * Returns null if not in unified mode or load fails.
    */
   private readUnifiedConfig(): UnifiedConfig | null {
-    if (!this.isUnifiedMode()) return null;
+    if (!isUnifiedMode()) return null;
     return loadUnifiedConfig();
   }
 

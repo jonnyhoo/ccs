@@ -3,11 +3,10 @@ import * as path from 'path';
 import * as os from 'os';
 import { ProfileMetadata } from '../types';
 import {
-  hasUnifiedConfig,
   loadOrCreateUnifiedConfig,
   saveUnifiedConfig,
+  isUnifiedMode,
 } from '../config/unified-config-loader';
-import { isUnifiedConfigEnabled } from '../config/feature-flags';
 
 /**
  * Profile Registry (Simplified)
@@ -45,13 +44,6 @@ export class ProfileRegistry {
 
   constructor() {
     this.profilesPath = path.join(os.homedir(), '.ccs', 'profiles.json');
-  }
-
-  /**
-   * Check if unified config mode is active
-   */
-  private isUnifiedMode(): boolean {
-    return hasUnifiedConfig() || isUnifiedConfigEnabled();
   }
 
   /**
@@ -306,7 +298,7 @@ export class ProfileRegistry {
    * Check if account exists in unified config
    */
   hasAccountUnified(name: string): boolean {
-    if (!this.isUnifiedMode()) return false;
+    if (!isUnifiedMode()) return false;
     const config = loadOrCreateUnifiedConfig();
     return !!config.accounts[name];
   }
@@ -315,7 +307,7 @@ export class ProfileRegistry {
    * Get all accounts from unified config
    */
   getAllAccountsUnified(): Record<string, { created: string; last_used: string | null }> {
-    if (!this.isUnifiedMode()) return {};
+    if (!isUnifiedMode()) return {};
     const config = loadOrCreateUnifiedConfig();
     return config.accounts;
   }
@@ -324,7 +316,7 @@ export class ProfileRegistry {
    * Get default from unified config
    */
   getDefaultUnified(): string | undefined {
-    if (!this.isUnifiedMode()) return undefined;
+    if (!isUnifiedMode()) return undefined;
     const config = loadOrCreateUnifiedConfig();
     return config.default;
   }

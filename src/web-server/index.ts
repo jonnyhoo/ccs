@@ -35,8 +35,8 @@ export async function startServer(options: ServerOptions): Promise<ServerInstanc
   // JSON body parsing
   app.use(express.json());
 
-  // REST API routes (Phase 03)
-  const { apiRoutes } = await import('./routes');
+  // REST API routes (modularized)
+  const { apiRoutes } = await import('./routes/index');
   app.use('/api', apiRoutes);
 
   // Shared data routes (Phase 07)
@@ -50,10 +50,6 @@ export async function startServer(options: ServerOptions): Promise<ServerInstanc
   // Usage analytics routes
   const { usageRoutes } = await import('./usage-routes');
   app.use('/api/usage', usageRoutes);
-
-  // CLIProxy server settings routes (Phase 5)
-  const cliproxyServerRoutes = (await import('./routes/proxy-routes')).default;
-  app.use('/api/cliproxy-server', cliproxyServerRoutes);
 
   // Dev mode: use Vite middleware for HMR
   if (options.dev) {

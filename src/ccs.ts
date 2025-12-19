@@ -13,6 +13,9 @@ import {
 } from './utils/websearch-manager';
 import { getGlobalEnvConfig } from './config/unified-config-loader';
 
+// Import centralized error handling
+import { handleError, runCleanup } from './errors';
+
 // Import extracted command handlers
 import { handleVersionCommand } from './commands/version-command';
 import { handleHelpCommand } from './commands/help-command';
@@ -566,8 +569,28 @@ async function main(): Promise<void> {
   }
 }
 
-// Run main
-main().catch((error) => {
-  console.error('Fatal error:', error.message);
-  process.exit(1);
+// ========== Global Error Handlers ==========
+
+// Handle uncaught exceptions
+process.on('uncaughtException', (error: Error) => {
+  handleError(error);
 });
+
+// Handle unhandled promise rejections
+process.on('unhandledRejection', (reason: unknown) => {
+  handleError(reason);
+});
+
+// Handle process termination signals for cleanup
+process.on('SIGTERM', () => {
+  runCleanup();
+  process.exit(0);
+});
+
+process.on('SIGINT', () => {
+  runCleanup();
+  process.exit(130); // 128 + SIGINT(2)
+});
+
+// Run main
+main().catch(handleError);
