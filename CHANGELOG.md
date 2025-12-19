@@ -1,3 +1,38 @@
+## [6.6.0-dev.1](https://github.com/kaitranntt/ccs/compare/v6.5.0...v6.6.0-dev.1) (2025-12-19)
+
+### ⚠ BREAKING CHANGES
+
+* Native shell installers (curl/irm) no longer work.
+Use `npm install -g @kaitranntt/ccs` instead.
+
+### Features
+
+* **ci:** add Discord notifications for releases ([ee76d66](https://github.com/kaitranntt/ccs/commit/ee76d663aec59a86a236156dbc163d0d291c0446))
+* **ci:** add semantic-release for dev branch with rich Discord notifications ([0f590c8](https://github.com/kaitranntt/ccs/commit/0f590c80d689c39cea7c94937ed398941dddb533))
+* **cleanup:** add age-based error log cleanup ([45207b4](https://github.com/kaitranntt/ccs/commit/45207b4e7f92c09d7464dd5c954718254ddfd43a))
+* **cliproxy:** set WRITABLE_PATH for log storage in ~/.ccs/cliproxy/ ([6b9396f](https://github.com/kaitranntt/ccs/commit/6b9396fbc6d464bc3e3d6d3bb639e70fe5306074))
+* **dashboard:** add error log viewer for CLIProxy diagnostics ([5b3d565](https://github.com/kaitranntt/ccs/commit/5b3d56548a8dfb2e6bb22e14b13f0fb038f2d1fb)), closes [#132](https://github.com/kaitranntt/ccs/issues/132)
+* **global-env:** add global environment variables injection for third-party profiles ([5d34326](https://github.com/kaitranntt/ccs/commit/5d343260c7307c2d7ac8da92eb5f94c7f764d08c))
+* **ui:** add absolute path copy for error logs ([5d4f49e](https://github.com/kaitranntt/ccs/commit/5d4f49e4bb6f9748efa89e96c342dfae3e35d02b))
+* **ui:** add Stop and Restart buttons to ProxyStatusWidget ([c9ad0b0](https://github.com/kaitranntt/ccs/commit/c9ad0b077934ae8418d4e97b9b02a09044ff898b))
+* **ui:** add version sync timestamp to ProxyStatusWidget ([d43079b](https://github.com/kaitranntt/ccs/commit/d43079b72414d7b841a35a934ea39a91527f4172))
+* **ui:** redesign error logs monitor with split view layout ([8f47b87](https://github.com/kaitranntt/ccs/commit/8f47b8775f2c2493c05ee2be861ca3f8667cfc0e))
+* **ui:** show CLIProxyAPI update availability in dashboard ([96762a9](https://github.com/kaitranntt/ccs/commit/96762a9f6ee096570b2fe6136a4431e6ce1d1a47))
+
+### Bug Fixes
+
+* **ci:** remove deprecated installer references from dev-release workflow ([4b969b6](https://github.com/kaitranntt/ccs/commit/4b969b6870aae6b5859b9a1be0cf98b9d537ce00))
+* **cliproxy:** prevent misleading update message when proxy is running ([2adc272](https://github.com/kaitranntt/ccs/commit/2adc272f278b1d80d160ad4d6e1f35e3b61cb156)), closes [#143](https://github.com/kaitranntt/ccs/issues/143)
+* **error-logs-monitor:** properly handle status loading state ([1ef625e](https://github.com/kaitranntt/ccs/commit/1ef625ee863c517a5fbba21f16cf991bb77be7d7))
+
+### Styles
+
+* **ui:** widen cliproxy sidebar from w-64 to w-80 ([248d970](https://github.com/kaitranntt/ccs/commit/248d970cba8671b7c20dc99f8d1a70e4fe113605))
+
+### Code Refactoring
+
+* remove deprecated native shell installers ([126cffc](https://github.com/kaitranntt/ccs/commit/126cffc6dcf434abeee883a4109d3705cdb92a67))
+
 # [6.5.0](https://github.com/kaitranntt/ccs/compare/v6.4.0...v6.5.0) (2025-12-18)
 
 
