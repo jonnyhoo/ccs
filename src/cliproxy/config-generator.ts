@@ -479,3 +479,49 @@ export function ensureProviderSettings(provider: CLIProxyProvider): void {
     mode: 0o600,
   });
 }
+
+/**
+ * Get environment variables for remote proxy mode.
+ * Uses the remote proxy's provider endpoint as the base URL.
+ *
+ * @param provider CLIProxy provider (gemini, codex, agy, qwen, iflow)
+ * @param remoteConfig Remote proxy connection details
+ * @returns Environment variables for Claude CLI
+ */
+export function getRemoteEnvVars(
+  provider: CLIProxyProvider,
+  remoteConfig: { host: string; port: number; protocol: 'http' | 'https'; authToken?: string }
+): Record<string, string> {
+  const baseUrl = `${remoteConfig.protocol}://${remoteConfig.host}:${remoteConfig.port}/api/provider/${provider}`;
+  const models = getModelMapping(provider);
+
+  // Get global env vars (DISABLE_TELEMETRY, etc.)
+  const globalEnv = getGlobalEnvVars();
+
+  // Get additional env vars from base config (ANTHROPIC_MAX_TOKENS, etc.)
+  const baseEnvVars = getEnvVarsFromConfig(provider);
+
+  // Filter out core env vars from base config to avoid conflicts
+  const {
+    ANTHROPIC_BASE_URL: _baseUrl,
+    ANTHROPIC_AUTH_TOKEN: _authToken,
+    ANTHROPIC_MODEL: _model,
+    ANTHROPIC_DEFAULT_OPUS_MODEL: _opusModel,
+    ANTHROPIC_DEFAULT_SONNET_MODEL: _sonnetModel,
+    ANTHROPIC_DEFAULT_HAIKU_MODEL: _haikuModel,
+    ...additionalEnvVars
+  } = baseEnvVars;
+
+  const env: Record<string, string> = {
+    ...globalEnv,
+    ...additionalEnvVars,
+    ANTHROPIC_BASE_URL: baseUrl,
+    ANTHROPIC_AUTH_TOKEN: remoteConfig.authToken || CCS_INTERNAL_API_KEY,
+    ANTHROPIC_MODEL: models.claudeModel,
+    ANTHROPIC_DEFAULT_OPUS_MODEL: models.opusModel || models.claudeModel,
+    ANTHROPIC_DEFAULT_SONNET_MODEL: models.sonnetModel || models.claudeModel,
+    ANTHROPIC_DEFAULT_HAIKU_MODEL: models.haikuModel || models.claudeModel,
+  };
+
+  return env;
+}
