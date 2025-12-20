@@ -1,3 +1,52 @@
+## [6.7.1-dev.1](https://github.com/kaitranntt/ccs/compare/v6.7.0...v6.7.1-dev.1) (2025-12-20)
+
+### Documentation
+
+* add comprehensive documentation suite for modular architecture ([1ffd169](https://github.com/kaitranntt/ccs/commit/1ffd169b98560bf59b03653937ff479e96b47800))
+* **readme:** update providers, websearch, and add star history ([0dc2da6](https://github.com/kaitranntt/ccs/commit/0dc2da6e5ae55c2c99de92037bdc9f1f43a3eeec))
+
+### Code Refactoring
+
+* add barrel exports for commands and utils directories ([50c427d](https://github.com/kaitranntt/ccs/commit/50c427d339f008e628c05b3f150843425174b425))
+* add barrel exports to api/, glmt/, management/ ([6372b3d](https://github.com/kaitranntt/ccs/commit/6372b3d303fbd1eced272526b882984c784f0358))
+* **api:** extract service layer from api-command ([ecb6bb4](https://github.com/kaitranntt/ccs/commit/ecb6bb448a74c1f9bc4220c3674e9b4669093a3e))
+* **auth:** modularize auth-commands into commands/ directory ([0341f4f](https://github.com/kaitranntt/ccs/commit/0341f4f86f5598dc3a86c06d2a05e22b2af3342d))
+* **cliproxy:** extract service layer from cliproxy-command ([b49b7d1](https://github.com/kaitranntt/ccs/commit/b49b7d17b20e6f470e0315ad777f61e0f266b246))
+* **cliproxy:** modularize auth handler and binary ([5c28935](https://github.com/kaitranntt/ccs/commit/5c28935d1e893b643556daf4ff4127d543082fab))
+* **cliproxy:** modularize binary-manager into binary/ directory ([d3c94fe](https://github.com/kaitranntt/ccs/commit/d3c94fe6a2344aac6215fb12952e42ac17837daa))
+* **delegation:** modularize headless-executor into executor/ directory ([c3baaa8](https://github.com/kaitranntt/ccs/commit/c3baaa8251e2f4f54b10e68a0a5eb886ec271ace))
+* **errors:** centralize error handling infrastructure ([22dbfd9](https://github.com/kaitranntt/ccs/commit/22dbfd91c5862c91988cba6cd07eef22e6bf97bf))
+* **glmt:** modularize transformer pipeline ([cd107e3](https://github.com/kaitranntt/ccs/commit/cd107e354c0faff7582d55fadccee0135ea685fe))
+* **management:** modularize doctor health checks ([0eb2030](https://github.com/kaitranntt/ccs/commit/0eb2030dc2af6e351a88801dc42ce739208bfc2e))
+* remove unused deprecated code ([4a5b832](https://github.com/kaitranntt/ccs/commit/4a5b832a6ed5990d4621e79f17f5f81e8a0c87d1))
+* **types:** add generic types and consolidate ExecutionResult ([6c78b63](https://github.com/kaitranntt/ccs/commit/6c78b63908dd258770beb74abc25b62b56f6fcd5))
+* **ui:** add barrel exports for analytics and components root ([b911db8](https://github.com/kaitranntt/ccs/commit/b911db8b5fd66e4b4a9e1a9261dfcfa4d74bb1ba))
+* **ui:** organize health components into health/ directory ([a106aa2](https://github.com/kaitranntt/ccs/commit/a106aa2ee63178e1635df09be5bc2cf2a9da04d7))
+* **ui:** organize layout components into layout/ directory ([bef9955](https://github.com/kaitranntt/ccs/commit/bef99551230a04831e9a45c5f765ef341ee48b0d))
+* **ui:** organize shared components into shared/ directory ([3c7b0e7](https://github.com/kaitranntt/ccs/commit/3c7b0e7a651cd81fc38a907c9f480f173df5c785))
+* **ui:** remove old flat component files after reorganization ([e1fd394](https://github.com/kaitranntt/ccs/commit/e1fd3945fc146997691aea2dcac1b03e3005dd69))
+* **ui:** split account-flow-viz into account/flow-viz/ directory ([8fd35c8](https://github.com/kaitranntt/ccs/commit/8fd35c8dd619c56a7562c34172a8de3e736be4c8))
+* **ui:** split copilot-config-form into copilot/config-form/ directory ([1b1015c](https://github.com/kaitranntt/ccs/commit/1b1015cf506a55393e6a48c99711c3ffa7dac37c))
+* **ui:** split error-logs-monitor into monitoring/error-logs/ directory ([946030c](https://github.com/kaitranntt/ccs/commit/946030c8363ed5e4ac6ebe8b6860d0f8fb006c41))
+* **ui:** split profile-editor into profiles/editor/ directory ([6778c4d](https://github.com/kaitranntt/ccs/commit/6778c4d637ca936110107672ff65c02b1366a607))
+* **ui:** split provider-editor into cliproxy/provider-editor/ directory ([4bea5a3](https://github.com/kaitranntt/ccs/commit/4bea5a33468813d9382d6e7cc4270ca97fc965f8))
+* **ui:** split quick-setup-wizard into setup/wizard/ directory ([81196b0](https://github.com/kaitranntt/ccs/commit/81196b0ff14a2b119cdd55d49f8a7eeb63abc8f6))
+* **ui:** update imports to use new domain directories ([c70ba89](https://github.com/kaitranntt/ccs/commit/c70ba89b43a177907592d6dd62ef35cf39e691e0))
+* **utils:** extract formatRelativeTime to utils/time.ts ([e1f135a](https://github.com/kaitranntt/ccs/commit/e1f135a93a77f66947ac95b76017e00a5a750c5f))
+* **utils:** modularize ui.ts into ui/ directory ([c1e5ec7](https://github.com/kaitranntt/ccs/commit/c1e5ec70b5052f19dc6a2d339cd4317b44e10e34))
+* **utils:** modularize websearch-manager into websearch/ directory ([5e4fa20](https://github.com/kaitranntt/ccs/commit/5e4fa200df87861e9b078f1696b95569c570ea84))
+* **utils:** remove deprecated color and error functions from helpers.ts ([99afb3e](https://github.com/kaitranntt/ccs/commit/99afb3e011cae46369753e36b2fe1ef231c2f535))
+* **utils:** use canonical ValidationResult from types/utils ([18424cb](https://github.com/kaitranntt/ccs/commit/18424cba89120c61348d03195d00c00aa8cfcbe4))
+* **web-server:** extract usage aggregator service ([9346ff2](https://github.com/kaitranntt/ccs/commit/9346ff2be96bc5b8660774a814f1113de6b6ee36))
+* **web-server:** extract usage module to usage/ directory ([bae323c](https://github.com/kaitranntt/ccs/commit/bae323c0d35051c75cc0224a3000823c43f5d875))
+* **web-server:** modularize health-service into health/ directory ([c1f30ae](https://github.com/kaitranntt/ccs/commit/c1f30ae80076e12d1ed536d992c3dc8fad8248ca))
+* **web-server:** modularize routes into dedicated files ([a12c3d8](https://github.com/kaitranntt/ccs/commit/a12c3d800aedbfd232651cd69c9fcad7b702087d))
+* **websearch:** unify CLI status types with ComponentStatus ([a8f7dad](https://github.com/kaitranntt/ccs/commit/a8f7dad4e39cadf7453059fb982561170d7efb3b))
+
+### Performance Improvements
+
+* **assets:** convert screenshots to WebP, add new feature images ([a9d21c2](https://github.com/kaitranntt/ccs/commit/a9d21c21f2bb94b83d829286ad0338fc81f27975))
+
 ## [6.7.0](https://github.com/kaitranntt/ccs/compare/v6.6.1...v6.7.0) (2025-12-19)
 
 ### Features
