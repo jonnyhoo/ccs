@@ -41,7 +41,7 @@ import {
   Wifi,
   WifiOff,
 } from 'lucide-react';
-import { CodeEditor } from '@/components/code-editor';
+import { CodeEditor } from '@/components/shared/code-editor';
 import { api } from '@/lib/api-client';
 import type { CliproxyServerConfig, RemoteProxyStatus } from '@/lib/api-client';
 

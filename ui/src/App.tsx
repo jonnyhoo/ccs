@@ -3,9 +3,9 @@ import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import { QueryClientProvider } from '@tanstack/react-query';
 import { Toaster } from 'sonner';
 import { queryClient } from '@/lib/query-client';
-import { ThemeProvider } from '@/components/theme-provider';
+import { ThemeProvider } from '@/components/layout/theme-provider';
 import { PrivacyProvider } from '@/contexts/privacy-context';
-import { Layout } from '@/components/layout';
+import { Layout } from '@/components/layout/layout';
 
 // Eager load: HomePage (initial route)
 import { HomePage } from '@/pages';

@@ -3,7 +3,7 @@
  * Phase 03: REST API Routes & CRUD
  */
 
-import { AccountsTable } from '@/components/accounts-table';
+import { AccountsTable } from '@/components/account/accounts-table';
 import { useAccounts } from '@/hooks/use-accounts';
 
 export function AccountsPage() {

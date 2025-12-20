@@ -22,9 +22,9 @@ import {
   RefreshCw,
 } from 'lucide-react';
 import { ProfileEditor } from '@/components/profile-editor';
-import { ProfileCreateDialog } from '@/components/profile-create-dialog';
+import { ProfileCreateDialog } from '@/components/profiles/profile-create-dialog';
 import { useProfiles, useDeleteProfile } from '@/hooks/use-profiles';
-import { ConfirmDialog } from '@/components/confirm-dialog';
+import { ConfirmDialog } from '@/components/shared/confirm-dialog';
 import type { Profile } from '@/lib/api-client';
 import { cn } from '@/lib/utils';
 import { CopyButton } from '@/components/ui/copy-button';

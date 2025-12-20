@@ -12,10 +12,10 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Check, X, RefreshCw, Sparkles, Zap, GitBranch, Trash2 } from 'lucide-react';
 import { QuickSetupWizard } from '@/components/quick-setup-wizard';
-import { AddAccountDialog } from '@/components/add-account-dialog';
+import { AddAccountDialog } from '@/components/account/add-account-dialog';
 import { ProviderEditor } from '@/components/cliproxy/provider-editor';
 import { ProviderLogo } from '@/components/cliproxy/provider-logo';
-import { ProxyStatusWidget } from '@/components/proxy-status-widget';
+import { ProxyStatusWidget } from '@/components/monitoring/proxy-status-widget';
 import {
   useCliproxy,
   useCliproxyAuth,
@@ -191,8 +191,8 @@ export function CliproxyPage() {
     isFirstAccount: boolean;
   } | null>(null);
 
-  const providers = authData?.authStatus || [];
-  const variants = variantsData?.variants || [];
+  const providers = useMemo(() => authData?.authStatus || [], [authData?.authStatus]);
+  const variants = useMemo(() => variantsData?.variants || [], [variantsData?.variants]);
 
   // Auto-select first provider if nothing selected
   const effectiveProvider = useMemo(() => {

@@ -1,6 +1,6 @@
 import { useNavigate } from 'react-router-dom';
-import { HeroSection } from '@/components/hero-section';
-import { AuthMonitor } from '@/components/auth-monitor';
+import { HeroSection } from '@/components/layout/hero-section';
+import { AuthMonitor } from '@/components/monitoring/auth-monitor';
 import { ErrorLogsMonitor } from '@/components/error-logs-monitor';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Skeleton } from '@/components/ui/skeleton';
