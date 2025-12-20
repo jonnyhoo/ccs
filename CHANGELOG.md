@@ -1,3 +1,13 @@
+## [6.8.0-dev.1](https://github.com/kaitranntt/ccs/compare/v6.7.2-dev.1...v6.8.0-dev.1) (2025-12-20)
+
+### Features
+
+* **proxy:** improve remote proxy UX defaults ([116b6a1](https://github.com/kaitranntt/ccs/commit/116b6a15b0bf7db3a11fb428706dde126814004d))
+
+### Bug Fixes
+
+* **cliproxy:** use /v1/models for remote proxy health check ([5e1d290](https://github.com/kaitranntt/ccs/commit/5e1d290865876a7e002b1e6c3c2911e1ac7e49b2)), closes [#142](https://github.com/kaitranntt/ccs/issues/142)
+
 ## [6.7.2-dev.1](https://github.com/kaitranntt/ccs/compare/v6.7.1...v6.7.2-dev.1) (2025-12-20)
 
 ### Code Refactoring
