@@ -166,7 +166,7 @@ export function ProfileEditor({ profileName, onDelete }: ProfileEditorProps) {
         </div>
       ) : (
         <div className="flex-1 grid grid-cols-[40%_60%] divide-x overflow-hidden">
-          <div className="flex flex-col overflow-hidden bg-muted/5">
+          <div className="flex flex-col overflow-hidden bg-muted/5 min-w-0">
             <FriendlyUISection
               profileName={profileName}
               data={data}

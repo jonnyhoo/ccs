@@ -91,7 +91,7 @@ export function OpenRouterModelPicker({
   }
 
   return (
-    <div className={cn('space-y-2', className)}>
+    <div className={cn('space-y-2 w-full min-w-0 overflow-hidden', className)}>
       {/* Search Header */}
       <div className="flex gap-2">
         <div className="relative flex-1">
@@ -155,7 +155,7 @@ export function OpenRouterModelPicker({
       )}
 
       {/* Model List */}
-      <ScrollArea className="h-64 rounded-md border">
+      <ScrollArea className="h-72 w-full rounded-md border">
         {isError ? (
           <div className="text-destructive p-4 text-center">
             Failed to load models.{' '}
@@ -168,23 +168,25 @@ export function OpenRouterModelPicker({
             No models found matching &quot;{search}&quot;
           </div>
         ) : (
-          <div className="space-y-4 p-2">
+          <div className="space-y-6 p-3">
             {/* Newest Models Section (shown when no search) */}
             {showPresets && newestModels.length > 0 && (
               <div>
-                <div className="text-muted-foreground bg-background sticky top-0 mb-1 flex items-center gap-1.5 py-1 text-xs font-semibold">
+                <div className="text-muted-foreground bg-background sticky top-0 mb-2 flex items-center gap-1.5 py-1.5 text-xs font-semibold border-b pb-2">
                   <Sparkles className="h-3 w-3 text-accent" />
                   <span>Newest Models</span>
                 </div>
-                {newestModels.map((model) => (
-                  <ModelItem
-                    key={model.id}
-                    model={model}
-                    isSelected={model.id === value}
-                    onClick={() => onChange(model.id)}
-                    showAge
-                  />
-                ))}
+                <div className="space-y-1">
+                  {newestModels.map((model) => (
+                    <ModelItem
+                      key={model.id}
+                      model={model}
+                      isSelected={model.id === value}
+                      onClick={() => onChange(model.id)}
+                      showAge
+                    />
+                  ))}
+                </div>
               </div>
             )}
 
@@ -195,17 +197,19 @@ export function OpenRouterModelPicker({
 
               return (
                 <div key={category}>
-                  <div className="text-muted-foreground bg-background sticky top-0 mb-1 py-1 text-xs font-semibold">
+                  <div className="text-muted-foreground bg-background sticky top-0 mb-2 py-1.5 text-xs font-semibold border-b pb-2">
                     {CATEGORY_LABELS[category]}
                   </div>
-                  {categoryModels.map((model) => (
-                    <ModelItem
-                      key={model.id}
-                      model={model}
-                      isSelected={model.id === value}
-                      onClick={() => onChange(model.id)}
-                    />
-                  ))}
+                  <div className="space-y-1">
+                    {categoryModels.map((model) => (
+                      <ModelItem
+                        key={model.id}
+                        model={model}
+                        isSelected={model.id === value}
+                        onClick={() => onChange(model.id)}
+                      />
+                    ))}
+                  </div>
                 </div>
               );
             })}
@@ -232,39 +236,49 @@ function ModelItem({
       type="button"
       onClick={onClick}
       className={cn(
-        'flex w-full items-center justify-between rounded-sm px-2 py-1.5 text-left text-sm transition-colors',
+        'group flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm transition-colors',
         'hover:bg-accent hover:text-accent-foreground',
         isSelected && 'bg-accent text-accent-foreground'
       )}
     >
-      <span className="flex-1 truncate">{model.name}</span>
+      <span className="flex-1 min-w-0 truncate font-medium">{model.name}</span>
       <span
         className={cn(
-          'ml-2 flex items-center gap-2 text-xs',
-          isSelected ? 'text-accent-foreground/80' : 'text-muted-foreground'
+          'flex shrink-0 items-center gap-1 text-xs whitespace-nowrap',
+          isSelected
+            ? 'text-accent-foreground/80'
+            : 'text-muted-foreground group-hover:text-accent-foreground/80'
         )}
       >
         {showAge && model.created && (
           <Badge
             variant="outline"
             className={cn(
-              'text-[10px]',
+              'text-[10px] px-1',
               isSelected
                 ? 'border-accent-foreground/30 text-accent-foreground/80'
-                : 'text-accent border-accent/30'
+                : 'text-accent border-accent/30 group-hover:text-accent-foreground/80 group-hover:border-accent-foreground/30'
             )}
           >
             {formatModelAge(model.created)}
           </Badge>
         )}
         {model.isFree ? (
-          <Badge variant="secondary" className="text-xs">
+          <Badge
+            variant="secondary"
+            className={cn(
+              'text-[10px] px-1',
+              isSelected
+                ? 'bg-accent-foreground/20 text-accent-foreground'
+                : 'group-hover:bg-accent-foreground/20 group-hover:text-accent-foreground'
+            )}
+          >
             Free
           </Badge>
         ) : (
-          <span>{formatPricingPair(model.pricing)}</span>
+          <span className="tabular-nums">{formatPricingPair(model.pricing)}</span>
         )}
-        <span>{formatContextLength(model.context_length)}</span>
+        <span className="tabular-nums">{formatContextLength(model.context_length)}</span>
       </span>
     </button>
   );

@@ -164,6 +164,10 @@ export function ProfileCreateDialog({ open, onOpenChange, onSuccess }: ProfileCr
     setValue('sonnetModel', model.id);
     setValue('haikuModel', model.id);
     setModelSearch(model.name);
+    // Show feedback that model was applied to all tiers
+    toast.success(`Applied "${model.name}" to all model tiers`, {
+      duration: 2000,
+    });
   };
 
   // Check for common URL mistakes - only for truly custom URLs
@@ -401,6 +405,12 @@ export function ProfileCreateDialog({ open, onOpenChange, onSuccess }: ProfileCr
                       value={modelSearch}
                       onChange={(e) => setModelSearch(e.target.value)}
                       placeholder="Type to search (e.g., opus, sonnet, gpt-4o)..."
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' && filteredModels.length > 0) {
+                          e.preventDefault();
+                          handleModelSelect(filteredModels[0]);
+                        }
+                      }}
                     />
                     <div className="border rounded-md max-h-48 overflow-y-auto">
                       {filteredModels.length === 0 ? (
@@ -581,17 +591,23 @@ function ModelSearchItem({
     <button
       type="button"
       onClick={onClick}
-      className="flex w-full items-center justify-between rounded-sm px-2 py-1.5 text-left text-sm hover:bg-accent"
+      className="group flex w-full items-center justify-between rounded-sm px-2 py-1.5 text-left text-sm hover:bg-accent hover:text-accent-foreground"
     >
       <span className="flex-1 truncate">{model.name}</span>
-      <span className="text-muted-foreground ml-2 flex items-center gap-2 text-xs">
+      <span className="text-muted-foreground group-hover:text-accent-foreground/80 ml-2 flex items-center gap-2 text-xs">
         {showAge && model.created && (
-          <Badge variant="outline" className="text-[10px] text-accent">
+          <Badge
+            variant="outline"
+            className="text-[10px] text-accent group-hover:text-accent-foreground/80 group-hover:border-accent-foreground/30"
+          >
             {formatModelAge(model.created)}
           </Badge>
         )}
         {model.isFree ? (
-          <Badge variant="secondary" className="text-xs">
+          <Badge
+            variant="secondary"
+            className="text-xs group-hover:bg-accent-foreground/20 group-hover:text-accent-foreground"
+          >
             Free
           </Badge>
         ) : (
