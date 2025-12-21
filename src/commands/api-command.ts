@@ -35,6 +35,8 @@ import {
   isUsingUnifiedConfig,
   isOpenRouterUrl,
   pickOpenRouterModel,
+  getPresetById,
+  getPresetIds,
   type ModelMapping,
 } from '../api/services';
 
@@ -43,6 +45,7 @@ interface ApiCommandArgs {
   baseUrl?: string;
   apiKey?: string;
   model?: string;
+  preset?: string;
   force?: boolean;
   yes?: boolean;
 }
@@ -60,6 +63,8 @@ function parseArgs(args: string[]): ApiCommandArgs {
       result.apiKey = args[++i];
     } else if (arg === '--model' && args[i + 1]) {
       result.model = args[++i];
+    } else if (arg === '--preset' && args[i + 1]) {
+      result.preset = args[++i];
     } else if (arg === '--force') {
       result.force = true;
     } else if (arg === '--yes' || arg === '-y') {
@@ -80,8 +85,18 @@ async function handleCreate(args: string[]): Promise<void> {
   console.log(header('Create API Profile'));
   console.log('');
 
-  // Step 1: API name
-  let name = parsedArgs.name;
+  // Handle --preset option for quick provider setup
+  const preset = parsedArgs.preset ? getPresetById(parsedArgs.preset) : null;
+  if (parsedArgs.preset && !preset) {
+    console.log(fail(`Unknown preset: ${parsedArgs.preset}`));
+    console.log('');
+    console.log('Available presets:');
+    getPresetIds().forEach((id) => console.log(`  - ${id}`));
+    process.exit(1);
+  }
+
+  // Step 1: API name (use preset default if --preset provided)
+  let name = parsedArgs.name || preset?.defaultProfileName;
   if (!name) {
     name = await InteractivePrompt.input('API name', {
       validate: validateApiName,
@@ -101,14 +116,15 @@ async function handleCreate(args: string[]): Promise<void> {
     process.exit(1);
   }
 
-  // Step 2: Base URL
-  let baseUrl = parsedArgs.baseUrl;
+  // Step 2: Base URL (use preset if provided)
+  let baseUrl = parsedArgs.baseUrl || preset?.baseUrl;
   if (!baseUrl) {
     baseUrl = await InteractivePrompt.input(
       'API Base URL (e.g., https://api.example.com/v1 - without /chat/completions)',
       { validate: validateUrl }
     );
-  } else {
+  } else if (!preset) {
+    // Only validate custom URLs, not preset URLs
     const error = validateUrl(baseUrl);
     if (error) {
       console.log(fail(error));
@@ -116,20 +132,28 @@ async function handleCreate(args: string[]): Promise<void> {
     }
   }
 
-  // Check for common URL mistakes and warn
-  const urlWarning = getUrlWarning(baseUrl);
-  if (urlWarning) {
-    console.log('');
-    console.log(warn(urlWarning));
-    const continueAnyway = await InteractivePrompt.confirm('Continue with this URL anyway?', {
-      default: false,
-    });
-    if (!continueAnyway) {
-      baseUrl = await InteractivePrompt.input('API Base URL', {
-        validate: validateUrl,
-        default: sanitizeBaseUrl(baseUrl),
+  // Check for common URL mistakes and warn (skip for presets)
+  if (!preset) {
+    const urlWarning = getUrlWarning(baseUrl);
+    if (urlWarning) {
+      console.log('');
+      console.log(warn(urlWarning));
+      const continueAnyway = await InteractivePrompt.confirm('Continue with this URL anyway?', {
+        default: false,
       });
+      if (!continueAnyway) {
+        baseUrl = await InteractivePrompt.input('API Base URL', {
+          validate: validateUrl,
+          default: sanitizeBaseUrl(baseUrl),
+        });
+      }
     }
+  } else {
+    // Show preset info
+    console.log(info(`Using preset: ${preset.name}`));
+    console.log(dim(`  ${preset.description}`));
+    console.log(dim(`  Base URL: ${preset.baseUrl}`));
+    console.log('');
   }
 
   // OpenRouter detection: offer interactive model picker
@@ -160,31 +184,33 @@ async function handleCreate(args: string[]): Promise<void> {
   // Step 3: API Key
   let apiKey = parsedArgs.apiKey;
   if (!apiKey) {
-    apiKey = await InteractivePrompt.password('API Key');
+    const keyPrompt = preset?.apiKeyHint ? `API Key (${preset.apiKeyHint})` : 'API Key';
+    apiKey = await InteractivePrompt.password(keyPrompt);
     if (!apiKey) {
       console.log(fail('API key is required'));
       process.exit(1);
     }
   }
 
-  // Step 4: Model configuration
-  const defaultModel = 'claude-sonnet-4-5-20250929';
-  let model = parsedArgs.model || openRouterModel;
-  if (!model && !parsedArgs.yes) {
+  // Step 4: Model configuration (use preset default if available)
+  const defaultModel = preset?.defaultModel || 'claude-sonnet-4-5-20250929';
+  let model = parsedArgs.model || openRouterModel || preset?.defaultModel;
+  if (!model && !parsedArgs.yes && !preset) {
     model = await InteractivePrompt.input('Default model (ANTHROPIC_MODEL)', {
       default: defaultModel,
     });
   }
   model = model || defaultModel;
 
-  // Step 5: Model mapping for Opus/Sonnet/Haiku
+  // Step 5: Model mapping for Opus/Sonnet/Haiku (skip prompt for presets with --yes)
   let opusModel = openRouterTierMapping?.opus || model;
   let sonnetModel = openRouterTierMapping?.sonnet || model;
   let haikuModel = openRouterTierMapping?.haiku || model;
   const isCustomModel = model !== defaultModel;
   const hasOpenRouterTierMapping = openRouterTierMapping !== undefined;
+  const hasPreset = preset !== null;
 
-  if (!parsedArgs.yes && !hasOpenRouterTierMapping) {
+  if (!parsedArgs.yes && !hasOpenRouterTierMapping && !hasPreset) {
     let wantCustomMapping = isCustomModel;
 
     if (!isCustomModel) {
@@ -401,15 +427,30 @@ async function showHelp(): Promise<void> {
   console.log(`  ${color('remove <name>', 'command')}    Remove an API profile`);
   console.log('');
   console.log(subheader('Options'));
+  console.log(
+    `  ${color('--preset <id>', 'command')}        Use provider preset (openrouter, glm, glmt, kimi)`
+  );
   console.log(`  ${color('--base-url <url>', 'command')}     API base URL (create)`);
   console.log(`  ${color('--api-key <key>', 'command')}      API key (create)`);
   console.log(`  ${color('--model <model>', 'command')}      Default model (create)`);
   console.log(`  ${color('--force', 'command')}              Overwrite existing (create)`);
   console.log(`  ${color('--yes, -y', 'command')}            Skip confirmation prompts`);
   console.log('');
+  console.log(subheader('Provider Presets'));
+  console.log(
+    `  ${color('openrouter', 'command')}    OpenRouter - 349+ models (Claude, GPT, Gemini, Llama)`
+  );
+  console.log(`  ${color('glm', 'command')}           GLM - Claude via Z.AI (GitHub Copilot)`);
+  console.log(`  ${color('glmt', 'command')}          GLMT - GLM with Thinking mode`);
+  console.log(`  ${color('kimi', 'command')}          Kimi - Moonshot AI reasoning model`);
+  console.log('');
   console.log(subheader('Examples'));
   console.log(`  ${dim('# Interactive wizard')}`);
   console.log(`  ${color('ccs api create', 'command')}`);
+  console.log('');
+  console.log(`  ${dim('# Quick setup with preset')}`);
+  console.log(`  ${color('ccs api create --preset openrouter', 'command')}`);
+  console.log(`  ${color('ccs api create --preset glm', 'command')}`);
   console.log('');
   console.log(`  ${dim('# Create with name')}`);
   console.log(`  ${color('ccs api create myapi', 'command')}`);

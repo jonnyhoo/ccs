@@ -32,3 +32,13 @@ export { createApiProfile, removeApiProfile } from './profile-writer';
 // OpenRouter catalog and picker
 export { isOpenRouterUrl, fetchOpenRouterModels, type OpenRouterModel } from './openrouter-catalog';
 export { pickOpenRouterModel, type OpenRouterSelection } from './openrouter-picker';
+
+// Provider presets for CLI
+export {
+  PROVIDER_PRESETS,
+  OPENROUTER_BASE_URL,
+  getPresetById,
+  getPresetIds,
+  isValidPresetId,
+  type ProviderPreset,
+} from './provider-presets';
