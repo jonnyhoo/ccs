@@ -1,6 +1,6 @@
 # CCS Code Standards
 
-Last Updated: 2025-12-19
+Last Updated: 2025-12-21
 
 Code standards, modularization patterns, and conventions for the CCS codebase.
 
@@ -374,6 +374,92 @@ export function ComponentName({ id, onSave }: Props) {
 | Hook exports | useCamelCase | `useProfiles` |
 | Utility files | kebab-case.ts | `path-utils.ts` |
 | Utility exports | camelCase | `formatPath` |
+
+---
+
+## Input State Persistence Patterns
+
+When building forms and editors that allow users to make changes, follow these patterns to prevent data loss.
+
+### Pattern 1: Key-Based Remounting
+
+**Use when**: Component has complex local state that should reset on prop changes.
+
+```typescript
+// Parent component
+<ProfileEditor
+  key={profileId}  // Forces remount when profile changes
+  profileId={profileId}
+  onSave={handleSave}
+/>
+```
+
+**Why**: Without `key`, React reuses the component instance. Local `useState` values persist even when props change, causing stale data bugs.
+
+### Pattern 2: Unsaved Changes Confirmation
+
+**Use when**: User might navigate away while editing.
+
+```typescript
+// Parent tracks dirty state
+const [editorHasChanges, setEditorHasChanges] = useState(false);
+const [pendingSwitch, setPendingSwitch] = useState<string | null>(null);
+
+// Child notifies parent of dirty state
+useEffect(() => {
+  onHasChangesUpdate?.(computedHasChanges);
+}, [computedHasChanges, onHasChangesUpdate]);
+
+// Intercept navigation
+const handleSelect = (id: string) => {
+  if (editorHasChanges && currentId !== id) {
+    setPendingSwitch(id);  // Show confirmation dialog
+  } else {
+    setCurrentId(id);
+  }
+};
+```
+
+**Flow**:
+1. Child computes `hasChanges` from local state vs saved data
+2. Child notifies parent via callback
+3. Parent intercepts navigation when dirty
+4. Show confirmation dialog: "Discard & Switch" or "Cancel"
+5. On confirm: reset dirty state, then switch
+
+### Pattern 3: Auto-Save with Visual Feedback
+
+**Use when**: Simple inputs that should save immediately.
+
+```typescript
+const [saved, setSaved] = useState(false);
+
+const handleBlur = async () => {
+  if (value !== savedValue) {
+    await saveToBackend(value);
+    setSaved(true);
+    setTimeout(() => setSaved(false), 2000);
+  }
+};
+
+return (
+  <div className="flex items-center gap-2">
+    <Input value={value} onChange={...} onBlur={handleBlur} />
+    {saved && (
+      <span className="text-green-600 text-xs flex items-center gap-1">
+        <Check className="w-3.5 h-3.5" /> Saved
+      </span>
+    )}
+  </div>
+);
+```
+
+**When to use which**:
+| Scenario | Pattern |
+|----------|---------|
+| Complex multi-field editor | Pattern 2 (confirmation dialog) |
+| Simple single input | Pattern 3 (auto-save + feedback) |
+| List item selection | Pattern 1 (key-based remount) + Pattern 2 |
 
 ---
 
