@@ -173,7 +173,7 @@ export function OpenRouterModelPicker({
             {showPresets && newestModels.length > 0 && (
               <div>
                 <div className="text-muted-foreground bg-background sticky top-0 mb-1 flex items-center gap-1.5 py-1 text-xs font-semibold">
-                  <Sparkles className="h-3 w-3 text-orange-500" />
+                  <Sparkles className="h-3 w-3 text-accent" />
                   <span>Newest Models</span>
                 </div>
                 {newestModels.map((model) => (
@@ -232,14 +232,28 @@ function ModelItem({
       type="button"
       onClick={onClick}
       className={cn(
-        'hover:bg-accent flex w-full items-center justify-between rounded-sm px-2 py-1.5 text-left text-sm',
-        isSelected && 'bg-accent'
+        'flex w-full items-center justify-between rounded-sm px-2 py-1.5 text-left text-sm transition-colors',
+        'hover:bg-accent hover:text-accent-foreground',
+        isSelected && 'bg-accent text-accent-foreground'
       )}
     >
       <span className="flex-1 truncate">{model.name}</span>
-      <span className="text-muted-foreground ml-2 flex items-center gap-2 text-xs">
+      <span
+        className={cn(
+          'ml-2 flex items-center gap-2 text-xs',
+          isSelected ? 'text-accent-foreground/80' : 'text-muted-foreground'
+        )}
+      >
         {showAge && model.created && (
-          <Badge variant="outline" className="text-[10px] text-orange-600">
+          <Badge
+            variant="outline"
+            className={cn(
+              'text-[10px]',
+              isSelected
+                ? 'border-accent-foreground/30 text-accent-foreground/80'
+                : 'text-accent border-accent/30'
+            )}
+          >
             {formatModelAge(model.created)}
           </Badge>
         )}

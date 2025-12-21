@@ -25,15 +25,15 @@ export function OpenRouterQuickStart({
     <div className="flex-1 flex items-center justify-center bg-muted/20 p-8">
       <div className="max-w-lg w-full space-y-6">
         {/* Main OpenRouter Card */}
-        <Card className="border-orange-200 dark:border-orange-800/50 bg-gradient-to-br from-orange-50/50 to-background dark:from-orange-950/20">
+        <Card className="border-accent/30 dark:border-accent/40 bg-gradient-to-br from-accent/5 to-background dark:from-accent/10">
           <CardHeader className="pb-3">
             <div className="flex items-center gap-3 mb-2">
-              <div className="p-2 rounded-lg bg-orange-100 dark:bg-orange-900/30">
+              <div className="p-2 rounded-lg bg-accent/10 dark:bg-accent/20">
                 <img src="/icons/openrouter.svg" alt="OpenRouter" className="w-6 h-6" />
               </div>
               <Badge
                 variant="secondary"
-                className="bg-orange-100 text-orange-700 dark:bg-orange-900/40 dark:text-orange-300"
+                className="bg-accent/10 text-accent dark:bg-accent/20 dark:text-accent-foreground"
               >
                 Recommended
               </Badge>
@@ -48,18 +48,18 @@ export function OpenRouterQuickStart({
             {/* Key Features */}
             <div className="grid grid-cols-2 gap-3 text-sm">
               <div className="flex items-center gap-2 text-muted-foreground">
-                <Zap className="w-4 h-4 text-orange-500" />
+                <Zap className="w-4 h-4 text-accent" />
                 <span>One API, all providers</span>
               </div>
               <div className="flex items-center gap-2 text-muted-foreground">
-                <Sparkles className="w-4 h-4 text-orange-500" />
+                <Sparkles className="w-4 h-4 text-accent" />
                 <span>Model tier mapping</span>
               </div>
             </div>
 
             <Button
               onClick={onOpenRouterClick}
-              className="w-full bg-orange-600 hover:bg-orange-700 text-white"
+              className="w-full bg-accent hover:bg-accent/90 text-white"
               size="lg"
             >
               Create OpenRouter Profile
@@ -72,7 +72,7 @@ export function OpenRouterQuickStart({
                 href="https://openrouter.ai/keys"
                 target="_blank"
                 rel="noopener noreferrer"
-                className="text-orange-600 hover:underline inline-flex items-center gap-1"
+                className="text-accent hover:underline inline-flex items-center gap-1"
               >
                 openrouter.ai/keys
                 <ExternalLink className="w-3 h-3" />

@@ -33,7 +33,7 @@ export function OpenRouterBanner({ onCreateClick }: OpenRouterBannerProps) {
   if (dismissed) return null;
 
   return (
-    <div className="bg-gradient-to-r from-orange-500 to-orange-600 text-white px-4 py-3 relative shrink-0">
+    <div className="bg-gradient-to-r from-accent to-accent/90 text-white px-4 py-3 relative shrink-0">
       <div className="flex items-center justify-between gap-4 max-w-screen-xl mx-auto">
         <div className="flex items-center gap-3 flex-1 min-w-0">
           <div className="p-1.5 bg-white/20 rounded-md shrink-0">
@@ -54,7 +54,7 @@ export function OpenRouterBanner({ onCreateClick }: OpenRouterBannerProps) {
               size="sm"
               variant="secondary"
               onClick={onCreateClick}
-              className="bg-white text-orange-600 hover:bg-white/90 h-8"
+              className="bg-white text-accent hover:bg-white/90 h-8"
             >
               Try it now
             </Button>

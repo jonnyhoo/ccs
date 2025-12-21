@@ -17,8 +17,8 @@ export function OpenRouterBadge({ className, showTooltip = true }: OpenRouterBad
     <Badge
       variant="outline"
       className={cn(
-        'bg-orange-50 border-orange-200 text-orange-700',
-        'dark:bg-orange-950 dark:border-orange-800 dark:text-orange-300',
+        'bg-accent/10 border-accent/30 text-accent',
+        'dark:bg-accent/20 dark:border-accent/40 dark:text-accent-foreground',
         className
       )}
     >
