@@ -9,12 +9,14 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Skeleton } from '@/components/ui/skeleton';
-import { Search, RefreshCw, Loader2 } from 'lucide-react';
+import { Search, RefreshCw, Loader2, Sparkles } from 'lucide-react';
 import { useOpenRouterCatalog, useRefreshOpenRouterModels } from '@/hooks/use-openrouter-models';
 import {
   searchModels,
   formatPricingPair,
   formatContextLength,
+  formatModelAge,
+  getNewestModelsPerProvider,
   CATEGORY_LABELS,
 } from '@/lib/openrouter-utils';
 import type { CategorizedModel, ModelCategory } from '@/lib/openrouter-types';
@@ -45,6 +47,14 @@ export function OpenRouterModelPicker({
       category: selectedCategory ?? undefined,
     });
   }, [models, search, selectedCategory]);
+
+  // Get newest models for presets (shown when no search)
+  const newestModels = useMemo(() => {
+    return getNewestModelsPerProvider(models, 2);
+  }, [models]);
+
+  // Determine if we should show presets (no search query and no category filter)
+  const showPresets = !search.trim() && !selectedCategory;
 
   // Group by category
   const groupedModels = useMemo(() => {
@@ -159,6 +169,26 @@ export function OpenRouterModelPicker({
           </div>
         ) : (
           <div className="space-y-4 p-2">
+            {/* Newest Models Section (shown when no search) */}
+            {showPresets && newestModels.length > 0 && (
+              <div>
+                <div className="text-muted-foreground bg-background sticky top-0 mb-1 flex items-center gap-1.5 py-1 text-xs font-semibold">
+                  <Sparkles className="h-3 w-3 text-orange-500" />
+                  <span>Newest Models</span>
+                </div>
+                {newestModels.map((model) => (
+                  <ModelItem
+                    key={model.id}
+                    model={model}
+                    isSelected={model.id === value}
+                    onClick={() => onChange(model.id)}
+                    showAge
+                  />
+                ))}
+              </div>
+            )}
+
+            {/* Category Groups */}
             {(Object.keys(CATEGORY_LABELS) as ModelCategory[]).map((category) => {
               const categoryModels = groupedModels[category];
               if (categoryModels.length === 0) return null;
@@ -190,10 +220,12 @@ function ModelItem({
   model,
   isSelected,
   onClick,
+  showAge = false,
 }: {
   model: CategorizedModel;
   isSelected: boolean;
   onClick: () => void;
+  showAge?: boolean;
 }) {
   return (
     <button
@@ -206,6 +238,11 @@ function ModelItem({
     >
       <span className="flex-1 truncate">{model.name}</span>
       <span className="text-muted-foreground ml-2 flex items-center gap-2 text-xs">
+        {showAge && model.created && (
+          <Badge variant="outline" className="text-[10px] text-orange-600">
+            {formatModelAge(model.created)}
+          </Badge>
+        )}
         {model.isFree ? (
           <Badge variant="secondary" className="text-xs">
             Free

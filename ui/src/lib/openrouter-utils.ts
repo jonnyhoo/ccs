@@ -174,3 +174,62 @@ export const CATEGORY_LABELS: Record<ModelCategory, string> = {
   opensource: 'Open Source',
   other: 'Other',
 };
+
+/** Provider prefixes for detecting newest models */
+const PROVIDER_PREFIXES: Record<ModelCategory, string[]> = {
+  anthropic: ['anthropic/'],
+  openai: ['openai/'],
+  google: ['google/'],
+  meta: ['meta-llama/', 'meta/'],
+  mistral: ['mistralai/'],
+  opensource: ['deepseek/', 'qwen/', 'cohere/'],
+  other: [],
+};
+
+/** Get the newest models per provider (sorted by created timestamp) */
+export function getNewestModelsPerProvider(
+  allModels: CategorizedModel[],
+  modelsPerProvider: number = 2
+): CategorizedModel[] {
+  const result: CategorizedModel[] = [];
+  const categories: ModelCategory[] = [
+    'anthropic',
+    'openai',
+    'google',
+    'meta',
+    'mistral',
+    'opensource',
+  ];
+
+  for (const category of categories) {
+    const prefixes = PROVIDER_PREFIXES[category];
+    if (prefixes.length === 0) continue;
+
+    // Get models for this provider
+    const providerModels = allModels.filter((m) =>
+      prefixes.some((prefix) => m.id.toLowerCase().startsWith(prefix))
+    );
+
+    // Sort by created timestamp (newest first)
+    const sorted = [...providerModels].sort((a, b) => (b.created ?? 0) - (a.created ?? 0));
+
+    // Take top N
+    result.push(...sorted.slice(0, modelsPerProvider));
+  }
+
+  // Sort final result by created (newest first)
+  return result.sort((a, b) => (b.created ?? 0) - (a.created ?? 0));
+}
+
+/** Format relative time for model creation date */
+export function formatModelAge(created: number): string {
+  const now = Date.now() / 1000; // Convert to seconds
+  const diff = now - created;
+
+  if (diff < 86400) return 'Today';
+  if (diff < 172800) return 'Yesterday';
+  if (diff < 604800) return `${Math.floor(diff / 86400)}d ago`;
+  if (diff < 2592000) return `${Math.floor(diff / 604800)}w ago`;
+  if (diff < 31536000) return `${Math.floor(diff / 2592000)}mo ago`;
+  return `${Math.floor(diff / 31536000)}y ago`;
+}

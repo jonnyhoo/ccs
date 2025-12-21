@@ -40,6 +40,7 @@ export interface OpenRouterModel {
   top_provider: OpenRouterTopProvider;
   supported_parameters: string[];
   per_request_limits: Record<string, string> | null;
+  created: number; // Unix timestamp when model was added to OpenRouter
 }
 
 export interface OpenRouterModelsResponse {
