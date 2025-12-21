@@ -309,6 +309,27 @@ function generateYamlWithComments(config: UnifiedConfig): string {
   );
   lines.push('');
 
+  // CLIProxy Server section (remote proxy configuration) - placed right after cliproxy
+  if (config.cliproxy_server) {
+    lines.push('# ----------------------------------------------------------------------------');
+    lines.push('# CLIProxy Server: Remote proxy connection settings');
+    lines.push('# Configure via Dashboard (`ccs config`) > Proxy tab.');
+    lines.push('#');
+    lines.push('# remote: Connect to a remote CLIProxyAPI instance');
+    lines.push('# fallback: Use local proxy if remote is unreachable');
+    lines.push('# local: Local proxy settings (port, auto-start)');
+    lines.push('# ----------------------------------------------------------------------------');
+    lines.push(
+      yaml
+        .dump(
+          { cliproxy_server: config.cliproxy_server },
+          { indent: 2, lineWidth: -1, quotingType: '"' }
+        )
+        .trim()
+    );
+    lines.push('');
+  }
+
   // Preferences section
   lines.push('# ----------------------------------------------------------------------------');
   lines.push('# Preferences: User settings');
@@ -370,27 +391,6 @@ function generateYamlWithComments(config: UnifiedConfig): string {
     lines.push('# ----------------------------------------------------------------------------');
     lines.push(
       yaml.dump({ copilot: config.copilot }, { indent: 2, lineWidth: -1, quotingType: '"' }).trim()
-    );
-    lines.push('');
-  }
-
-  // CLIProxy Server section (remote proxy configuration)
-  if (config.cliproxy_server) {
-    lines.push('# ----------------------------------------------------------------------------');
-    lines.push('# CLIProxy Server: Remote proxy connection settings');
-    lines.push('# Configure via Dashboard (`ccs config`) > Proxy tab.');
-    lines.push('#');
-    lines.push('# remote: Connect to a remote CLIProxyAPI instance');
-    lines.push('# fallback: Use local proxy if remote is unreachable');
-    lines.push('# local: Local proxy settings (port, auto-start)');
-    lines.push('# ----------------------------------------------------------------------------');
-    lines.push(
-      yaml
-        .dump(
-          { cliproxy_server: config.cliproxy_server },
-          { indent: 2, lineWidth: -1, quotingType: '"' }
-        )
-        .trim()
     );
     lines.push('');
   }
