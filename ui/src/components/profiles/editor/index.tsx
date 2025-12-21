@@ -21,6 +21,7 @@ export function ProfileEditor({ profileName, onDelete }: ProfileEditorProps) {
   const [conflictDialog, setConflictDialog] = useState(false);
   const [rawJsonEdits, setRawJsonEdits] = useState<string | null>(null);
   const [newEnvKey, setNewEnvKey] = useState('');
+  const [newEnvValue, setNewEnvValue] = useState('');
   const queryClient = useQueryClient();
 
   // Fetch settings for selected profile
@@ -69,10 +70,12 @@ export function ProfileEditor({ profileName, onDelete }: ProfileEditorProps) {
   const addNewEnvVar = () => {
     if (!newEnvKey.trim()) return;
     const key = newEnvKey.trim();
-    const newEnv = { ...(currentSettings?.env || {}), [key]: '' };
-    setLocalEdits((prev) => ({ ...prev, [key]: '' }));
+    const value = newEnvValue;
+    const newEnv = { ...(currentSettings?.env || {}), [key]: value };
+    setLocalEdits((prev) => ({ ...prev, [key]: value }));
     setRawJsonEdits(JSON.stringify({ ...currentSettings, env: newEnv }, null, 2));
     setNewEnvKey('');
+    setNewEnvValue('');
   };
 
   // Computed validity and changes check
@@ -172,7 +175,9 @@ export function ProfileEditor({ profileName, onDelete }: ProfileEditorProps) {
               data={data}
               currentSettings={currentSettings}
               newEnvKey={newEnvKey}
+              newEnvValue={newEnvValue}
               onNewEnvKeyChange={setNewEnvKey}
+              onNewEnvValueChange={setNewEnvValue}
               onEnvValueChange={updateEnvValue}
               onAddEnvVar={addNewEnvVar}
             />

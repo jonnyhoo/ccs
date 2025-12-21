@@ -16,7 +16,9 @@ import type { Settings } from './types';
 interface EnvEditorSectionProps {
   currentSettings: Settings | undefined;
   newEnvKey: string;
+  newEnvValue: string;
   onNewEnvKeyChange: (value: string) => void;
+  onNewEnvValueChange: (value: string) => void;
   onEnvValueChange: (key: string, value: string) => void;
   onAddEnvVar: () => void;
 }
@@ -24,7 +26,9 @@ interface EnvEditorSectionProps {
 export function EnvEditorSection({
   currentSettings,
   newEnvKey,
+  newEnvValue,
   onNewEnvKeyChange,
+  onNewEnvValueChange,
   onEnvValueChange,
   onAddEnvVar,
 }: EnvEditorSectionProps) {
@@ -82,8 +86,15 @@ export function EnvEditorSection({
             placeholder="VARIABLE_NAME"
             value={newEnvKey}
             onChange={(e) => onNewEnvKeyChange(e.target.value.toUpperCase())}
-            className="font-mono text-sm h-8"
-            onKeyDown={(e) => e.key === 'Enter' && onAddEnvVar()}
+            className="font-mono text-sm h-8 w-2/5"
+            onKeyDown={(e) => e.key === 'Enter' && newEnvKey.trim() && onAddEnvVar()}
+          />
+          <Input
+            placeholder="value"
+            value={newEnvValue}
+            onChange={(e) => onNewEnvValueChange(e.target.value)}
+            className="font-mono text-sm h-8 flex-1"
+            onKeyDown={(e) => e.key === 'Enter' && newEnvKey.trim() && onAddEnvVar()}
           />
           <Button
             variant="outline"
