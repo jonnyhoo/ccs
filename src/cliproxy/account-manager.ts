@@ -495,7 +495,7 @@ export function discoverExistingAccounts(): void {
  * Get summary of all accounts across providers
  */
 export function getAllAccountsSummary(): Record<CLIProxyProvider, AccountInfo[]> {
-  const providers: CLIProxyProvider[] = ['gemini', 'codex', 'agy', 'qwen', 'iflow'];
+  const providers: CLIProxyProvider[] = ['gemini', 'codex', 'agy', 'qwen', 'iflow', 'kiro', 'ghcp'];
   const summary: Record<CLIProxyProvider, AccountInfo[]> = {} as Record<
     CLIProxyProvider,
     AccountInfo[]

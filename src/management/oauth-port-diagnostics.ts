@@ -33,7 +33,7 @@ export const OAUTH_CALLBACK_PORTS: Record<CLIProxyProvider, number | null> = {
   qwen: null, // Device Code Flow - no callback port
   iflow: null, // Device Code Flow - no callback port
   kiro: 9876, // Authorization Code Flow
-  copilot: null, // Device Code Flow - no callback port
+  ghcp: null, // Device Code Flow - no callback port
 };
 
 /**
@@ -51,7 +51,7 @@ export const OAUTH_FLOW_TYPES: Record<CLIProxyProvider, OAuthFlowType> = {
   qwen: 'device_code',
   iflow: 'device_code',
   kiro: 'authorization_code',
-  copilot: 'device_code',
+  ghcp: 'device_code',
 };
 
 /**
@@ -138,15 +138,7 @@ export async function checkOAuthPort(provider: CLIProxyProvider): Promise<OAuthP
  * Check OAuth ports for all providers
  */
 export async function checkAllOAuthPorts(): Promise<OAuthPortDiagnostic[]> {
-  const providers: CLIProxyProvider[] = [
-    'gemini',
-    'codex',
-    'agy',
-    'qwen',
-    'iflow',
-    'kiro',
-    'copilot',
-  ];
+  const providers: CLIProxyProvider[] = ['gemini', 'codex', 'agy', 'qwen', 'iflow', 'kiro', 'ghcp'];
   const results: OAuthPortDiagnostic[] = [];
 
   for (const provider of providers) {
