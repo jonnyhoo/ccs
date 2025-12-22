@@ -162,7 +162,7 @@ Claude Code Profile & Model Switcher`.trim();
       ['ccs agy', 'Antigravity (Claude/Gemini models)'],
       ['ccs qwen', 'Qwen Code (qwen3-coder)'],
       ['ccs kiro', 'Kiro (AWS CodeWhisperer Claude models)'],
-      ['ccs copilot', 'GitHub Copilot (GPT/Claude/Gemini)'],
+      ['ccs ghcp', 'GitHub Copilot (OAuth via CLIProxy Plus)'],
       ['', ''], // Spacer
       ['ccs <provider> --auth', 'Authenticate only'],
       ['ccs <provider> --auth --add', 'Add another account'],
@@ -176,16 +176,17 @@ Claude Code Profile & Model Switcher`.trim();
   );
 
   // ═══════════════════════════════════════════════════════════════════════════
-  // MAJOR SECTION 4: GitHub Copilot Integration
+  // MAJOR SECTION 4: GitHub Copilot Integration (copilot-api)
   // ═══════════════════════════════════════════════════════════════════════════
   printMajorSection(
-    'GitHub Copilot Integration',
+    'GitHub Copilot Integration (copilot-api)',
     [
-      'Use your GitHub Copilot subscription with Claude Code',
+      'Use your GitHub Copilot subscription with Claude Code via copilot-api',
       'Requires: npm install -g copilot-api',
+      'Note: For OAuth-based access, use ccs ghcp instead',
     ],
     [
-      ['ccs copilot', 'Use Copilot as API backend'],
+      ['ccs copilot', 'Use Copilot via copilot-api daemon'],
       ['ccs copilot auth', 'Authenticate with GitHub'],
       ['ccs copilot status', 'Show integration status'],
       ['ccs copilot models', 'List available models'],
