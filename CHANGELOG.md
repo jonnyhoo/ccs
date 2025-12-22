@@ -1,3 +1,35 @@
+## [7.2.0](https://github.com/kaitranntt/ccs/compare/v7.1.1...v7.2.0) (2025-12-22)
+
+### Features
+
+* **cliproxy:** add localhost URL rewriting for remote proxy mode ([d0599e8](https://github.com/kaitranntt/ccs/commit/d0599e8d2c990ad02b270b8ada700db2d1d2e510))
+* **cliproxy:** add proxy target resolver for remote/local routing ([9e2fd09](https://github.com/kaitranntt/ccs/commit/9e2fd096e4a30c29a9c909284234d129a577b853))
+* **cliproxy:** add remote routing for stats and auth endpoints ([17bb6f9](https://github.com/kaitranntt/ccs/commit/17bb6f9836a56eddcb5e683e9d8f3d262f48d0cd))
+* **ui:** add remote mode indicator to provider editor header ([3bf9ebe](https://github.com/kaitranntt/ccs/commit/3bf9ebe32a8cebe2bcf5f405bb2c04611b30f997))
+* **ui:** dynamic control panel embed for remote CLIProxy ([bfa55e0](https://github.com/kaitranntt/ccs/commit/bfa55e041cb33b689d95b492abd637a98eab5b42))
+* **ui:** show remote server info in ProxyStatusWidget ([d86dfab](https://github.com/kaitranntt/ccs/commit/d86dfab2e76416ea0e662f0702c854f2e11ac541))
+
+### Bug Fixes
+
+* **api:** add try-catch error handling to route handlers ([85b0f17](https://github.com/kaitranntt/ccs/commit/85b0f171105ecd2e12839718a80ae91e427f9b5a))
+* **api:** complete error handling and add missing endpoints ([3ed961f](https://github.com/kaitranntt/ccs/commit/3ed961fce9ee7793b714abcbb6eef3346bd9098b))
+* **api:** resolve route path mismatches ([557926f](https://github.com/kaitranntt/ccs/commit/557926ffe3f72e601758fc1c98279591c660440c))
+* **cliproxy:** add gemini-cli provider mapping for remote auth ([068d577](https://github.com/kaitranntt/ccs/commit/068d5772f24510f61ed96fd632e06a08532f2615))
+* **cliproxy:** address code review findings for remote routing ([cdb4653](https://github.com/kaitranntt/ccs/commit/cdb465342e6461cd7ff36f59f2d3873e50092210))
+* **cliproxy:** load remote config from config.yaml for proxy resolution ([a2d01bc](https://github.com/kaitranntt/ccs/commit/a2d01bcc8a15e75c598854c7ddd314f5f17015f6))
+* **cliproxy:** merge dev with proper remote mode integration ([28c6262](https://github.com/kaitranntt/ccs/commit/28c62625b36e74db7b5b07f475cf4df0072c9a27))
+* **cliproxy:** respect user model settings in remote proxy mode ([4ee3100](https://github.com/kaitranntt/ccs/commit/4ee31006225ccec03ba6cf46a2257e122e1af79a))
+* **ui:** correct cliproxy account API paths ([e84df00](https://github.com/kaitranntt/ccs/commit/e84df007409b21680bb2b10bfed841e3f5173c38))
+* **ui:** hide local paths in remote CLIProxy mode ([883d9fa](https://github.com/kaitranntt/ccs/commit/883d9fa585f9df3f99c303555115fc53c03724ac))
+
+### Documentation
+
+* update documentation for v7.1 remote CLIProxy feature ([ec7781b](https://github.com/kaitranntt/ccs/commit/ec7781bbc85437e9c9ea3be84c01dff54129c99c)), closes [#142](https://github.com/kaitranntt/ccs/issues/142)
+
+### CI
+
+* improve issue tagging and label management in release workflows ([3638620](https://github.com/kaitranntt/ccs/commit/36386209bea64794bbbc0c3c2770d512fcc6fe83))
+
 ## [7.1.1](https://github.com/kaitranntt/ccs/compare/v7.1.0...v7.1.1) (2025-12-21)
 
 ### Bug Fixes
