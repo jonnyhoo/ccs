@@ -37,7 +37,7 @@ export function ModelConfigSection({
           <p className="text-xs text-muted-foreground mb-3">Apply pre-configured model mappings</p>
           <div className="flex flex-wrap gap-2">
             {/* Recommended presets from catalog */}
-            {catalog?.models.slice(0, 3).map((model) => (
+            {catalog?.models.slice(0, 4).map((model) => (
               <Button
                 key={model.id}
                 variant="outline"

@@ -34,14 +34,28 @@ function generateSessionId(): string {
   return crypto.randomBytes(8).toString('hex');
 }
 
-/** Get path to session lock file */
-function getSessionLockPath(): string {
-  return path.join(getCliproxyDir(), 'sessions.json');
+/** Get path to session lock file for specific port */
+function getSessionLockPathForPort(port: number): string {
+  if (port === CLIPROXY_DEFAULT_PORT) {
+    return path.join(getCliproxyDir(), 'sessions.json');
+  }
+  return path.join(getCliproxyDir(), `sessions-${port}.json`);
 }
 
-/** Read session lock file (returns null if not exists or invalid) */
-function readSessionLock(): SessionLock | null {
-  const lockPath = getSessionLockPath();
+/** Get path to session lock file (default port) - kept for future use */
+function _getSessionLockPath(): string {
+  return getSessionLockPathForPort(CLIPROXY_DEFAULT_PORT);
+}
+
+// Re-export for external use
+export { _getSessionLockPath as getSessionLockPath };
+
+// Export deleteSessionLockForPort for cleanup operations
+export { deleteSessionLockForPort };
+
+/** Read session lock file for specific port (returns null if not exists or invalid) */
+function readSessionLockForPort(port: number): SessionLock | null {
+  const lockPath = getSessionLockPathForPort(port);
   try {
     if (!fs.existsSync(lockPath)) {
       return null;
@@ -62,9 +76,14 @@ function readSessionLock(): SessionLock | null {
   }
 }
 
-/** Write session lock file */
-function writeSessionLock(lock: SessionLock): void {
-  const lockPath = getSessionLockPath();
+/** Read session lock file (default port, returns null if not exists or invalid) */
+function readSessionLock(): SessionLock | null {
+  return readSessionLockForPort(CLIPROXY_DEFAULT_PORT);
+}
+
+/** Write session lock file for specific port */
+function writeSessionLockForPort(lock: SessionLock): void {
+  const lockPath = getSessionLockPathForPort(lock.port);
   const dir = path.dirname(lockPath);
   if (!fs.existsSync(dir)) {
     fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
@@ -72,9 +91,9 @@ function writeSessionLock(lock: SessionLock): void {
   fs.writeFileSync(lockPath, JSON.stringify(lock, null, 2), { mode: 0o600 });
 }
 
-/** Delete session lock file */
-function deleteSessionLock(): void {
-  const lockPath = getSessionLockPath();
+/** Delete session lock file for specific port */
+function deleteSessionLockForPort(port: number): void {
+  const lockPath = getSessionLockPathForPort(port);
   try {
     if (fs.existsSync(lockPath)) {
       fs.unlinkSync(lockPath);
@@ -84,13 +103,24 @@ function deleteSessionLock(): void {
   }
 }
 
+/** Delete session lock file (default port) */
+function deleteSessionLock(): void {
+  deleteSessionLockForPort(CLIPROXY_DEFAULT_PORT);
+}
+
 /** Check if a PID is still running */
 function isProcessRunning(pid: number): boolean {
   try {
     // Sending signal 0 checks if process exists without killing it
     process.kill(pid, 0);
     return true;
-  } catch {
+  } catch (err) {
+    const e = err as NodeJS.ErrnoException;
+    // EPERM means process exists but we don't have permission to signal it
+    if (e.code === 'EPERM') {
+      return true;
+    }
+    // ESRCH means no such process
     return false;
   }
 }
@@ -100,7 +130,7 @@ function isProcessRunning(pid: number): boolean {
  * Returns the existing lock if proxy is healthy, null otherwise.
  */
 export function getExistingProxy(port: number): SessionLock | null {
-  const lock = readSessionLock();
+  const lock = readSessionLockForPort(port);
   if (!lock) {
     return null;
   }
@@ -113,7 +143,7 @@ export function getExistingProxy(port: number): SessionLock | null {
   // Verify proxy process is still running
   if (!isProcessRunning(lock.pid)) {
     // Proxy crashed - clean up stale lock
-    deleteSessionLock();
+    deleteSessionLockForPort(port);
     return null;
   }
 
@@ -127,12 +157,12 @@ export function getExistingProxy(port: number): SessionLock | null {
  */
 export function registerSession(port: number, proxyPid: number): string {
   const sessionId = generateSessionId();
-  const existingLock = readSessionLock();
+  const existingLock = readSessionLockForPort(port);
 
   if (existingLock && existingLock.port === port && existingLock.pid === proxyPid) {
     // Add to existing sessions
     existingLock.sessions.push(sessionId);
-    writeSessionLock(existingLock);
+    writeSessionLockForPort(existingLock);
   } else {
     // Create new lock (first session for this proxy)
     const newLock: SessionLock = {
@@ -141,7 +171,7 @@ export function registerSession(port: number, proxyPid: number): string {
       sessions: [sessionId],
       startedAt: new Date().toISOString(),
     };
-    writeSessionLock(newLock);
+    writeSessionLockForPort(newLock);
   }
 
   return sessionId;
@@ -149,9 +179,33 @@ export function registerSession(port: number, proxyPid: number): string {
 
 /**
  * Unregister a session from the proxy.
+ * @param sessionId Session ID to unregister
+ * @param port Port to unregister from (optional, searches default port if not provided)
  * @returns true if this was the last session (proxy should be killed)
  */
-export function unregisterSession(sessionId: string): boolean {
+export function unregisterSession(sessionId: string, port?: number): boolean {
+  // If port provided, use port-specific lookup
+  if (port !== undefined) {
+    const lock = readSessionLockForPort(port);
+    if (!lock) {
+      return true;
+    }
+
+    const index = lock.sessions.indexOf(sessionId);
+    if (index !== -1) {
+      lock.sessions.splice(index, 1);
+    }
+
+    if (lock.sessions.length === 0) {
+      deleteSessionLockForPort(port);
+      return true;
+    }
+
+    writeSessionLockForPort(lock);
+    return false;
+  }
+
+  // Fallback: search default port (backward compat)
   const lock = readSessionLock();
   if (!lock) {
     // No lock file - assume we're the only session
@@ -172,15 +226,16 @@ export function unregisterSession(sessionId: string): boolean {
   }
 
   // Other sessions still active - keep proxy running
-  writeSessionLock(lock);
+  writeSessionLockForPort(lock);
   return false;
 }
 
 /**
  * Get current session count for the proxy.
+ * @param port Port to check (defaults to CLIPROXY_DEFAULT_PORT)
  */
-export function getSessionCount(): number {
-  const lock = readSessionLock();
+export function getSessionCount(port: number = CLIPROXY_DEFAULT_PORT): number {
+  const lock = readSessionLockForPort(port);
   if (!lock) {
     return 0;
   }
@@ -190,16 +245,17 @@ export function getSessionCount(): number {
 /**
  * Check if proxy has any active sessions.
  * Used to determine if a "zombie" proxy should be killed.
+ * @param port Port to check (defaults to CLIPROXY_DEFAULT_PORT)
  */
-export function hasActiveSessions(): boolean {
-  const lock = readSessionLock();
+export function hasActiveSessions(port: number = CLIPROXY_DEFAULT_PORT): boolean {
+  const lock = readSessionLockForPort(port);
   if (!lock) {
     return false;
   }
 
   // Verify proxy is still running
   if (!isProcessRunning(lock.pid)) {
-    deleteSessionLock();
+    deleteSessionLockForPort(port);
     return false;
   }
 
@@ -211,38 +267,39 @@ export function hasActiveSessions(): boolean {
  * Called on startup to ensure clean state.
  */
 export function cleanupOrphanedSessions(port: number): void {
-  const lock = readSessionLock();
+  const lock = readSessionLockForPort(port);
   if (!lock) {
     return;
   }
 
-  // If port doesn't match, this lock is for a different proxy
+  // If port doesn't match, this shouldn't happen with port-specific files
   if (lock.port !== port) {
     return;
   }
 
   // If proxy is dead, clean up lock
   if (!isProcessRunning(lock.pid)) {
-    deleteSessionLock();
+    deleteSessionLockForPort(port);
   }
 }
 
 /**
  * Stop the CLIProxy process and clean up session lock.
  * Falls back to port-based detection if no session lock exists.
+ * @param port Port to stop (defaults to CLIPROXY_DEFAULT_PORT)
  * @returns Object with success status and details
  */
-export async function stopProxy(): Promise<{
+export async function stopProxy(port: number = CLIPROXY_DEFAULT_PORT): Promise<{
   stopped: boolean;
   pid?: number;
   sessionCount?: number;
   error?: string;
 }> {
-  const lock = readSessionLock();
+  const lock = readSessionLockForPort(port);
 
   if (!lock) {
     // No session lock - try to find process by port (legacy/untracked proxy)
-    const portProcess = await getPortProcess(CLIPROXY_DEFAULT_PORT);
+    const portProcess = await getPortProcess(port);
 
     if (!portProcess) {
       return { stopped: false, error: 'No active CLIProxy session found' };
@@ -251,7 +308,7 @@ export async function stopProxy(): Promise<{
     if (!isCLIProxyProcess(portProcess)) {
       return {
         stopped: false,
-        error: `Port ${CLIPROXY_DEFAULT_PORT} is in use by ${portProcess.processName}, not CLIProxy`,
+        error: `Port ${port} is in use by ${portProcess.processName}, not CLIProxy`,
       };
     }
 
@@ -270,7 +327,7 @@ export async function stopProxy(): Promise<{
 
   // Check if proxy is running
   if (!isProcessRunning(lock.pid)) {
-    deleteSessionLock();
+    deleteSessionLockForPort(port);
     return { stopped: false, error: 'CLIProxy was not running (cleaned up stale lock)' };
   }
 
@@ -282,14 +339,14 @@ export async function stopProxy(): Promise<{
     process.kill(pid, 'SIGTERM');
 
     // Clean up session lock
-    deleteSessionLock();
+    deleteSessionLockForPort(port);
 
     return { stopped: true, pid, sessionCount };
   } catch (err) {
     const error = err as NodeJS.ErrnoException;
     if (error.code === 'ESRCH') {
       // Process already gone
-      deleteSessionLock();
+      deleteSessionLockForPort(port);
       return { stopped: false, error: 'CLIProxy process already terminated' };
     }
     return { stopped: false, pid, error: `Failed to stop: ${error.message}` };
@@ -297,16 +354,16 @@ export async function stopProxy(): Promise<{
 }
 
 /**
- * Get proxy status information.
+ * Get proxy status information for specific port.
  */
-export function getProxyStatus(): {
+export function getProxyStatus(port: number = CLIPROXY_DEFAULT_PORT): {
   running: boolean;
   port?: number;
   pid?: number;
   sessionCount?: number;
   startedAt?: string;
 } {
-  const lock = readSessionLock();
+  const lock = readSessionLockForPort(port);
 
   if (!lock) {
     return { running: false };
@@ -314,7 +371,7 @@ export function getProxyStatus(): {
 
   // Verify proxy is still running
   if (!isProcessRunning(lock.pid)) {
-    deleteSessionLock();
+    deleteSessionLockForPort(port);
     return { running: false };
   }
 

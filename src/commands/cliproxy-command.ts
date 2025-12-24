@@ -256,9 +256,10 @@ async function handleCreate(args: string[]): Promise<void> {
   const settingsDisplay = isUnifiedMode()
     ? '~/.ccs/config.yaml'
     : `~/.ccs/${path.basename(result.settingsPath || '')}`;
+  const portInfo = result.variant?.port ? `Port:     ${result.variant.port}\n` : '';
   console.log(
     infoBox(
-      `Variant:  ${name}\nProvider: ${provider}\nModel:    ${model}\n${account ? `Account:  ${account}\n` : ''}${isUnifiedMode() ? 'Config' : 'Settings'}:   ${settingsDisplay}`,
+      `Variant:  ${name}\nProvider: ${provider}\nModel:    ${model}\n${portInfo}${account ? `Account:  ${account}\n` : ''}${isUnifiedMode() ? 'Config' : 'Settings'}:   ${settingsDisplay}`,
       configType
     )
   );
@@ -303,10 +304,11 @@ async function handleList(): Promise<void> {
     console.log(subheader('Custom Variants'));
     const rows = variantNames.map((name) => {
       const variant = variants[name];
-      return [name, variant.provider, variant.settings || '-'];
+      const portStr = variant.port ? String(variant.port) : '-';
+      return [name, variant.provider, portStr, variant.settings || '-'];
     });
     console.log(
-      table(rows, { head: ['Variant', 'Provider', 'Settings'], colWidths: [15, 12, 35] })
+      table(rows, { head: ['Variant', 'Provider', 'Port', 'Settings'], colWidths: [15, 12, 8, 30] })
     );
     console.log('');
     console.log(dim(`Total: ${variantNames.length} custom variant(s)`));
@@ -357,6 +359,9 @@ async function handleRemove(args: string[]): Promise<void> {
   console.log('');
   console.log(`Variant '${color(name, 'command')}' will be removed.`);
   console.log(`  Provider: ${variant.provider}`);
+  if (variant.port) {
+    console.log(`  Port:     ${variant.port}`);
+  }
   console.log(`  Settings: ${variant.settings || '-'}`);
   console.log('');
 

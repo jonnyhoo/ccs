@@ -23,6 +23,8 @@ export interface CLIProxyVariantConfig {
   settings: string;
   /** Account identifier for multi-account support (optional, defaults to 'default') */
   account?: string;
+  /** Unique port for variant isolation (8318-8417) */
+  port?: number;
 }
 
 /**

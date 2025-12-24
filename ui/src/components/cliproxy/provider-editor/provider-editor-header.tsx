@@ -5,7 +5,7 @@
 
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Save, Loader2, RefreshCw, Globe } from 'lucide-react';
+import { Save, Loader2, RefreshCw, Globe, Network } from 'lucide-react';
 import { ProviderLogo } from '../provider-logo';
 import type { SettingsResponse } from './types';
 
@@ -19,6 +19,7 @@ interface ProviderEditorHeaderProps {
   isRawJsonValid: boolean;
   isSaving: boolean;
   isRemoteMode?: boolean;
+  port?: number;
   onRefetch: () => void;
   onSave: () => void;
 }
@@ -33,6 +34,7 @@ export function ProviderEditorHeader({
   isRawJsonValid,
   isSaving,
   isRemoteMode,
+  port,
   onRefetch,
   onSave,
 }: ProviderEditorHeaderProps) {
@@ -50,6 +52,11 @@ export function ProviderEditorHeader({
               >
                 <Globe className="w-3 h-3" />
                 Remote
+              </Badge>
+            )}
+            {port && (
+              <Badge variant="outline" className="text-xs gap-1 font-mono">
+                <Network className="w-3 h-3" />:{port}
               </Badge>
             )}
             {!isRemoteMode && data?.path && (

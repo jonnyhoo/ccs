@@ -339,7 +339,9 @@ export function CliproxyPage() {
             authStatus={parentAuthForVariant}
             catalog={MODEL_CATALOGS[selectedVariantData.provider]}
             logoProvider={selectedVariantData.provider}
+            baseProvider={selectedVariantData.provider}
             isRemoteMode={isRemoteMode}
+            port={selectedVariantData.port}
             onAddAccount={() =>
               setAddAccountProvider({
                 provider: selectedVariantData.provider,

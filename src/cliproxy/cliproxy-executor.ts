@@ -625,12 +625,14 @@ export async function execClaudeWithCLIProxy(
 
   // 8. Cleanup: unregister session when Claude exits (local mode only)
   // Proxy persists by default - use 'ccs cliproxy stop' to kill manually
+  // Capture port for cleanup (avoids closure issues)
+  const sessionPort = cfg.port;
   claude.on('exit', (code, signal) => {
     log(`Claude exited: code=${code}, signal=${signal}`);
 
     // Unregister this session (proxy keeps running for persistence) - only for local mode
     if (sessionId) {
-      unregisterSession(sessionId);
+      unregisterSession(sessionId, sessionPort);
       log(`Session ${sessionId} unregistered, proxy persists for other sessions or future use`);
     }
 
@@ -646,7 +648,7 @@ export async function execClaudeWithCLIProxy(
 
     // Unregister session, proxy keeps running (local mode only)
     if (sessionId) {
-      unregisterSession(sessionId);
+      unregisterSession(sessionId, sessionPort);
     }
     process.exit(1);
   });
@@ -657,7 +659,7 @@ export async function execClaudeWithCLIProxy(
 
     // Unregister session, proxy keeps running (local mode only)
     if (sessionId) {
-      unregisterSession(sessionId);
+      unregisterSession(sessionId, sessionPort);
     }
     claude.kill('SIGTERM');
   };

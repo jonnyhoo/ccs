@@ -7,9 +7,29 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { getCcsDir, loadSettings } from '../../utils/config-manager';
 import { isSensitiveKey, maskSensitiveValue } from '../../utils/sensitive-keys';
+import { listVariants } from '../../cliproxy/services/variant-service';
 import type { Settings } from '../../types/config';
 
 const router = Router();
+
+/**
+ * Helper: Resolve settings path for profile or variant
+ * Variants have settings paths in config, regular profiles use {name}.settings.json
+ */
+function resolveSettingsPath(profileOrVariant: string): string {
+  const ccsDir = getCcsDir();
+
+  // Check if this is a variant
+  const variants = listVariants();
+  const variant = variants[profileOrVariant];
+  if (variant?.settings) {
+    // Variant settings path (e.g., ~/.ccs/agy-g3.settings.json)
+    return variant.settings.replace(/^~/, process.env.HOME || '');
+  }
+
+  // Regular profile settings
+  return path.join(ccsDir, `${profileOrVariant}.settings.json`);
+}
 
 /**
  * Helper: Mask API keys in settings
@@ -34,8 +54,7 @@ function maskApiKeys(settings: Settings): Settings {
 router.get('/:profile', (req: Request, res: Response): void => {
   try {
     const { profile } = req.params;
-    const ccsDir = getCcsDir();
-    const settingsPath = path.join(ccsDir, `${profile}.settings.json`);
+    const settingsPath = resolveSettingsPath(profile);
 
     if (!fs.existsSync(settingsPath)) {
       res.status(404).json({ error: 'Settings not found' });
@@ -63,8 +82,7 @@ router.get('/:profile', (req: Request, res: Response): void => {
 router.get('/:profile/raw', (req: Request, res: Response): void => {
   try {
     const { profile } = req.params;
-    const ccsDir = getCcsDir();
-    const settingsPath = path.join(ccsDir, `${profile}.settings.json`);
+    const settingsPath = resolveSettingsPath(profile);
 
     if (!fs.existsSync(settingsPath)) {
       res.status(404).json({ error: 'Settings not found' });
@@ -93,7 +111,7 @@ router.put('/:profile', (req: Request, res: Response): void => {
     const { profile } = req.params;
     const { settings, expectedMtime } = req.body;
     const ccsDir = getCcsDir();
-    const settingsPath = path.join(ccsDir, `${profile}.settings.json`);
+    const settingsPath = resolveSettingsPath(profile);
 
     const fileExists = fs.existsSync(settingsPath);
 
@@ -151,8 +169,7 @@ router.put('/:profile', (req: Request, res: Response): void => {
 router.get('/:profile/presets', (req: Request, res: Response): void => {
   try {
     const { profile } = req.params;
-    const ccsDir = getCcsDir();
-    const settingsPath = path.join(ccsDir, `${profile}.settings.json`);
+    const settingsPath = resolveSettingsPath(profile);
 
     if (!fs.existsSync(settingsPath)) {
       res.json({ presets: [] });
@@ -179,11 +196,11 @@ router.post('/:profile/presets', (req: Request, res: Response): void => {
       return;
     }
 
-    const ccsDir = getCcsDir();
-    const settingsPath = path.join(ccsDir, `${profile}.settings.json`);
+    const settingsPath = resolveSettingsPath(profile);
 
     // Create settings file if it doesn't exist
     if (!fs.existsSync(settingsPath)) {
+      fs.mkdirSync(path.dirname(settingsPath), { recursive: true });
       fs.writeFileSync(settingsPath, JSON.stringify({ env: {}, presets: [] }, null, 2) + '\n');
     }
 
@@ -219,8 +236,7 @@ router.post('/:profile/presets', (req: Request, res: Response): void => {
 router.delete('/:profile/presets/:name', (req: Request, res: Response): void => {
   try {
     const { profile, name } = req.params;
-    const ccsDir = getCcsDir();
-    const settingsPath = path.join(ccsDir, `${profile}.settings.json`);
+    const settingsPath = resolveSettingsPath(profile);
 
     if (!fs.existsSync(settingsPath)) {
       res.status(404).json({ error: 'Settings not found' });

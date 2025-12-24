@@ -21,8 +21,12 @@ export interface ProviderEditorProps {
   catalog?: ProviderCatalog;
   /** Provider type for logo display (defaults to provider) */
   logoProvider?: string;
+  /** Base provider for model filtering (defaults to provider). For variants, this is the parent provider. */
+  baseProvider?: string;
   /** True if using remote CLIProxy mode (hides local paths) */
   isRemoteMode?: boolean;
+  /** Port number for variant (for display in header) */
+  port?: number;
   onAddAccount: () => void;
   onSetDefault: (accountId: string) => void;
   onRemoveAccount: (accountId: string) => void;

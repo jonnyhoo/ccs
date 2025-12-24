@@ -10,11 +10,14 @@ import { CLIProxyProfileName } from '../../auth/profile-detector';
 import { CLIProxyProvider } from '../types';
 import { isReservedName } from '../../config/reserved-names';
 import { isUnifiedMode } from '../../config/unified-config-loader';
+import { deleteConfigForPort } from '../config-generator';
+import { deleteSessionLockForPort } from '../session-tracker';
 import {
   createSettingsFile,
   createSettingsFileUnified,
   deleteSettingsFile,
   getRelativeSettingsPath,
+  updateSettingsModel,
 } from './variant-settings';
 import {
   VariantConfig,
@@ -24,6 +27,7 @@ import {
   saveVariantLegacy,
   removeVariantFromUnifiedConfig,
   removeVariantFromLegacyConfig,
+  getNextAvailablePort,
 } from './variant-config-adapter';
 
 // Re-export VariantConfig from adapter
@@ -80,25 +84,29 @@ export function createVariant(
   account?: string
 ): VariantOperationResult {
   try {
+    // Allocate unique port for this variant
+    const port = getNextAvailablePort();
+
     let settingsPath: string;
 
     if (isUnifiedMode()) {
-      settingsPath = createSettingsFileUnified(name, provider, model);
+      settingsPath = createSettingsFileUnified(name, provider, model, port);
       saveVariantUnified(
         name,
         provider as CLIProxyProvider,
         getRelativeSettingsPath(provider, name),
-        account
+        account,
+        port
       );
     } else {
-      settingsPath = createSettingsFile(name, provider, model);
-      saveVariantLegacy(name, provider, `~/.ccs/${path.basename(settingsPath)}`, account);
+      settingsPath = createSettingsFile(name, provider, model, port);
+      saveVariantLegacy(name, provider, `~/.ccs/${path.basename(settingsPath)}`, account, port);
     }
 
     return {
       success: true,
       settingsPath,
-      variant: { provider, model, account },
+      variant: { provider, model, account, port },
     };
   } catch (error) {
     return {
@@ -120,11 +128,21 @@ export function removeVariant(name: string): VariantOperationResult {
       if (unifiedVariant?.settings) {
         deleteSettingsFile(unifiedVariant.settings);
       }
+      // Clean up port-specific config and session files
+      if (unifiedVariant?.port) {
+        deleteConfigForPort(unifiedVariant.port);
+        deleteSessionLockForPort(unifiedVariant.port);
+      }
       variant = unifiedVariant;
     } else {
       variant = removeVariantFromLegacyConfig(name);
       if (variant?.settings) {
         deleteSettingsFile(variant.settings);
+      }
+      // Clean up port-specific config and session files
+      if (variant?.port) {
+        deleteConfigForPort(variant.port);
+        deleteSessionLockForPort(variant.port);
       }
     }
 
@@ -133,6 +151,70 @@ export function removeVariant(name: string): VariantOperationResult {
     }
 
     return { success: true, variant };
+  } catch (error) {
+    return { success: false, error: (error as Error).message };
+  }
+}
+
+/** Update options for variant */
+export interface UpdateVariantOptions {
+  provider?: CLIProxyProfileName;
+  account?: string;
+  model?: string;
+}
+
+/**
+ * Update an existing CLIProxy variant
+ */
+export function updateVariant(name: string, updates: UpdateVariantOptions): VariantOperationResult {
+  try {
+    const variants = listVariantsFromConfig();
+    const existing = variants[name];
+
+    if (!existing) {
+      return { success: false, error: `Variant '${name}' not found` };
+    }
+
+    // Update model in settings file if provided
+    if (updates.model !== undefined && existing.settings) {
+      const settingsPath = existing.settings.replace(/^~/, process.env.HOME || '');
+      updateSettingsModel(settingsPath, updates.model);
+    }
+
+    // Update config entry if provider or account changed
+    if (updates.provider !== undefined || updates.account !== undefined) {
+      const newProvider = updates.provider ?? existing.provider;
+      const newAccount = updates.account !== undefined ? updates.account : existing.account;
+
+      if (isUnifiedMode()) {
+        saveVariantUnified(
+          name,
+          newProvider as CLIProxyProvider,
+          existing.settings || '',
+          newAccount || undefined,
+          existing.port
+        );
+      } else {
+        saveVariantLegacy(
+          name,
+          newProvider,
+          existing.settings || '',
+          newAccount || undefined,
+          existing.port
+        );
+      }
+    }
+
+    return {
+      success: true,
+      variant: {
+        provider: updates.provider ?? existing.provider,
+        model: updates.model ?? existing.model,
+        account: updates.account !== undefined ? updates.account : existing.account,
+        port: existing.port,
+        settings: existing.settings,
+      },
+    };
   } catch (error) {
     return { success: false, error: (error as Error).message };
   }

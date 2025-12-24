@@ -63,6 +63,8 @@ export interface CLIProxyVariantConfig {
   account?: string;
   /** Path to settings file (e.g., "~/.ccs/gemini-custom.settings.json") */
   settings?: string;
+  /** Unique port for variant isolation (8318-8417) */
+  port?: number;
 }
 
 /**

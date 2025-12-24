@@ -7,8 +7,6 @@ import * as path from 'path';
 import { getCcsDir, getConfigPath, loadConfig, loadSettings } from '../../utils/config-manager';
 import { expandPath } from '../../utils/helpers';
 import type { Config, Settings } from '../../types/config';
-import type { CLIProxyProvider } from '../../cliproxy/types';
-import { getClaudeEnvVars } from '../../cliproxy/config-generator';
 
 /** Model mapping for API profiles */
 export interface ModelMapping {
@@ -154,37 +152,6 @@ export function updateSettingsFile(
   }
 
   fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2) + '\n');
-}
-
-/**
- * Create cliproxy variant settings
- * Includes base URL and auth token for proper Claude CLI integration
- */
-export function createCliproxySettings(
-  name: string,
-  provider: CLIProxyProvider,
-  model?: string
-): string {
-  const settingsPath = path.join(getCcsDir(), `${name}.settings.json`);
-
-  // Get base env vars from provider config (includes BASE_URL, AUTH_TOKEN)
-  const baseEnv = getClaudeEnvVars(provider);
-
-  const settings: Settings = {
-    env: {
-      ANTHROPIC_BASE_URL: baseEnv.ANTHROPIC_BASE_URL || '',
-      ANTHROPIC_AUTH_TOKEN: baseEnv.ANTHROPIC_AUTH_TOKEN || '',
-      ANTHROPIC_MODEL: model || (baseEnv.ANTHROPIC_MODEL as string) || '',
-      ANTHROPIC_DEFAULT_OPUS_MODEL: model || (baseEnv.ANTHROPIC_DEFAULT_OPUS_MODEL as string) || '',
-      ANTHROPIC_DEFAULT_SONNET_MODEL:
-        model || (baseEnv.ANTHROPIC_DEFAULT_SONNET_MODEL as string) || '',
-      ANTHROPIC_DEFAULT_HAIKU_MODEL:
-        (baseEnv.ANTHROPIC_DEFAULT_HAIKU_MODEL as string) || model || '',
-    },
-  };
-
-  fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2) + '\n');
-  return `~/.ccs/${name}.settings.json`;
 }
 
 /**

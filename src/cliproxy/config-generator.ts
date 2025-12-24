@@ -116,10 +116,21 @@ export function getAuthDir(): string {
 }
 
 /**
- * Get config file path
+ * Get config file path for a specific port.
+ * Default port uses config.yaml, others use config-{port}.yaml.
+ */
+export function getConfigPathForPort(port: number): string {
+  if (port === CLIPROXY_DEFAULT_PORT) {
+    return path.join(getCliproxyDir(), 'config.yaml');
+  }
+  return path.join(getCliproxyDir(), `config-${port}.yaml`);
+}
+
+/**
+ * Get config file path (default port)
  */
 export function getConfigPath(): string {
-  return path.join(getCliproxyDir(), 'config.yaml');
+  return getConfigPathForPort(CLIPROXY_DEFAULT_PORT);
 }
 
 /**
@@ -238,7 +249,7 @@ export function generateConfig(
   provider: CLIProxyProvider,
   port: number = CLIPROXY_DEFAULT_PORT
 ): string {
-  const configPath = getConfigPath();
+  const configPath = getConfigPathForPort(port);
 
   // Ensure provider auth directory exists
   const authDir = getProviderAuthDir(provider);
@@ -260,7 +271,7 @@ export function generateConfig(
  * @returns Path to new config file
  */
 export function regenerateConfig(port: number = CLIPROXY_DEFAULT_PORT): string {
-  const configPath = getConfigPath();
+  const configPath = getConfigPathForPort(port);
 
   // Read existing port if config exists (preserve user's port choice)
   let effectivePort = port;
@@ -316,20 +327,27 @@ export function configNeedsRegeneration(): boolean {
 }
 
 /**
- * Check if config exists for provider
+ * Check if config exists for port
  */
-export function configExists(): boolean {
-  return fs.existsSync(getConfigPath());
+export function configExists(port: number = CLIPROXY_DEFAULT_PORT): boolean {
+  return fs.existsSync(getConfigPathForPort(port));
 }
 
 /**
- * Delete config file
+ * Delete config file for specific port
  */
-export function deleteConfig(): void {
-  const configPath = getConfigPath();
+export function deleteConfigForPort(port: number): void {
+  const configPath = getConfigPathForPort(port);
   if (fs.existsSync(configPath)) {
     fs.unlinkSync(configPath);
   }
+}
+
+/**
+ * Delete config file (default port)
+ */
+export function deleteConfig(): void {
+  deleteConfigForPort(CLIPROXY_DEFAULT_PORT);
 }
 
 /**

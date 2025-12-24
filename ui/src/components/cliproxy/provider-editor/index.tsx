@@ -31,7 +31,9 @@ export function ProviderEditor({
   authStatus,
   catalog,
   logoProvider,
+  baseProvider,
   isRemoteMode,
+  port,
   onAddAccount,
   onSetDefault,
   onRemoveAccount,
@@ -46,6 +48,9 @@ export function ProviderEditor({
   const deletePresetMutation = useDeletePreset();
   const savedPresets = presetsData?.presets || [];
 
+  // Use baseProvider for model filtering (for variants, this is the parent provider)
+  const modelFilterProvider = baseProvider || provider;
+
   const providerModels = useMemo(() => {
     if (!modelsData?.models) return [];
     const ownerMap: Record<string, string[]> = {
@@ -57,11 +62,13 @@ export function ProviderEditor({
       kiro: ['kiro', 'aws'],
       ghcp: ['github', 'copilot'],
     };
-    const owners = ownerMap[provider.toLowerCase()] || [provider.toLowerCase()];
+    const owners = ownerMap[modelFilterProvider.toLowerCase()] || [
+      modelFilterProvider.toLowerCase(),
+    ];
     return modelsData.models.filter((m) =>
       owners.some((o) => m.owned_by.toLowerCase().includes(o))
     );
-  }, [modelsData, provider]);
+  }, [modelsData, modelFilterProvider]);
 
   const {
     data,
@@ -128,6 +135,7 @@ export function ProviderEditor({
         isRawJsonValid={isRawJsonValid}
         isSaving={saveMutation.isPending}
         isRemoteMode={isRemoteMode}
+        port={port}
         onRefetch={refetch}
         onSave={() => saveMutation.mutate()}
       />

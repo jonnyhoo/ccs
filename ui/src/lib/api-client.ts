@@ -50,6 +50,8 @@ export interface Variant {
   provider: 'gemini' | 'codex' | 'agy' | 'qwen' | 'iflow' | 'kiro' | 'ghcp';
   settings: string;
   account?: string;
+  port?: number;
+  model?: string;
 }
 
 export interface CreateVariant {

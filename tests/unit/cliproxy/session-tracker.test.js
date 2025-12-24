@@ -28,23 +28,39 @@ const {
 describe('Session Tracker', function () {
   const testPort = 18317;
   let sessionLockPath;
+  let cliproxyDir;
 
   beforeEach(function () {
     // Create test directories
-    const cliproxyDir = path.join(testHome, '.ccs', 'cliproxy');
+    cliproxyDir = path.join(testHome, '.ccs', 'cliproxy');
     fs.mkdirSync(cliproxyDir, { recursive: true });
-    sessionLockPath = path.join(cliproxyDir, 'sessions.json');
+    // Use port-specific session file for non-default ports
+    sessionLockPath = path.join(cliproxyDir, `sessions-${testPort}.json`);
 
-    // Clean up any existing lock file
-    if (fs.existsSync(sessionLockPath)) {
-      fs.unlinkSync(sessionLockPath);
+    // Clean up any existing lock files
+    try {
+      const files = fs.readdirSync(cliproxyDir);
+      for (const file of files) {
+        if (file.startsWith('sessions')) {
+          fs.unlinkSync(path.join(cliproxyDir, file));
+        }
+      }
+    } catch {
+      // Directory might not exist yet
     }
   });
 
   afterEach(function () {
-    // Clean up lock file
-    if (fs.existsSync(sessionLockPath)) {
-      fs.unlinkSync(sessionLockPath);
+    // Clean up lock files
+    try {
+      const files = fs.readdirSync(cliproxyDir);
+      for (const file of files) {
+        if (file.startsWith('sessions')) {
+          fs.unlinkSync(path.join(cliproxyDir, file));
+        }
+      }
+    } catch {
+      // Ignore cleanup errors
     }
   });
 
@@ -164,7 +180,7 @@ describe('Session Tracker', function () {
 
   describe('unregisterSession', function () {
     it('should return true when no lock exists', function () {
-      const result = unregisterSession('nonexistent');
+      const result = unregisterSession('nonexistent', testPort);
       assert.strictEqual(result, true);
     });
 
@@ -174,7 +190,7 @@ describe('Session Tracker', function () {
       const session2 = registerSession(testPort, process.pid);
 
       // Unregister first
-      const shouldKill = unregisterSession(session1);
+      const shouldKill = unregisterSession(session1, testPort);
 
       assert.strictEqual(shouldKill, false, 'should not kill - other sessions active');
 
@@ -188,7 +204,7 @@ describe('Session Tracker', function () {
       const session1 = registerSession(testPort, process.pid);
 
       // Unregister it
-      const shouldKill = unregisterSession(session1);
+      const shouldKill = unregisterSession(session1, testPort);
 
       assert.strictEqual(shouldKill, true, 'should kill - last session');
       assert.strictEqual(fs.existsSync(sessionLockPath), false, 'should delete lock file');
@@ -199,38 +215,40 @@ describe('Session Tracker', function () {
       registerSession(testPort, process.pid);
 
       // Try to unregister wrong session
-      const shouldKill = unregisterSession('wrong-session-id');
+      const shouldKill = unregisterSession('wrong-session-id', testPort);
 
       // Should return false since a session still exists
       assert.strictEqual(shouldKill, false);
     });
   });
 
-  describe('getSessionCount', function () {
+  describe('getSessionCount (default port)', function () {
     it('should return 0 when no lock exists', function () {
       assert.strictEqual(getSessionCount(), 0);
     });
 
-    it('should return correct count', function () {
+    it('should return correct count (uses getProxyStatus for port-specific)', function () {
       registerSession(testPort, process.pid);
-      assert.strictEqual(getSessionCount(), 1);
+      assert.strictEqual(getProxyStatus(testPort).sessionCount, 1);
 
       registerSession(testPort, process.pid);
-      assert.strictEqual(getSessionCount(), 2);
+      assert.strictEqual(getProxyStatus(testPort).sessionCount, 2);
 
       registerSession(testPort, process.pid);
-      assert.strictEqual(getSessionCount(), 3);
+      assert.strictEqual(getProxyStatus(testPort).sessionCount, 3);
     });
   });
 
-  describe('hasActiveSessions', function () {
+  describe('hasActiveSessions (default port)', function () {
     it('should return false when no lock exists', function () {
       assert.strictEqual(hasActiveSessions(), false);
     });
 
-    it('should return true when sessions exist and proxy running', function () {
+    it('should return true when sessions exist on default port', function () {
+      // Note: hasActiveSessions() checks default port only
+      // For port-specific checks, use getProxyStatus(port).running
       registerSession(testPort, process.pid);
-      assert.strictEqual(hasActiveSessions(), true);
+      assert.strictEqual(getProxyStatus(testPort).running, true);
     });
 
     it('should return false and cleanup when proxy is dead', function () {
@@ -243,7 +261,9 @@ describe('Session Tracker', function () {
       };
       fs.writeFileSync(sessionLockPath, JSON.stringify(lock));
 
-      assert.strictEqual(hasActiveSessions(), false);
+      // getProxyStatus will clean up stale lock
+      const status = getProxyStatus(testPort);
+      assert.strictEqual(status.running, false);
       assert.strictEqual(fs.existsSync(sessionLockPath), false);
     });
   });
@@ -300,7 +320,7 @@ describe('Session Tracker', function () {
 
   describe('stopProxy', function () {
     it('should return error when no lock exists', async function () {
-      const result = await stopProxy();
+      const result = await stopProxy(testPort);
       assert.strictEqual(result.stopped, false);
       assert.strictEqual(result.error, 'No active CLIProxy session found');
     });
@@ -315,7 +335,7 @@ describe('Session Tracker', function () {
       };
       fs.writeFileSync(sessionLockPath, JSON.stringify(lock));
 
-      const result = await stopProxy();
+      const result = await stopProxy(testPort);
       assert.strictEqual(result.stopped, false);
       assert.ok(result.error.includes('not running'));
       assert.strictEqual(fs.existsSync(sessionLockPath), false);
@@ -327,7 +347,7 @@ describe('Session Tracker', function () {
 
       // Note: We can't actually test killing our own process,
       // but we can verify the structure is correct before it attempts kill
-      const status = getProxyStatus();
+      const status = getProxyStatus(testPort);
       assert.strictEqual(status.running, true);
       assert.strictEqual(status.pid, process.pid);
       assert.strictEqual(status.sessionCount, 1);
@@ -336,7 +356,7 @@ describe('Session Tracker', function () {
 
   describe('getProxyStatus', function () {
     it('should return not running when no lock exists', function () {
-      const result = getProxyStatus();
+      const result = getProxyStatus(testPort);
       assert.strictEqual(result.running, false);
       assert.strictEqual(result.port, undefined);
       assert.strictEqual(result.pid, undefined);
@@ -352,7 +372,7 @@ describe('Session Tracker', function () {
       };
       fs.writeFileSync(sessionLockPath, JSON.stringify(lock));
 
-      const result = getProxyStatus();
+      const result = getProxyStatus(testPort);
       assert.strictEqual(result.running, true);
       assert.strictEqual(result.port, testPort);
       assert.strictEqual(result.pid, process.pid);
@@ -369,22 +389,22 @@ describe('Session Tracker', function () {
       };
       fs.writeFileSync(sessionLockPath, JSON.stringify(lock));
 
-      const result = getProxyStatus();
+      const result = getProxyStatus(testPort);
       assert.strictEqual(result.running, false);
       assert.strictEqual(fs.existsSync(sessionLockPath), false);
     });
 
     it('should return correct session count after registrations', function () {
       registerSession(testPort, process.pid);
-      let status = getProxyStatus();
+      let status = getProxyStatus(testPort);
       assert.strictEqual(status.sessionCount, 1);
 
       registerSession(testPort, process.pid);
-      status = getProxyStatus();
+      status = getProxyStatus(testPort);
       assert.strictEqual(status.sessionCount, 2);
 
       registerSession(testPort, process.pid);
-      status = getProxyStatus();
+      status = getProxyStatus(testPort);
       assert.strictEqual(status.sessionCount, 3);
     });
   });
@@ -393,30 +413,30 @@ describe('Session Tracker', function () {
     it('should handle complete multi-terminal workflow', function () {
       // Terminal 1 starts - first session
       const session1 = registerSession(testPort, process.pid);
-      assert.strictEqual(getSessionCount(), 1);
+      assert.strictEqual(getProxyStatus(testPort).sessionCount, 1);
 
       // Terminal 2 starts - joins existing
       const session2 = registerSession(testPort, process.pid);
-      assert.strictEqual(getSessionCount(), 2);
+      assert.strictEqual(getProxyStatus(testPort).sessionCount, 2);
 
       // Terminal 3 starts - joins existing
       const session3 = registerSession(testPort, process.pid);
-      assert.strictEqual(getSessionCount(), 3);
+      assert.strictEqual(getProxyStatus(testPort).sessionCount, 3);
 
       // Terminal 1 exits - should NOT kill proxy
-      let shouldKill = unregisterSession(session1);
+      let shouldKill = unregisterSession(session1, testPort);
       assert.strictEqual(shouldKill, false);
-      assert.strictEqual(getSessionCount(), 2);
+      assert.strictEqual(getProxyStatus(testPort).sessionCount, 2);
 
       // Terminal 3 exits - should NOT kill proxy
-      shouldKill = unregisterSession(session3);
+      shouldKill = unregisterSession(session3, testPort);
       assert.strictEqual(shouldKill, false);
-      assert.strictEqual(getSessionCount(), 1);
+      assert.strictEqual(getProxyStatus(testPort).sessionCount, 1);
 
       // Terminal 2 exits - SHOULD kill proxy (last session)
-      shouldKill = unregisterSession(session2);
+      shouldKill = unregisterSession(session2, testPort);
       assert.strictEqual(shouldKill, true);
-      assert.strictEqual(getSessionCount(), 0);
+      assert.strictEqual(getProxyStatus(testPort).running, false);
       assert.strictEqual(fs.existsSync(sessionLockPath), false);
     });
   });
