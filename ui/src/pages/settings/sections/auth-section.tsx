@@ -20,6 +20,7 @@ import {
   Check,
   KeyRound,
   ShieldCheck,
+  Save,
 } from 'lucide-react';
 import { useRawConfig } from '../hooks';
 
@@ -92,54 +93,35 @@ export default function AuthSection() {
     }
   }, [error]);
 
-  // Save API key
-  const saveApiKey = async () => {
-    if (editedApiKey === null) return;
+  // Save all changes
+  const saveChanges = async () => {
+    const hasApiKeyChange = editedApiKey !== null && editedApiKey !== tokens?.apiKey.value;
+    const hasSecretChange =
+      editedSecret !== null && editedSecret !== tokens?.managementSecret.value;
+
+    if (!hasApiKeyChange && !hasSecretChange) return;
 
     try {
       setSaving(true);
       setError(null);
+
+      const payload: { apiKey?: string; managementSecret?: string } = {};
+      if (hasApiKeyChange) payload.apiKey = editedApiKey;
+      if (hasSecretChange) payload.managementSecret = editedSecret;
+
       const response = await fetch('/api/settings/auth/tokens', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ apiKey: editedApiKey }),
+        body: JSON.stringify(payload),
       });
 
       if (!response.ok) {
         const data = await response.json();
-        throw new Error(data.error || 'Failed to save API key');
+        throw new Error(data.error || 'Failed to save tokens');
       }
 
-      setSuccess('API key updated. Restart CLIProxy to apply.');
+      setSuccess('Tokens updated. Restart CLIProxy to apply.');
       setEditedApiKey(null);
-      await fetchTokens();
-      await fetchRawConfig();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Unknown error');
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  // Save management secret
-  const saveSecret = async () => {
-    if (editedSecret === null) return;
-
-    try {
-      setSaving(true);
-      setError(null);
-      const response = await fetch('/api/settings/auth/tokens', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ managementSecret: editedSecret }),
-      });
-
-      if (!response.ok) {
-        const data = await response.json();
-        throw new Error(data.error || 'Failed to save management secret');
-      }
-
-      setSuccess('Management secret updated. Restart CLIProxy to apply.');
       setEditedSecret(null);
       await fetchTokens();
       await fetchRawConfig();
@@ -230,6 +212,11 @@ export default function AuthSection() {
   const displayApiKey = editedApiKey ?? tokens.apiKey.value;
   const displaySecret = editedSecret ?? tokens.managementSecret.value;
 
+  // Check for unsaved changes
+  const hasChanges =
+    (editedApiKey !== null && editedApiKey !== tokens.apiKey.value) ||
+    (editedSecret !== null && editedSecret !== tokens.managementSecret.value);
+
   return (
     <>
       {/* Toast-style alerts */}
@@ -281,13 +268,6 @@ export default function AuthSection() {
                   type={showApiKey ? 'text' : 'password'}
                   value={displayApiKey}
                   onChange={(e) => setEditedApiKey(e.target.value)}
-                  onBlur={() => {
-                    if (editedApiKey !== null && editedApiKey !== tokens.apiKey.value) {
-                      saveApiKey();
-                    } else {
-                      setEditedApiKey(null);
-                    }
-                  }}
                   placeholder="API key"
                   disabled={saving}
                   className="pr-20 font-mono text-sm"
@@ -339,13 +319,6 @@ export default function AuthSection() {
                   type={showSecret ? 'text' : 'password'}
                   value={displaySecret}
                   onChange={(e) => setEditedSecret(e.target.value)}
-                  onBlur={() => {
-                    if (editedSecret !== null && editedSecret !== tokens.managementSecret.value) {
-                      saveSecret();
-                    } else {
-                      setEditedSecret(null);
-                    }
-                  }}
                   placeholder="Management secret"
                   disabled={saving}
                   className="pr-20 font-mono text-sm"
@@ -406,7 +379,7 @@ export default function AuthSection() {
       </ScrollArea>
 
       {/* Footer */}
-      <div className="p-4 border-t bg-background">
+      <div className="p-4 border-t bg-background flex gap-2">
         <Button
           variant="outline"
           size="sm"
@@ -415,10 +388,20 @@ export default function AuthSection() {
             fetchRawConfig();
           }}
           disabled={loading || saving}
-          className="w-full"
+          className="flex-1"
         >
           <RefreshCw className={`w-4 h-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
           Refresh
+        </Button>
+        <Button
+          variant="default"
+          size="sm"
+          onClick={saveChanges}
+          disabled={!hasChanges || saving}
+          className="flex-1"
+        >
+          <Save className={`w-4 h-4 mr-2 ${saving ? 'animate-pulse' : ''}`} />
+          {saving ? 'Saving...' : 'Save'}
         </Button>
       </div>
     </>
