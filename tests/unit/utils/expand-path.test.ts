@@ -66,4 +66,39 @@ describe("expandPath", () => {
     expect(expandPath("${UNDEFINED_VAR}/file.txt")).toBe(path.normalize("/file.txt"));
     expect(expandPath("$UNDEFINED_VAR/file.txt")).toBe(path.normalize("/file.txt"));
   });
+
+  test("11. Windows drive letters stay intact", () => {
+    // Windows drive letter paths should be preserved
+    const result = expandPath("C:\\Users\\test\\file.txt");
+    expect(result).toContain("Users");
+    expect(result).toContain("test");
+  });
+
+  test("12. Windows UNC paths handled", () => {
+    // UNC paths start with \\
+    const uncPath = "\\\\server\\share\\folder";
+    const result = expandPath(uncPath);
+    // Should normalize but preserve the structure
+    expect(result).toContain("server");
+    expect(result).toContain("share");
+  });
+
+  test("13. Null-like input throws TypeError", () => {
+    // Function requires string input - documents current behavior
+    // @ts-ignore - testing runtime edge case
+    expect(() => expandPath(undefined as unknown as string)).toThrow(TypeError);
+    // @ts-ignore - testing runtime edge case
+    expect(() => expandPath(null as unknown as string)).toThrow(TypeError);
+  });
+
+  test("14. Path with spaces preserved", () => {
+    const pathWithSpaces = "~/My Documents/file.txt";
+    const result = expandPath(pathWithSpaces);
+    expect(result).toContain("My Documents");
+  });
+
+  test("15. Multiple consecutive slashes normalized", () => {
+    const result = expandPath("path//to///file.txt");
+    expect(result).toBe(path.normalize("path/to/file.txt"));
+  });
 });

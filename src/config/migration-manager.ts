@@ -46,44 +46,55 @@ export function needsMigration(): boolean {
 }
 
 /**
+ * Pre-loaded config data for TOCTOU-safe migration checks.
+ * Read once, use for both check and migration.
+ */
+export interface MigrationCheckData {
+  legacyConfig: Record<string, unknown> | null;
+  unifiedConfig: ReturnType<typeof loadUnifiedConfig>;
+  needsMigration: boolean;
+}
+
+/**
+ * Load config files once for TOCTOU-safe migration operations.
+ * Returns data that can be passed to migration functions.
+ */
+export function loadMigrationCheckData(): MigrationCheckData {
+  const ccsDir = getCcsDir();
+  const configJsonPath = path.join(ccsDir, 'config.json');
+
+  const legacyConfig = fs.existsSync(configJsonPath) ? readJsonSafe(configJsonPath) : null;
+  const unifiedConfig = loadUnifiedConfig();
+
+  // Determine if migration is needed
+  let needsMigration = false;
+
+  if (legacyConfig?.profiles && typeof legacyConfig.profiles === 'object' && unifiedConfig) {
+    const legacyProfiles = legacyConfig.profiles as Record<string, unknown>;
+    for (const profileName of Object.keys(legacyProfiles)) {
+      if (!unifiedConfig.profiles[profileName]) {
+        needsMigration = true;
+        break;
+      }
+    }
+  }
+
+  return { legacyConfig, unifiedConfig, needsMigration };
+}
+
+/**
  * Check if there are legacy profiles that haven't been migrated to config.yaml.
  * This catches the case where config.yaml exists but is empty/missing profiles
  * that are still in config.json.
  *
  * Used by autoMigrate() to trigger inline migration when needed.
  * (Fix for issue #195 - GLM auth persistence regression)
+ *
+ * Note: For TOCTOU-safe operations, use loadMigrationCheckData() instead.
  */
 export function needsProfileMigration(): boolean {
-  const ccsDir = getCcsDir();
-  const configJsonPath = path.join(ccsDir, 'config.json');
-
-  // No legacy config → nothing to migrate
-  if (!fs.existsSync(configJsonPath)) {
-    return false;
-  }
-
-  const legacyConfig = readJsonSafe(configJsonPath);
-  const unifiedConfig = loadUnifiedConfig();
-
-  // No legacy profiles → nothing to migrate
-  if (!legacyConfig?.profiles || typeof legacyConfig.profiles !== 'object') {
-    return false;
-  }
-
-  // No unified config → needs full migration (handled by needsMigration)
-  if (!unifiedConfig) {
-    return false;
-  }
-
-  // Check if any legacy profile is missing from unified config
-  const legacyProfiles = legacyConfig.profiles as Record<string, unknown>;
-  for (const profileName of Object.keys(legacyProfiles)) {
-    if (!unifiedConfig.profiles[profileName]) {
-      return true; // Found unmigrated profile
-    }
-  }
-
-  return false;
+  const data = loadMigrationCheckData();
+  return data.needsMigration;
 }
 
 /**
@@ -209,7 +220,13 @@ export async function migrate(dryRun = false): Promise<MigrationResult> {
       }
     }
 
-    // 7. Migrate cache files
+    // 7. Write new config FIRST (before moving files - H8 fix)
+    // Note: Settings remain in *.settings.json files, config.yaml only stores references
+    if (!dryRun) {
+      saveUnifiedConfig(unifiedConfig);
+    }
+
+    // 8. Migrate cache files AFTER config is saved (H8: prevents inconsistent state)
     if (!dryRun) {
       const cacheDir = path.join(ccsDir, 'cache');
       if (!fs.existsSync(cacheDir)) {
@@ -228,12 +245,6 @@ export async function migrate(dryRun = false): Promise<MigrationResult> {
       ) {
         migratedFiles.push('update-check.json → cache/update-check.json');
       }
-    }
-
-    // 8. Write new config (unless dry run)
-    // Note: Settings remain in *.settings.json files, config.yaml only stores references
-    if (!dryRun) {
-      saveUnifiedConfig(unifiedConfig);
     }
 
     return {
@@ -398,12 +409,20 @@ export async function autoMigrate(): Promise<void> {
   }
 
   // Check if inline profile migration is needed (config.yaml exists but missing profiles)
-  if (needsProfileMigration()) {
-    const result = await migrateProfilesToUnified();
+  // CRIT-2: Load data once and pass to migrateProfilesToUnified to avoid TOCTOU race
+  const migrationData = loadMigrationCheckData();
+  if (migrationData.needsMigration) {
+    const result = await migrateProfilesToUnified(migrationData);
     if (result.success && result.migratedFiles.length > 0) {
       console.log('');
       console.log(infoBox('Migrated legacy profiles to config.yaml', 'SUCCESS'));
       console.log(`  Profiles: ${result.migratedFiles.join(', ')}`);
+      // H7: Show collision warnings if any
+      if (result.warnings.length > 0) {
+        for (const warning of result.warnings) {
+          console.log(warn(warning));
+        }
+      }
       console.log('');
     }
   }
@@ -412,15 +431,21 @@ export async function autoMigrate(): Promise<void> {
 /**
  * Migrate only profiles from config.json to existing config.yaml.
  * Used when config.yaml exists but is missing profiles.
+ *
+ * @param preloadedData - Optional pre-loaded config data from loadMigrationCheckData()
+ *                        for TOCTOU-safe operations. If not provided, reads configs fresh.
  */
-async function migrateProfilesToUnified(): Promise<MigrationResult> {
+async function migrateProfilesToUnified(
+  preloadedData?: MigrationCheckData
+): Promise<MigrationResult> {
   const ccsDir = getCcsDir();
   const migratedFiles: string[] = [];
   const warnings: string[] = [];
 
   try {
-    const oldConfig = readJsonSafe(path.join(ccsDir, 'config.json'));
-    const unifiedConfig = loadUnifiedConfig();
+    // Use preloaded data if available (CRIT-2: TOCTOU fix)
+    const oldConfig = preloadedData?.legacyConfig ?? readJsonSafe(path.join(ccsDir, 'config.json'));
+    const unifiedConfig = preloadedData?.unifiedConfig ?? loadUnifiedConfig();
 
     if (!oldConfig?.profiles || !unifiedConfig) {
       return { success: true, migratedFiles, warnings };
@@ -430,12 +455,20 @@ async function migrateProfilesToUnified(): Promise<MigrationResult> {
 
     // Migrate API profiles from config.json
     for (const [name, settingsPath] of Object.entries(oldConfig.profiles)) {
-      // Skip if already in unified config
+      const pathStr = settingsPath as string;
+
+      // H7: Detect collision - profile exists in both configs
       if (unifiedConfig.profiles[name]) {
+        // Check if settings differ (potential data loss)
+        const existingSettings = unifiedConfig.profiles[name].settings;
+        if (existingSettings && existingSettings !== pathStr) {
+          warnings.push(
+            `Profile "${name}" exists in both configs with different settings - keeping existing (${existingSettings}), skipping legacy (${pathStr})`
+          );
+        }
         continue;
       }
 
-      const pathStr = settingsPath as string;
       const expandedPath = expandPath(pathStr);
 
       // Verify settings file exists

@@ -11,6 +11,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { getCcsDir } from '../utils/config-manager';
+import { expandPath } from '../utils/helpers';
 import { warn } from '../utils/ui';
 import { CLIProxyProvider, ProviderConfig, ProviderModelMapping } from './types';
 import { getModelMappingFromConfig, getEnvVarsFromConfig } from './base-config-loader';
@@ -463,7 +464,7 @@ export function getEffectiveEnvVars(
 
   // Priority 1: Custom settings path (for user-defined variants)
   if (customSettingsPath) {
-    const expandedPath = customSettingsPath.replace(/^~/, require('os').homedir());
+    const expandedPath = expandPath(customSettingsPath);
     if (fs.existsSync(expandedPath)) {
       try {
         const content = fs.readFileSync(expandedPath, 'utf-8');
@@ -569,7 +570,7 @@ export function getRemoteEnvVars(
 
   // Priority 1: Custom settings path (for user-defined variants)
   if (customSettingsPath) {
-    const expandedPath = customSettingsPath.replace(/^~/, require('os').homedir());
+    const expandedPath = expandPath(customSettingsPath);
     if (fs.existsSync(expandedPath)) {
       try {
         const content = fs.readFileSync(expandedPath, 'utf-8');

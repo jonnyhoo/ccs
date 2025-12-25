@@ -23,6 +23,7 @@ import { ProviderOAuthConfig } from './auth-types';
 import { getTimeoutTroubleshooting, showStep } from './environment-detector';
 import { isAuthenticated, registerAccountFromToken } from './token-manager';
 import { deviceCodeEvents, type DeviceCodePrompt } from '../device-code-handler';
+import { OAUTH_FLOW_TYPES } from '../../management';
 
 /** Options for OAuth process execution */
 export interface OAuthProcessOptions {
@@ -104,7 +105,9 @@ async function handleStdout(
   log(`stdout: ${output.trim()}`);
   state.accumulatedOutput += output;
 
-  const isDeviceCodeFlow = options.callbackPort === null;
+  // H4: Use explicit flow type from OAUTH_FLOW_TYPES instead of null port check
+  const flowType = OAUTH_FLOW_TYPES[options.provider] || 'authorization_code';
+  const isDeviceCodeFlow = flowType === 'device_code';
 
   // Parse project list when available
   if (isProjectList(state.accumulatedOutput) && state.parsedProjects.length === 0) {
@@ -258,15 +261,28 @@ export function executeOAuthProcess(options: OAuthProcessOptions): Promise<Accou
   };
 
   return new Promise<AccountInfo | null>((resolve) => {
-    // Device Code flows (Qwen, GHCP) may need interactive stdin for email/prompts
+    // H4: Use explicit flow type from OAUTH_FLOW_TYPES instead of null port check
+    const flowType = OAUTH_FLOW_TYPES[provider] || 'authorization_code';
+    const isDeviceCodeFlow = flowType === 'device_code';
+
+    // H6: TTY detection - only inherit stdin if TTY available (prevents issues in CI/piped scripts)
+    // Device Code flows may need interactive stdin for email/prompts
     // Authorization Code flows need piped stdin for project selection
-    const isDeviceCodeFlow = callbackPort === null;
-    const stdinMode = isDeviceCodeFlow ? 'inherit' : 'pipe';
+    const stdinMode = isDeviceCodeFlow && process.stdin.isTTY ? 'inherit' : 'pipe';
 
     const authProcess = spawn(binaryPath, args, {
       stdio: [stdinMode, 'pipe', 'pipe'],
       env: { ...process.env, CLI_PROXY_AUTH_DIR: tokenDir },
     });
+
+    // H5: Signal handling - properly kill child process on SIGINT/SIGTERM
+    const cleanup = () => {
+      if (authProcess && !authProcess.killed) {
+        authProcess.kill('SIGTERM');
+      }
+    };
+    process.on('SIGINT', cleanup);
+    process.on('SIGTERM', cleanup);
 
     const state: ProcessState = {
       stderrData: '',
@@ -328,6 +344,9 @@ export function executeOAuthProcess(options: OAuthProcessOptions): Promise<Accou
     // Timeout handling
     const timeoutMs = headless ? 300000 : 120000;
     const timeout = setTimeout(() => {
+      // H5: Remove signal handlers before killing process
+      process.removeListener('SIGINT', cleanup);
+      process.removeListener('SIGTERM', cleanup);
       authProcess.kill();
       console.log('');
       console.log(fail(`OAuth timed out after ${headless ? 5 : 2} minutes`));
@@ -339,6 +358,9 @@ export function executeOAuthProcess(options: OAuthProcessOptions): Promise<Accou
 
     authProcess.on('exit', (code) => {
       clearTimeout(timeout);
+      // H5: Remove signal handlers to prevent memory leaks
+      process.removeListener('SIGINT', cleanup);
+      process.removeListener('SIGTERM', cleanup);
       const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
 
       if (code === 0) {
@@ -380,6 +402,9 @@ export function executeOAuthProcess(options: OAuthProcessOptions): Promise<Accou
 
     authProcess.on('error', (error) => {
       clearTimeout(timeout);
+      // H5: Remove signal handlers to prevent memory leaks
+      process.removeListener('SIGINT', cleanup);
+      process.removeListener('SIGTERM', cleanup);
       console.log('');
       console.log(fail(`Failed to start auth process: ${error.message}`));
       resolve(null);

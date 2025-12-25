@@ -19,6 +19,10 @@ export interface ProviderPreset {
   apiKeyPlaceholder: string;
   apiKeyHint?: string;
   category: PresetCategory;
+  /** Additional env vars for thinking mode, etc. */
+  extraEnv?: Record<string, string>;
+  /** Enable always thinking mode */
+  alwaysThinkingEnabled?: boolean;
 }
 
 export const OPENROUTER_BASE_URL = 'https://openrouter.ai/api';
@@ -141,7 +145,7 @@ export function getPresetsByCategory(category: PresetCategory): ProviderPreset[]
 
 /** Get preset by ID */
 export function getPresetById(id: string): ProviderPreset | undefined {
-  return PROVIDER_PRESETS.find((p) => p.id === id);
+  return PROVIDER_PRESETS.find((p) => p.id.toLowerCase() === id.toLowerCase());
 }
 
 /** Check if a URL matches a known preset */

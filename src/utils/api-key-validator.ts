@@ -5,6 +5,7 @@
  * Catches expired keys early with actionable error messages.
  */
 
+import * as http from 'http';
 import * as https from 'https';
 import { URL } from 'url';
 
@@ -19,7 +20,7 @@ const DEFAULT_PLACEHOLDERS = [
   'YOUR_GLM_API_KEY_HERE',
   'YOUR_KIMI_API_KEY_HERE',
   'YOUR_API_KEY_HERE',
-  'your-api-key-here',
+  'YOUR-API-KEY-HERE',
   'PLACEHOLDER',
   '',
 ];
@@ -64,14 +65,14 @@ export async function validateGlmKey(
   }
 
   return new Promise((resolve) => {
-    const timeout = setTimeout(() => {
-      // Fail-open on timeout - let Claude CLI handle it
-      resolve({ valid: true });
-    }, timeoutMs);
+    // Determine protocol - use http module for http:// URLs
+    const isHttps = url.protocol === 'https:';
+    const httpModule = isHttps ? https : http;
+    const defaultPort = isHttps ? 443 : 80;
 
     const options: https.RequestOptions = {
       hostname: url.hostname,
-      port: url.port || 443,
+      port: url.port || defaultPort,
       path: url.pathname,
       method: 'GET',
       headers: {
@@ -80,8 +81,8 @@ export async function validateGlmKey(
       },
     };
 
-    const req = https.request(options, (res) => {
-      clearTimeout(timeout);
+    const req = httpModule.request(options, (res) => {
+      clearTimeout(timeoutId);
 
       if (res.statusCode === 200) {
         resolve({ valid: true });
@@ -97,6 +98,12 @@ export async function validateGlmKey(
         });
       } else {
         // Other errors (404, 500, etc.) - fail-open, let Claude CLI handle
+        // Debug log for diagnostics when CCS_DEBUG is set
+        if (process.env.CCS_DEBUG === '1') {
+          console.error(
+            `[CCS-Preflight] Unexpected status ${res.statusCode} from ${url.href} - fail-open`
+          );
+        }
         resolve({ valid: true });
       }
 
@@ -105,10 +112,18 @@ export async function validateGlmKey(
     });
 
     req.on('error', () => {
-      clearTimeout(timeout);
+      clearTimeout(timeoutId);
       // Network error - fail-open
       resolve({ valid: true });
     });
+
+    // Set timeout after request is created so we can destroy it on timeout
+    const timeoutId = setTimeout(() => {
+      // Abort request to prevent TCP connection leak
+      req.destroy();
+      // Fail-open on timeout - let Claude CLI handle it
+      resolve({ valid: true });
+    }, timeoutMs);
 
     req.end();
   });

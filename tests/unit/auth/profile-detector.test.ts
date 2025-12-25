@@ -144,12 +144,13 @@ describe('ProfileDetector', () => {
     it('should return null for unknown profile (throws error)', () => {
       const isUnifiedModeSpy = spyOn(unifiedConfigLoader, 'isUnifiedMode').mockReturnValue(false);
       // Mock readConfig/readProfiles to return empty
-      spyOn(fs, 'existsSync').mockReturnValue(false);
+      const existsSyncSpy = spyOn(fs, 'existsSync').mockReturnValue(false);
 
       try {
         expect(() => detector.detectProfileType('unknown')).toThrow(/Profile not found/);
       } finally {
         isUnifiedModeSpy.mockRestore();
+        existsSyncSpy.mockRestore();
       }
     });
   });
