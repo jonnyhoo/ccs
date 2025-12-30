@@ -94,8 +94,9 @@ export function ProviderEditor({
   const accounts = authStatus.accounts || [];
 
   const handleApplyPreset = (updates: Record<string, string>) => {
+    const effectivePort = port ?? CLIPROXY_PORT;
     updateEnvValues({
-      ANTHROPIC_BASE_URL: `http://127.0.0.1:${CLIPROXY_PORT}/api/provider/${provider}`,
+      ANTHROPIC_BASE_URL: `http://127.0.0.1:${effectivePort}/api/provider/${provider}`,
       ANTHROPIC_AUTH_TOKEN: 'ccs-internal-managed',
       ...updates,
     });
@@ -103,8 +104,9 @@ export function ProviderEditor({
   };
 
   const handleCustomPresetApply = (values: ModelMappingValues, presetName?: string) => {
+    const effectivePort = port ?? CLIPROXY_PORT;
     updateEnvValues({
-      ANTHROPIC_BASE_URL: `http://127.0.0.1:${CLIPROXY_PORT}/api/provider/${provider}`,
+      ANTHROPIC_BASE_URL: `http://127.0.0.1:${effectivePort}/api/provider/${provider}`,
       ANTHROPIC_AUTH_TOKEN: 'ccs-internal-managed',
       ANTHROPIC_MODEL: values.default,
       ANTHROPIC_DEFAULT_OPUS_MODEL: values.opus,

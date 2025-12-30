@@ -154,7 +154,17 @@ export async function execClaudeWithCLIProxy(
   });
 
   // Use resolved port from proxy config (overrides ExecutorConfig)
-  if (proxyConfig.port !== CLIPROXY_DEFAULT_PORT) {
+  // Priority: CLI flags > Variant port (cfg.port) > config.yaml > default
+  // cfg.port is set if variant has dedicated port; proxyConfig.port comes from CLI/ENV/config.yaml
+  if (cfg.port && cfg.port !== CLIPROXY_DEFAULT_PORT) {
+    // Variant port already set via config param - keep it (highest priority after CLI flags)
+    // CLI flags would have been parsed in resolveProxyConfig and set proxyConfig.port
+    // So if proxyConfig.port differs from default AND cfg.port differs, CLI wins
+    if (proxyConfig.port !== CLIPROXY_DEFAULT_PORT) {
+      cfg.port = proxyConfig.port; // CLI/ENV override variant port
+    }
+    // else: keep cfg.port (variant port)
+  } else if (proxyConfig.port !== CLIPROXY_DEFAULT_PORT) {
     cfg.port = proxyConfig.port;
   }
 

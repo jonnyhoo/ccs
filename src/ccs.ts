@@ -511,7 +511,11 @@ async function main(): Promise<void> {
       // CLIPROXY FLOW: OAuth-based profiles (gemini, codex, agy, qwen) or user-defined variants
       const provider = profileInfo.provider || (profileInfo.name as CLIProxyProvider);
       const customSettingsPath = profileInfo.settingsPath; // undefined for hardcoded profiles
-      await execClaudeWithCLIProxy(claudeCli, provider, remainingArgs, { customSettingsPath });
+      const variantPort = profileInfo.port; // variant-specific port for isolation
+      await execClaudeWithCLIProxy(claudeCli, provider, remainingArgs, {
+        customSettingsPath,
+        port: variantPort,
+      });
     } else if (profileInfo.type === 'copilot') {
       // COPILOT FLOW: GitHub Copilot subscription via copilot-api proxy
       const { executeCopilotProfile } = await import('./copilot');

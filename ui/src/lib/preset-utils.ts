@@ -13,10 +13,12 @@ export const CLIPROXY_PORT = 8317;
  * Uses the first model's presetMapping or falls back to using defaultModel for all tiers
  *
  * @param provider - The provider ID (e.g., 'gemini', 'codex', 'agy')
+ * @param port - Optional custom port (defaults to CLIPROXY_PORT)
  * @returns Object with success status and applied preset name
  */
 export async function applyDefaultPreset(
-  provider: string
+  provider: string,
+  port?: number
 ): Promise<{ success: boolean; presetName?: string }> {
   const catalog = MODEL_CATALOGS[provider];
   if (!catalog) return { success: false };
@@ -30,9 +32,10 @@ export async function applyDefaultPreset(
     haiku: catalog.defaultModel,
   };
 
+  const effectivePort = port ?? CLIPROXY_PORT;
   const settings = {
     env: {
-      ANTHROPIC_BASE_URL: `http://127.0.0.1:${CLIPROXY_PORT}/api/provider/${provider}`,
+      ANTHROPIC_BASE_URL: `http://127.0.0.1:${effectivePort}/api/provider/${provider}`,
       ANTHROPIC_AUTH_TOKEN: 'ccs-internal-managed',
       ANTHROPIC_MODEL: mapping.default,
       ANTHROPIC_DEFAULT_OPUS_MODEL: mapping.opus,

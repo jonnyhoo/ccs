@@ -39,6 +39,8 @@ export interface ProfileDetectionResult {
   message?: string;
   /** For cliproxy variants: the underlying provider (gemini, codex, agy, qwen) */
   provider?: CLIProxyProfileName;
+  /** For cliproxy variants: dedicated port for isolation (8318-8417) */
+  port?: number;
   /** For unified config profiles: merged env vars (config + secrets) */
   env?: Record<string, string>;
   /** For copilot profile: the copilot config */
@@ -110,6 +112,8 @@ class ProfileDetector {
         type: 'cliproxy',
         name: profileName,
         provider: variant.provider as CLIProxyProfileName,
+        settingsPath: variant.settings,
+        port: variant.port,
       };
     }
 
@@ -250,6 +254,7 @@ class ProfileDetector {
         name: profileName,
         provider: variant.provider as CLIProxyProfileName,
         settingsPath: variant.settings,
+        port: variant.port,
       };
     }
 
