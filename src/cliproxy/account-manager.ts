@@ -12,6 +12,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { CLIProxyProvider } from './types';
 import { getCliproxyDir, getAuthDir } from './config-generator';
+import { PROVIDER_TYPE_VALUES } from './auth/auth-types';
 
 /** Account information */
 export interface AccountInfo {
@@ -431,26 +432,33 @@ export function discoverExistingAccounts(): void {
       // Skip if no type field
       if (!data.type) continue;
 
-      // Map token type values to internal provider names
-      // CLIProxyAPI uses different type values in tokens (e.g., "antigravity" vs "agy")
-      const typeToProvider: Record<string, CLIProxyProvider> = {
-        gemini: 'gemini',
-        antigravity: 'agy',
-        codex: 'codex',
-        qwen: 'qwen',
-        iflow: 'iflow',
-      };
-
+      // Build reverse mapping from PROVIDER_TYPE_VALUES (type value -> provider)
+      // e.g., "antigravity" -> "agy", "kiro" -> "kiro", "codewhisperer" -> "kiro"
       const typeValue = data.type.toLowerCase();
-      const provider = typeToProvider[typeValue];
+      let provider: CLIProxyProvider | undefined;
+      for (const [prov, typeValues] of Object.entries(PROVIDER_TYPE_VALUES)) {
+        if (typeValues.includes(typeValue)) {
+          provider = prov as CLIProxyProvider;
+          break;
+        }
+      }
 
       // Skip if unknown provider type
       if (!provider) {
         continue;
       }
 
-      // Extract email if available
-      const email = data.email || undefined;
+      // Extract email if available, fallback to filename
+      let email = data.email || undefined;
+
+      // Fallback: extract email from filename (e.g., "kiro-google-user@example.com.json")
+      if (!email && file.includes('@')) {
+        const match = file.match(/([^-]+@[^.]+\.[^.]+)(?=\.json$)/);
+        if (match) {
+          email = match[1];
+        }
+      }
+
       const accountId = email || 'default';
 
       // Initialize provider section if needed
