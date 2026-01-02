@@ -198,7 +198,7 @@ export async function validateMiniMaxKey(
           suggestion:
             'Your key may have expired. To fix:\n' +
             '  1. Go to platform.minimax.io and regenerate your API key\n' +
-            '  2. Update ~/.ccs/minimax.settings.json with new key\n' +
+            '  2. Update ~/.ccs/mm.settings.json with new key\n' +
             '  3. Or run: ccs config -> API Profiles -> MiniMax',
         });
       } else {
