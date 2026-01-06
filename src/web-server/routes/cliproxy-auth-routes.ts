@@ -23,6 +23,8 @@ import {
   getProviderAccounts,
   setDefaultAccount as setDefaultAccountFn,
   removeAccount as removeAccountFn,
+  pauseAccount as pauseAccountFn,
+  resumeAccount as resumeAccountFn,
   touchAccount,
 } from '../../cliproxy/account-manager';
 import { getProxyTarget } from '../../cliproxy/proxy-target-resolver';
@@ -265,6 +267,71 @@ router.delete('/accounts/:provider/:accountId', (req: Request, res: Response): v
     }
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Failed to remove account';
+    res.status(500).json({ error: message });
+  }
+});
+
+/**
+ * POST /api/cliproxy/accounts/:provider/:accountId/pause - Pause an account
+ * Paused accounts are skipped during quota rotation
+ */
+router.post('/accounts/:provider/:accountId/pause', (req: Request, res: Response): void => {
+  const target = getProxyTarget();
+  if (target.isRemote) {
+    res.status(501).json({ error: 'Account management not available in remote mode' });
+    return;
+  }
+
+  const { provider, accountId } = req.params;
+
+  if (!validProviders.includes(provider as CLIProxyProvider)) {
+    res.status(400).json({ error: `Invalid provider: ${provider}` });
+    return;
+  }
+
+  try {
+    const success = pauseAccountFn(provider as CLIProxyProvider, accountId);
+    if (success) {
+      res.json({ provider, accountId, paused: true });
+    } else {
+      res
+        .status(404)
+        .json({ error: `Account '${accountId}' not found for provider '${provider}'` });
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Failed to pause account';
+    res.status(500).json({ error: message });
+  }
+});
+
+/**
+ * POST /api/cliproxy/accounts/:provider/:accountId/resume - Resume a paused account
+ */
+router.post('/accounts/:provider/:accountId/resume', (req: Request, res: Response): void => {
+  const target = getProxyTarget();
+  if (target.isRemote) {
+    res.status(501).json({ error: 'Account management not available in remote mode' });
+    return;
+  }
+
+  const { provider, accountId } = req.params;
+
+  if (!validProviders.includes(provider as CLIProxyProvider)) {
+    res.status(400).json({ error: `Invalid provider: ${provider}` });
+    return;
+  }
+
+  try {
+    const success = resumeAccountFn(provider as CLIProxyProvider, accountId);
+    if (success) {
+      res.json({ provider, accountId, paused: false });
+    } else {
+      res
+        .status(404)
+        .json({ error: `Account '${accountId}' not found for provider '${provider}'` });
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Failed to resume account';
     res.status(500).json({ error: message });
   }
 });
