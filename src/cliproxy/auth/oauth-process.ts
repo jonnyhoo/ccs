@@ -17,13 +17,18 @@ import {
   isProjectList,
   generateSessionId,
   requestProjectSelection,
+  cancelProjectSelection,
   type GCloudProject,
   type ProjectSelectionPrompt,
 } from '../project-selection-handler';
 import { ProviderOAuthConfig } from './auth-types';
 import { getTimeoutTroubleshooting, showStep } from './environment-detector';
 import { isAuthenticated, registerAccountFromToken } from './token-manager';
-import { deviceCodeEvents, type DeviceCodePrompt } from '../device-code-handler';
+import {
+  deviceCodeEvents,
+  DEVICE_CODE_TIMEOUT_MS,
+  type DeviceCodePrompt,
+} from '../device-code-handler';
 import { OAUTH_FLOW_TYPES } from '../../management';
 import {
   registerAuthSession,
@@ -150,7 +155,7 @@ async function handleStdout(
         provider: options.provider,
         userCode: state.userCode,
         verificationUrl,
-        expiresAt: Date.now() + 900000, // 15 minutes
+        expiresAt: Date.now() + DEVICE_CODE_TIMEOUT_MS,
       };
       deviceCodeEvents.emit('deviceCode:received', deviceCodePrompt);
 
@@ -311,8 +316,13 @@ export function executeOAuthProcess(options: OAuthProcessOptions): Promise<Accou
       env: { ...process.env, CLI_PROXY_AUTH_DIR: tokenDir },
     });
 
+    // H7: Mutable ref for stdin keepalive interval (set later, needed in cleanup)
+    let stdinKeepalive: ReturnType<typeof setInterval> | null = null;
+
     // H5: Signal handling - properly kill child process on SIGINT/SIGTERM
+    // H8: Also clear stdinKeepalive interval to prevent memory leak
     const cleanup = () => {
+      if (stdinKeepalive) clearInterval(stdinKeepalive);
       if (authProcess && !authProcess.killed) {
         authProcess.kill('SIGTERM');
       }
@@ -352,7 +362,6 @@ export function executeOAuthProcess(options: OAuthProcessOptions): Promise<Accou
     // If the user completes browser auth after this timer fires but before the
     // non-blocking check, the prompt blocks forever on stdin.
     // Workaround: Send newline every 16s to skip the manual prompt and continue polling.
-    let stdinKeepalive: ReturnType<typeof setInterval> | null = null;
     if (!isDeviceCodeFlow && stdinMode === 'pipe') {
       stdinKeepalive = setInterval(() => {
         if (authProcess.stdin && !authProcess.stdin.destroyed) {
@@ -415,6 +424,7 @@ export function executeOAuthProcess(options: OAuthProcessOptions): Promise<Accou
       process.removeListener('SIGTERM', cleanup);
       authSessionEvents.removeListener('session:cancelled', handleCancel);
       unregisterAuthSession(state.sessionId);
+      cancelProjectSelection(state.sessionId);
       authProcess.kill();
       console.log('');
       console.log(fail(`OAuth timed out after ${headless ? 5 : 2} minutes`));
@@ -433,6 +443,7 @@ export function executeOAuthProcess(options: OAuthProcessOptions): Promise<Accou
       process.removeListener('SIGTERM', cleanup);
       authSessionEvents.removeListener('session:cancelled', handleCancel);
       unregisterAuthSession(state.sessionId);
+      cancelProjectSelection(state.sessionId);
       const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
 
       if (code === 0) {
@@ -488,6 +499,7 @@ export function executeOAuthProcess(options: OAuthProcessOptions): Promise<Accou
       process.removeListener('SIGTERM', cleanup);
       authSessionEvents.removeListener('session:cancelled', handleCancel);
       unregisterAuthSession(state.sessionId);
+      cancelProjectSelection(state.sessionId);
       console.log('');
       console.log(fail(`Failed to start auth process: ${error.message}`));
       resolve(null);
