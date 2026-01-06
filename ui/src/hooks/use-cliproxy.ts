@@ -118,6 +118,40 @@ export function useRemoveAccount() {
   });
 }
 
+export function usePauseAccount() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({ provider, accountId }: { provider: string; accountId: string }) =>
+      api.cliproxy.accounts.pause(provider, accountId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['cliproxy-accounts'] });
+      queryClient.invalidateQueries({ queryKey: ['cliproxy-auth'] });
+      toast.success('Account paused');
+    },
+    onError: (error: Error) => {
+      toast.error(error.message);
+    },
+  });
+}
+
+export function useResumeAccount() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({ provider, accountId }: { provider: string; accountId: string }) =>
+      api.cliproxy.accounts.resume(provider, accountId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['cliproxy-accounts'] });
+      queryClient.invalidateQueries({ queryKey: ['cliproxy-auth'] });
+      toast.success('Account resumed');
+    },
+    onError: (error: Error) => {
+      toast.error(error.message);
+    },
+  });
+}
+
 // OAuth flow hook
 export function useStartAuth() {
   const queryClient = useQueryClient();

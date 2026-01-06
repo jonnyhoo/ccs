@@ -71,11 +71,18 @@ export interface UpdateVariant {
 export interface OAuthAccount {
   id: string;
   email?: string;
+  nickname?: string;
   provider: 'gemini' | 'codex' | 'agy' | 'qwen' | 'iflow' | 'kiro' | 'ghcp';
   isDefault: boolean;
   tokenFile: string;
   createdAt: string;
   lastUsedAt?: string;
+  /** Whether account is paused (skipped in quota rotation) */
+  paused?: boolean;
+  /** ISO timestamp when account was paused */
+  pausedAt?: string;
+  /** Account tier: free or paid (Pro/Ultra combined) */
+  tier?: 'free' | 'paid' | 'unknown';
 }
 
 export interface AuthStatus {
@@ -392,6 +399,16 @@ export const api = {
         }),
       remove: (provider: string, accountId: string) =>
         request(`/cliproxy/auth/accounts/${provider}/${accountId}`, { method: 'DELETE' }),
+      pause: (provider: string, accountId: string) =>
+        request<{ provider: string; accountId: string; paused: boolean }>(
+          `/cliproxy/auth/accounts/${provider}/${accountId}/pause`,
+          { method: 'POST' }
+        ),
+      resume: (provider: string, accountId: string) =>
+        request<{ provider: string; accountId: string; paused: boolean }>(
+          `/cliproxy/auth/accounts/${provider}/${accountId}/resume`,
+          { method: 'POST' }
+        ),
     },
     // OAuth flow
     auth: {

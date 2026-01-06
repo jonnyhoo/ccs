@@ -58,7 +58,7 @@ import {
 import { detectRunningProxy, waitForProxyHealthy, reclaimOrphanedProxy } from './proxy-detector';
 import { withStartupLock } from './startup-lock';
 import { loadOrCreateUnifiedConfig } from '../config/unified-config-loader';
-import { fetchAccountQuota, findAvailableAccount } from './quota-fetcher';
+import { preflightCheck } from './quota-manager';
 
 /** Default executor configuration */
 const DEFAULT_CONFIG: ExecutorConfig = {
@@ -472,35 +472,20 @@ export async function execClaudeWithCLIProxy(
   }
 
   // 3b. Preflight quota check - auto-switch to account with quota before launch
-  // Only for agy (Antigravity) which has quota tracking
+  // Uses quota-manager for caching, tier priority, and cooldown support
   if (provider === 'agy') {
-    const defaultAccount = getDefaultAccount(provider);
-    if (defaultAccount) {
-      log(`Checking quota for ${defaultAccount.email || defaultAccount.id}`);
-      const quota = await fetchAccountQuota(provider, defaultAccount.id);
+    const preflight = await preflightCheck(provider);
 
-      // Check if current account is exhausted (no model with >5% quota)
-      const hasQuota = quota.success && quota.models.some((m) => m.percentage > 5);
+    if (!preflight.proceed) {
+      console.error(fail(`Cannot start session: ${preflight.reason}`));
+      process.exit(1);
+    }
 
-      if (!hasQuota && quota.success) {
-        // Current account exhausted, try to find alternative
-        log('Current account quota exhausted, searching for alternatives...');
-        const alternative = await findAvailableAccount(provider, defaultAccount.id);
-
-        if (alternative) {
-          // Auto-switch to account with remaining quota
-          setDefaultAccount(provider, alternative.account.id);
-          touchAccount(provider, alternative.account.id);
-          console.log(
-            info(
-              `Auto-switched to ${alternative.account.email || alternative.account.id} (current account quota exhausted)`
-            )
-          );
-        } else {
-          // No alternatives available - warn but continue
-          console.log(warn('All accounts appear quota-exhausted'));
-          console.log(`    Run: ccs cliproxy doctor`);
-        }
+    if (preflight.switchedFrom) {
+      console.log(info(`Auto-switched to ${preflight.accountId}`));
+      console.log(`    Reason: ${preflight.reason}`);
+      if (preflight.quotaPercent !== undefined) {
+        console.log(`    New account quota: ${preflight.quotaPercent.toFixed(1)}%`);
       }
     }
   }

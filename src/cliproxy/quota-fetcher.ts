@@ -9,7 +9,12 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { getAuthDir } from './config-generator';
 import { CLIProxyProvider } from './types';
-import { getProviderAccounts, type AccountInfo } from './account-manager';
+import {
+  getProviderAccounts,
+  setAccountTier,
+  type AccountInfo,
+  type AccountTier,
+} from './account-manager';
 
 /** Individual model quota info */
 export interface ModelQuota {
@@ -45,6 +50,8 @@ export interface QuotaResult {
   accountId?: string;
   /** GCP project ID for this account */
   projectId?: string;
+  /** Detected account tier based on model access */
+  tier?: AccountTier;
 }
 
 /** Google Cloud Code API endpoints */
@@ -104,9 +111,21 @@ interface TokenRefreshResponse {
   error_description?: string;
 }
 
+/** Tier info from loadCodeAssist */
+interface TierInfo {
+  id?: string;
+  isDefault?: boolean;
+}
+
 /** loadCodeAssist response */
 interface LoadCodeAssistResponse {
   cloudaicompanionProject?: string | { id?: string };
+  /** Current tier (may be trial/temporary) */
+  currentTier?: TierInfo;
+  /** Paid tier (reflects actual subscription - takes priority) */
+  paidTier?: TierInfo;
+  /** Array of allowed tiers - use isDefault=true to find active tier (CLIProxyAPIPlus approach) */
+  allowedTiers?: TierInfo[];
 }
 
 /** fetchAvailableModels response model */
@@ -268,11 +287,56 @@ function readAuthData(provider: CLIProxyProvider, accountId: string): AuthData |
 }
 
 /**
- * Get project ID via loadCodeAssist endpoint
+ * Map tier ID string to AccountTier type
+ * Simplified: anything with 'pro' or 'ultra' = paid, 'free'/'legacy' = free
  */
-async function getProjectId(
-  accessToken: string
-): Promise<{ projectId: string | null; error?: string; isUnprovisioned?: boolean }> {
+function mapTierString(tierStr: string | undefined): AccountTier {
+  if (!tierStr) return 'unknown';
+  const normalized = tierStr.toLowerCase();
+  if (normalized.includes('ultra') || normalized.includes('pro')) return 'paid';
+  if (normalized.includes('free') || normalized.includes('legacy')) {
+    return 'free';
+  }
+  // "standard-tier" and other unknown values should NOT map to 'free'
+  // Let inferTierFromModels handle the detection
+  return 'unknown';
+}
+
+/**
+ * Infer tier from model access patterns.
+ * - Paid: Has access to Claude models OR premium Gemini models
+ * - Free: Only basic models
+ *
+ * Claude models are Ultra-exclusive, premium Gemini indicates Pro/Ultra.
+ * Both are "paid" tier for our purposes.
+ */
+function inferTierFromModels(models: ModelQuota[]): AccountTier {
+  if (models.length === 0) return 'unknown';
+
+  // Check for Claude models (Ultra-exclusive) or premium Gemini (Pro/Ultra)
+  const hasPaidAccess = models.some((m) => {
+    const name = m.name.toLowerCase();
+    return (
+      name.includes('claude') ||
+      name.includes('gemini-3-pro') ||
+      name.includes('gemini-2.5-pro') ||
+      name.includes('gemini-pro-high')
+    );
+  });
+
+  return hasPaidAccess ? 'paid' : 'unknown';
+}
+
+/**
+ * Get project ID and tier via loadCodeAssist endpoint
+ * Uses allowedTiers array with isDefault=true (CLIProxyAPIPlus approach)
+ */
+async function getProjectId(accessToken: string): Promise<{
+  projectId: string | null;
+  tier?: AccountTier;
+  error?: string;
+  isUnprovisioned?: boolean;
+}> {
   const url = `${ANTIGRAVITY_API_BASE}/${ANTIGRAVITY_API_VERSION}:loadCodeAssist`;
 
   const controller = new AbortController();
@@ -327,7 +391,20 @@ async function getProjectId(
       };
     }
 
-    return { projectId: projectId.trim() };
+    // Extract tier using CLIProxyAPIPlus approach:
+    // 1. Find tier with isDefault=true in allowedTiers array
+    // 2. Fallback to paidTier > currentTier
+    let tierStr: string | undefined;
+    if (data.allowedTiers && Array.isArray(data.allowedTiers)) {
+      const defaultTier = data.allowedTiers.find((t) => t.isDefault);
+      tierStr = defaultTier?.id;
+    }
+    if (!tierStr) {
+      tierStr = data.paidTier?.id || data.currentTier?.id;
+    }
+    const tier = mapTierString(tierStr);
+
+    return { projectId: projectId.trim(), tier };
   } catch (err) {
     clearTimeout(timeoutId);
     if (err instanceof Error && err.name === 'AbortError') {
@@ -489,41 +566,71 @@ export async function fetchAccountQuota(
     }
   }
 
-  // Get project ID - prefer stored value, fallback to API call
+  // Get project ID and tier - prefer stored project ID, but always call API for tier
   let projectId = authData.projectId;
-  if (!projectId) {
-    let lastProjectResult = await getProjectId(accessToken);
-    if (!lastProjectResult.projectId) {
-      // If project ID fetch fails, it might be token issue - try refresh if we haven't
-      if (authData.refreshToken && accessToken === authData.accessToken) {
-        const refreshResult = await refreshAccessToken(authData.refreshToken);
-        if (refreshResult.accessToken) {
-          accessToken = refreshResult.accessToken;
-          lastProjectResult = await getProjectId(accessToken);
-        }
-      }
-      if (!lastProjectResult.projectId) {
-        return {
-          success: false,
-          models: [],
-          lastUpdated: Date.now(),
-          error: lastProjectResult.error || 'Failed to retrieve project ID',
-          isUnprovisioned: lastProjectResult.isUnprovisioned,
-        };
+  let apiTier: AccountTier = 'unknown';
+
+  // Always call loadCodeAssist to get accurate tier from API
+  let lastProjectResult = await getProjectId(accessToken);
+
+  if (!lastProjectResult.projectId && !projectId) {
+    // If project ID fetch fails, it might be token issue - try refresh if we haven't
+    if (authData.refreshToken && accessToken === authData.accessToken) {
+      const refreshResult = await refreshAccessToken(authData.refreshToken);
+      if (refreshResult.accessToken) {
+        accessToken = refreshResult.accessToken;
+        lastProjectResult = await getProjectId(accessToken);
       }
     }
-    projectId = lastProjectResult.projectId;
+    if (!lastProjectResult.projectId) {
+      return {
+        success: false,
+        models: [],
+        lastUpdated: Date.now(),
+        error: lastProjectResult.error || 'Failed to retrieve project ID',
+        isUnprovisioned: lastProjectResult.isUnprovisioned,
+      };
+    }
   }
 
+  // Use API project ID if available, else fallback to stored
+  projectId = lastProjectResult.projectId || projectId;
+  apiTier = lastProjectResult.tier || 'unknown';
+
   // Fetch models with quota
-  const result = await fetchAvailableModels(accessToken, projectId);
+  const result = await fetchAvailableModels(accessToken, projectId as string);
 
   // If quota fetch fails with auth error and we haven't refreshed yet, try refresh
   if (!result.success && result.error?.includes('expired') && authData.refreshToken) {
     const refreshResult = await refreshAccessToken(authData.refreshToken);
     if (refreshResult.accessToken) {
-      return fetchAvailableModels(refreshResult.accessToken, projectId);
+      const retryResult = await fetchAvailableModels(
+        refreshResult.accessToken,
+        projectId as string
+      );
+      // Determine tier: model access (Claude = Ultra) > API tier > fallback
+      if (retryResult.success) {
+        let finalTier = inferTierFromModels(retryResult.models);
+        if (finalTier === 'unknown') {
+          finalTier = apiTier !== 'unknown' ? apiTier : 'paid';
+        }
+        retryResult.tier = finalTier;
+        retryResult.accountId = accountId;
+        setAccountTier(provider, accountId, finalTier);
+      }
+      return retryResult;
     }
+  }
+
+  // Determine tier: model access > API tier > fallback to paid
+  if (result.success) {
+    let finalTier = inferTierFromModels(result.models);
+    if (finalTier === 'unknown') {
+      finalTier = apiTier !== 'unknown' ? apiTier : 'paid';
+    }
+    result.tier = finalTier;
+    result.accountId = accountId;
+    setAccountTier(provider, accountId, finalTier);
   }
 
   return result;

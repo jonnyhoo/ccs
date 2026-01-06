@@ -14,6 +14,9 @@ import { CLIProxyProvider } from './types';
 import { getCliproxyDir, getAuthDir } from './config-generator';
 import { PROVIDER_TYPE_VALUES } from './auth/auth-types';
 
+/** Account tier for quota management (free vs paid - no Pro/Ultra distinction needed) */
+export type AccountTier = 'free' | 'paid' | 'unknown';
+
 /**
  * Providers that typically have empty email in OAuth token files.
  * For these providers, nickname is used as accountId instead of email.
@@ -38,6 +41,12 @@ export interface AccountInfo {
   createdAt: string;
   /** Last usage time */
   lastUsedAt?: string;
+  /** User-paused state (skip in quota rotation) */
+  paused?: boolean;
+  /** ISO timestamp when paused */
+  pausedAt?: string;
+  /** Account tier: free or paid (Pro/Ultra combined) */
+  tier?: AccountTier;
 }
 
 /** Provider accounts configuration */
@@ -382,6 +391,76 @@ export function setDefaultAccount(provider: CLIProxyProvider, accountId: string)
   providerAccounts.default = accountId;
   saveAccountsRegistry(registry);
   return true;
+}
+
+/**
+ * Pause an account (skip in quota rotation)
+ */
+export function pauseAccount(provider: CLIProxyProvider, accountId: string): boolean {
+  const registry = loadAccountsRegistry();
+  const providerAccounts = registry.providers[provider];
+
+  if (!providerAccounts?.accounts[accountId]) {
+    return false;
+  }
+
+  providerAccounts.accounts[accountId].paused = true;
+  providerAccounts.accounts[accountId].pausedAt = new Date().toISOString();
+  saveAccountsRegistry(registry);
+  return true;
+}
+
+/**
+ * Resume a paused account
+ */
+export function resumeAccount(provider: CLIProxyProvider, accountId: string): boolean {
+  const registry = loadAccountsRegistry();
+  const providerAccounts = registry.providers[provider];
+
+  if (!providerAccounts?.accounts[accountId]) {
+    return false;
+  }
+
+  providerAccounts.accounts[accountId].paused = false;
+  providerAccounts.accounts[accountId].pausedAt = undefined;
+  saveAccountsRegistry(registry);
+  return true;
+}
+
+/**
+ * Check if an account is paused
+ */
+export function isAccountPaused(provider: CLIProxyProvider, accountId: string): boolean {
+  const accounts = getProviderAccounts(provider);
+  const account = accounts.find((a) => a.id === accountId);
+  return account?.paused ?? false;
+}
+
+/**
+ * Update account tier
+ */
+export function setAccountTier(
+  provider: CLIProxyProvider,
+  accountId: string,
+  tier: AccountTier
+): boolean {
+  const registry = loadAccountsRegistry();
+  const providerAccounts = registry.providers[provider];
+
+  if (!providerAccounts?.accounts[accountId]) {
+    return false;
+  }
+
+  providerAccounts.accounts[accountId].tier = tier;
+  saveAccountsRegistry(registry);
+  return true;
+}
+
+/**
+ * Get non-paused accounts for a provider
+ */
+export function getActiveAccounts(provider: CLIProxyProvider): AccountInfo[] {
+  return getProviderAccounts(provider).filter((a) => !a.paused);
 }
 
 /**

@@ -36,7 +36,10 @@ interface ModelConfigTabProps {
   onAddAccount: () => void;
   onSetDefault: (accountId: string) => void;
   onRemoveAccount: (accountId: string) => void;
+  onPauseToggle?: (accountId: string, paused: boolean) => void;
   isRemovingAccount?: boolean;
+  /** Pause/resume mutation in progress */
+  isPausingAccount?: boolean;
   privacyMode?: boolean;
   /** True if connected to remote CLIProxy (quota not available) */
   isRemoteMode?: boolean;
@@ -60,7 +63,9 @@ export function ModelConfigTab({
   onAddAccount,
   onSetDefault,
   onRemoveAccount,
+  onPauseToggle,
   isRemovingAccount,
+  isPausingAccount,
   privacyMode,
   isRemoteMode,
 }: ModelConfigTabProps) {
@@ -134,7 +139,9 @@ export function ModelConfigTab({
           onAddAccount={onAddAccount}
           onSetDefault={onSetDefault}
           onRemoveAccount={onRemoveAccount}
+          onPauseToggle={onPauseToggle}
           isRemovingAccount={isRemovingAccount}
+          isPausingAccount={isPausingAccount}
           privacyMode={privacyMode}
           showQuota={provider === 'agy' && !isRemoteMode}
           isKiro={isKiro}
