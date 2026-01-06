@@ -106,11 +106,12 @@ export function isGeminiTokenExpiringSoon(): boolean {
 
 /**
  * Refresh Gemini access token using refresh_token
- * @returns true if refresh succeeded, false otherwise
+ * @returns Result with success status, optional error, and expiry time
  */
 export async function refreshGeminiToken(): Promise<{
   success: boolean;
   error?: string;
+  expiresAt?: number;
 }> {
   const creds = readGeminiCreds();
   if (!creds || !creds.refresh_token) {
@@ -151,17 +152,18 @@ export async function refreshGeminiToken(): Promise<{
     }
 
     // Update credentials file with new token
+    const expiresAt = Date.now() + (data.expires_in ?? 3600) * 1000;
     const updatedCreds: GeminiOAuthCreds = {
       ...creds,
       access_token: data.access_token,
-      expiry_date: Date.now() + (data.expires_in ?? 3600) * 1000,
+      expiry_date: expiresAt,
     };
     const writeError = writeGeminiCreds(updatedCreds);
     if (writeError) {
       return { success: false, error: `Token refreshed but failed to save: ${writeError}` };
     }
 
-    return { success: true };
+    return { success: true, expiresAt };
   } catch (err) {
     clearTimeout(timeoutId);
     if (err instanceof Error && err.name === 'AbortError') {
