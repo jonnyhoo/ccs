@@ -94,6 +94,23 @@ export interface CLIProxyLoggingConfig {
 }
 
 /**
+ * Token refresh configuration.
+ * Manages background token refresh worker settings.
+ */
+export interface TokenRefreshSettings {
+  /** Enable background token refresh (default: false) */
+  enabled?: boolean;
+  /** Refresh check interval in minutes (default: 30) */
+  interval_minutes?: number;
+  /** Preemptive refresh time in minutes (default: 45) */
+  preemptive_minutes?: number;
+  /** Maximum retry attempts per token (default: 3) */
+  max_retries?: number;
+  /** Enable verbose logging (default: false) */
+  verbose?: boolean;
+}
+
+/**
  * CLIProxy configuration section.
  */
 export interface CLIProxyConfig {
@@ -109,6 +126,8 @@ export interface CLIProxyConfig {
   kiro_no_incognito?: boolean;
   /** Global auth configuration for CLIProxyAPI */
   auth?: CLIProxyAuthConfig;
+  /** Background token refresh worker settings */
+  token_refresh?: TokenRefreshSettings;
 }
 
 /**
