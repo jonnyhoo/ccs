@@ -54,9 +54,13 @@ export function detectTierFromModel(modelName: string): ModelTier {
  * @param model - Base model name
  * @param thinkingValue - Level name (e.g., 'high') or numeric budget
  * @returns Model name with thinking suffix, e.g., "gemini-3-pro-preview(high)"
+ *
+ * @note Paren matching only handles one level. Nested parens like "model(foo)(8192)"
+ *       will be treated as already having suffix and returned unchanged.
  */
 export function applyThinkingSuffix(model: string, thinkingValue: string | number): string {
   // Don't apply if already has suffix
+  // NOTE: This only detects ANY paren pair, not proper nesting (e.g., "model(foo)(8192)" passes through)
   if (model.includes('(') && model.includes(')')) {
     return model;
   }
@@ -77,8 +81,8 @@ export function getThinkingValueForTier(
   if (providerOverride) {
     return providerOverride;
   }
-  // Fall back to global tier default
-  return thinkingConfig.tier_defaults[tier];
+  // Fall back to global tier default (with null guard)
+  return thinkingConfig.tier_defaults?.[tier] ?? 'medium';
 }
 
 /**
