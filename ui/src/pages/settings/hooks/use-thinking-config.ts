@@ -1,9 +1,10 @@
 /**
  * Thinking Config Hook
  * Manages thinking budget configuration with direct API calls
+ * Includes W4 optimistic locking via lastModified timestamps
  */
 
-import { useCallback, useState } from 'react';
+import { useCallback, useState, useRef } from 'react';
 import type { ThinkingConfig, ThinkingMode } from '../types';
 
 const DEFAULT_THINKING_CONFIG: ThinkingConfig = {
@@ -24,6 +25,8 @@ export function useThinkingConfig() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
+  // W4: Track lastModified for optimistic locking
+  const lastModifiedRef = useRef<number | undefined>(undefined);
 
   const fetchConfig = useCallback(async () => {
     const controller = new AbortController();
@@ -37,6 +40,8 @@ export function useThinkingConfig() {
       if (!res.ok) throw new Error('Failed to load Thinking config');
       const data = await res.json();
       setConfig(data.config || DEFAULT_THINKING_CONFIG);
+      // W4: Store lastModified for optimistic locking
+      lastModifiedRef.current = data.lastModified;
     } catch (err) {
       clearTimeout(timeoutId);
       if ((err as Error).name === 'AbortError') {
@@ -63,10 +68,16 @@ export function useThinkingConfig() {
         setSaving(true);
         setError(null);
 
+        // W4: Include lastModified for optimistic locking
+        const payload = {
+          ...optimisticConfig,
+          lastModified: lastModifiedRef.current,
+        };
+
         const res = await fetch('/api/thinking', {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(optimisticConfig),
+          body: JSON.stringify(payload),
           signal: controller.signal,
         });
 
@@ -74,11 +85,17 @@ export function useThinkingConfig() {
 
         if (!res.ok) {
           const data = await res.json();
+          // W4: Handle conflict (409) with user-friendly message
+          if (res.status === 409) {
+            throw new Error('Config changed by another session. Refreshing...');
+          }
           throw new Error(data.error || 'Failed to save');
         }
 
         const data = await res.json();
         setConfig(data.config);
+        // W4: Update lastModified after successful save
+        lastModifiedRef.current = data.lastModified;
         setSuccess(true);
         setTimeout(() => setSuccess(false), 1500);
       } catch (err) {
@@ -88,12 +105,16 @@ export function useThinkingConfig() {
           setError('Request timeout - please try again');
         } else {
           setError((err as Error).message);
+          // W4: On conflict, auto-refresh to get latest
+          if ((err as Error).message.includes('another session')) {
+            setTimeout(() => fetchConfig(), 1000);
+          }
         }
       } finally {
         setSaving(false);
       }
     },
-    [config]
+    [config, fetchConfig]
   );
 
   const setMode = useCallback(

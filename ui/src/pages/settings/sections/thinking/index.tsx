@@ -16,7 +16,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { RefreshCw, CheckCircle2, AlertCircle, Brain } from 'lucide-react';
+import { RefreshCw, CheckCircle2, AlertCircle, Brain, Info } from 'lucide-react';
 import { useThinkingConfig } from '../../hooks';
 import type { ThinkingMode } from '../../types';
 
@@ -69,8 +69,22 @@ export default function ThinkingSection() {
       >
         {error && (
           <Alert variant="destructive" className="py-2 shadow-lg">
-            <AlertCircle className="h-4 w-4" />
-            <AlertDescription>{error}</AlertDescription>
+            <div className="flex items-center justify-between w-full">
+              <div className="flex items-center gap-2">
+                <AlertCircle className="h-4 w-4" />
+                <AlertDescription>{error}</AlertDescription>
+              </div>
+              {/* W1: Retry button on error */}
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={fetchConfig}
+                className="h-7 px-2 text-xs border-destructive/50 hover:bg-destructive/10"
+              >
+                <RefreshCw className="w-3 h-3 mr-1" />
+                Retry
+              </Button>
+            </div>
           </Alert>
         )}
         {success && (
@@ -89,6 +103,19 @@ export default function ThinkingSection() {
             <p className="text-sm text-muted-foreground">
               Configure extended thinking/reasoning for supported models.
             </p>
+          </div>
+
+          {/* U4: Provider support indicator */}
+          <div className="flex items-start gap-2 p-3 rounded-lg bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800">
+            <Info className="w-4 h-4 text-blue-600 dark:text-blue-400 shrink-0 mt-0.5" />
+            <div className="text-sm text-blue-700 dark:text-blue-300">
+              <p className="font-medium">Supported Providers</p>
+              <p className="mt-1 text-blue-600 dark:text-blue-400">
+                Thinking budget works with: <strong>agy</strong> (Antigravity),{' '}
+                <strong>gemini</strong> (with thinking models). Other providers may ignore this
+                setting.
+              </p>
+            </div>
           </div>
 
           {/* Mode Selection */}
