@@ -10,4 +10,5 @@ export {
   useGlobalEnvConfig,
   useProxyConfig,
   useRawConfig,
+  useThinkingConfig,
 } from './hooks/index';
