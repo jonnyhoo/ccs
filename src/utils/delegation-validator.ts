@@ -139,27 +139,49 @@ export class DelegationValidator {
   }
 
   /**
-   * Get all delegation-ready profiles
+   * Get all delegation-ready profiles from config.yaml
+   * Only returns profiles explicitly defined in config, not orphan settings files
    * @returns List of profile names ready for delegation
    */
   static getReadyProfiles(): string[] {
     const homeDir = os.homedir();
     const ccsDir = path.join(homeDir, '.ccs');
+    const configPath = path.join(ccsDir, 'config.yaml');
 
     if (!fs.existsSync(ccsDir)) {
       return [];
     }
 
     const profiles: string[] = [];
-    const entries = fs.readdirSync(ccsDir, { withFileTypes: true });
 
-    // Look for *.settings.json files
-    for (const entry of entries) {
-      if (entry.isFile() && entry.name.endsWith('.settings.json')) {
-        const profileName = entry.name.replace('.settings.json', '');
-        if (this.isReady(profileName)) {
-          profiles.push(profileName);
+    // Get profiles from config.yaml (excludes 'default' which uses ~/.claude/settings.json)
+    if (fs.existsSync(configPath)) {
+      try {
+        const yaml = require('js-yaml');
+        const content = fs.readFileSync(configPath, 'utf8');
+        const config = yaml.load(content) as Record<string, unknown>;
+
+        if (config.profiles && typeof config.profiles === 'object') {
+          for (const profileName of Object.keys(config.profiles as object)) {
+            if (profileName !== 'default' && this.isReady(profileName)) {
+              profiles.push(profileName);
+            }
+          }
         }
+
+        // Also check CLIProxy providers (gemini, codex, agy, etc.)
+        if (config.cliproxy && typeof config.cliproxy === 'object') {
+          const cliproxy = config.cliproxy as Record<string, unknown>;
+          if (Array.isArray(cliproxy.providers)) {
+            for (const provider of cliproxy.providers) {
+              if (typeof provider === 'string' && this.isReady(provider)) {
+                profiles.push(provider);
+              }
+            }
+          }
+        }
+      } catch {
+        // Config parse error, fall back to empty
       }
     }
 
