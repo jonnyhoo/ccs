@@ -109,10 +109,14 @@ bun run validate            # Step 3: Final check (must pass)
 | Command | Help Handler Location |
 |---------|----------------------|
 | `ccs --help` | `src/commands/help-command.ts` |
+| `ccs api --help` | `src/commands/api-command.ts` → `showHelp()` |
+| `ccs cleanup --help` | `src/commands/cleanup-command.ts` → `printHelp()` |
 | `ccs cliproxy --help` | `src/commands/cliproxy-command.ts` → `showHelp()` |
-| `ccs auth --help` | `src/commands/auth-command.ts` |
-| `ccs api --help` | `src/commands/api-command.ts` |
-| `ccs copilot --help` | `src/commands/copilot-command.ts` |
+| `ccs config --help` | `src/commands/config-command.ts` → `showHelp()` |
+| `ccs copilot --help` | `src/commands/copilot-command.ts` → `handleHelp()` |
+| `ccs doctor --help` | `src/commands/doctor-command.ts` → `showHelp()` |
+| `ccs migrate --help` | `src/commands/migrate-command.ts` → `printMigrateHelp()` |
+| `ccs setup --help` | `src/commands/setup-command.ts` → `showHelp()` |
 
 **Note:** `lib/ccs` and `lib/ccs.ps1` are bootstrap wrappers only—they delegate to Node.js and contain no help text.
 

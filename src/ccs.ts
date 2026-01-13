@@ -340,8 +340,8 @@ async function main(): Promise<void> {
 
   // Special case: doctor command
   if (firstArg === 'doctor' || firstArg === '--doctor') {
-    const shouldFix = args.includes('--fix') || args.includes('-f');
-    await handleDoctorCommand(shouldFix);
+    const restArgs = args.slice(args.indexOf(firstArg) + 1);
+    await handleDoctorCommand(restArgs);
     return;
   }
 
