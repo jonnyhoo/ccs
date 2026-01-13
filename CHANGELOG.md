@@ -1,3 +1,9 @@
+## [7.19.2](https://github.com/kaitranntt/ccs/compare/v7.19.1...v7.19.2) (2026-01-13)
+
+### Bug Fixes
+
+* **ci:** expand allowedTools patterns for flexible comment posting ([0a27c6a](https://github.com/kaitranntt/ccs/commit/0a27c6a12f53dd050dc8104ce8d82e2cb4bcef3f))
+
 ## [7.19.1](https://github.com/kaitranntt/ccs/compare/v7.19.0...v7.19.1) (2026-01-13)
 
 ### Bug Fixes
