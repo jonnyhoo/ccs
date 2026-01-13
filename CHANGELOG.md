@@ -1,3 +1,10 @@
+## [7.18.3](https://github.com/kaitranntt/ccs/compare/v7.18.2...v7.18.3) (2026-01-13)
+
+### Bug Fixes
+
+* **ci:** simplify AI review workflow by disabling progress tracking ([4ef2d48](https://github.com/kaitranntt/ccs/commit/4ef2d4848cf12d197ba1f8cd5dac66b55c82c8be))
+* **ci:** simplify AI review workflow by disabling progress tracking ([#323](https://github.com/kaitranntt/ccs/issues/323)) ([39b37ca](https://github.com/kaitranntt/ccs/commit/39b37caa892f8b723f003c8ed0c6d8f2fe96d799))
+
 ## [7.18.2](https://github.com/kaitranntt/ccs/compare/v7.18.1...v7.18.2) (2026-01-13)
 
 ### Bug Fixes
