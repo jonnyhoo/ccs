@@ -21,9 +21,10 @@ on:
         required: true
         type: string
 
-# Cancel in-progress runs for same PR (safe now since auto-trigger is only on opened)
+# Cancel in-progress runs for same PR + event type (prevents self-cancellation from bot comments)
+# Each event type gets its own concurrency group to prevent cross-event cancellation
 concurrency:
-  group: ai-review-${{ github.event.pull_request.number || github.event.issue.number || github.event.inputs.pr_number }}
+  group: ai-review-${{ github.event_name }}-${{ github.event.pull_request.number || github.event.issue.number || github.event.inputs.pr_number }}
   cancel-in-progress: true
 
 jobs:
@@ -38,14 +39,16 @@ jobs:
 
     # Conditions:
     # - PR event: only on opened (not synchronize to avoid cancel-on-push)
-    # - Comment event: only if it's a PR, contains /review, and NOT from a bot
+    # - Comment event: only if it's a PR, contains /review, NOT from a bot, and NOT from our review bot
+    # The explicit bot name check prevents self-triggering from progress comments
     if: >
       github.event_name == 'pull_request_target' ||
       github.event_name == 'workflow_dispatch' ||
       (github.event_name == 'issue_comment' &&
        github.event.issue.pull_request &&
        contains(github.event.comment.body, '/review') &&
-       github.event.comment.user.type != 'Bot')
+       github.event.comment.user.type != 'Bot' &&
+       github.event.comment.user.login != 'ccs-agy-reviewer[bot]')
 
     # CLIProxy environment for model routing
     env:
