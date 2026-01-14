@@ -160,15 +160,19 @@ jobs:
             ## IMPORTANT: Posting the Review
             After completing your analysis, post the review as a PR comment.
 
-            REQUIRED METHOD (use Write tool + --body-file):
-            1. Write your review to /tmp/pr_review.md using the Write tool
-            2. Post with: gh pr comment ${{ github.event.pull_request.number || github.event.issue.number || github.event.inputs.pr_number }} --body-file /tmp/pr_review.md
+            STEP 1: First, use the Read tool to check if pr_review.md exists (it may not exist yet, that's OK)
+            STEP 2: Use the Write tool to write your review to pr_review.md in the current working directory
+            STEP 3: Post with: gh pr comment ${{ github.event.pull_request.number || github.event.issue.number || github.event.inputs.pr_number }} --body-file pr_review.md
 
-            DO NOT use inline --body with multiline content - it will fail pattern matching.
+            IMPORTANT RULES:
+            - Write to pr_review.md (in working directory), NOT /tmp/pr_review.md
+            - Do NOT use shell operators like || or && in bash commands
+            - Do NOT use heredoc (<<) syntax in bash commands
+            - Use simple, single-purpose bash commands only
 
           claude_args: |
             --model ${{ env.REVIEW_MODEL }}
-            --allowedTools "Bash(gh pr comment *),Bash(gh pr diff *),Bash(gh pr view *),Bash(echo *),Write,Read,Glob,Grep"
+            --allowedTools "Edit,Glob,Grep,LS,Read,Write,Bash(gh pr comment *),Bash(gh pr diff *),Bash(gh pr view *),Bash(gh issue view *),Bash(gh api *),Bash(git diff *),Bash(git log *),Bash(git status *),Bash(cat *),Bash(ls *),Bash(rm pr_review.md)"
         continue-on-error: true
 
       - name: Add success reaction
