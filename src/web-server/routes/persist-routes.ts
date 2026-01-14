@@ -3,11 +3,21 @@
  */
 
 import { Router, Request, Response } from 'express';
+import rateLimit from 'express-rate-limit';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 
 const router = Router();
+
+/** Rate limiter for restore endpoint - prevents abuse */
+const restoreRateLimiter = rateLimit({
+  windowMs: 60 * 1000, // 1 minute
+  max: 5, // 5 restore attempts per minute
+  message: { error: 'Too many restore attempts. Please try again later.' },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
 
 interface BackupFile {
   path: string;
@@ -17,12 +27,21 @@ interface BackupFile {
 
 /**
  * Async mutex for restore operations - prevents race conditions
- * Uses a Promise queue pattern for atomic lock acquisition
+ *
+ * Design: Uses a Promise queue pattern for atomic lock acquisition.
+ * When the mutex is locked, subsequent callers are added to a queue
+ * and immediately receive `false` when released, signaling they should
+ * return a 409 Conflict rather than wait. This prevents request pileup
+ * while ensuring only one restore can execute at a time.
  */
 class RestoreMutex {
   private locked = false;
   private queue: Array<() => void> = [];
 
+  /**
+   * Attempt to acquire the mutex
+   * @returns true if acquired, false if already locked (queued request)
+   */
   async acquire(): Promise<boolean> {
     if (this.locked) {
       // Already locked - add to queue and wait
@@ -34,6 +53,7 @@ class RestoreMutex {
     return true;
   }
 
+  /** Release the mutex, signaling next queued request (if any) to fail */
   release(): void {
     const next = this.queue.shift();
     if (next) {
@@ -114,8 +134,9 @@ router.get('/backups', (_req: Request, res: Response): void => {
 /**
  * POST /api/persist/restore - Restore from a backup
  * Body: { timestamp?: string } - If not provided, restores latest
+ * Rate limited: 5 requests per minute
  */
-router.post('/restore', async (req: Request, res: Response): Promise<void> => {
+router.post('/restore', restoreRateLimiter, async (req: Request, res: Response): Promise<void> => {
   // Atomic mutex acquisition - prevents race conditions
   const acquired = await restoreMutex.acquire();
   if (!acquired) {

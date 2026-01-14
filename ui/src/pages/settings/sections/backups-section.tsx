@@ -23,6 +23,12 @@ import {
 import { RefreshCw, CheckCircle2, AlertCircle, RotateCcw, Clock, Archive } from 'lucide-react';
 import { useRawConfig } from '../hooks';
 
+/** Duration in ms before success toast auto-dismisses */
+const SUCCESS_DISPLAY_DURATION_MS = 3000;
+
+/** Duration in ms before error toast auto-dismisses */
+const ERROR_DISPLAY_DURATION_MS = 5000;
+
 interface Backup {
   timestamp: string;
   date: string;
@@ -125,7 +131,7 @@ export default function BackupsSection() {
   // Clear success after timeout
   useEffect(() => {
     if (success) {
-      const timer = setTimeout(() => setSuccess(null), 3000);
+      const timer = setTimeout(() => setSuccess(null), SUCCESS_DISPLAY_DURATION_MS);
       return () => clearTimeout(timer);
     }
   }, [success]);
@@ -133,7 +139,7 @@ export default function BackupsSection() {
   // Clear error after timeout
   useEffect(() => {
     if (error) {
-      const timer = setTimeout(() => setError(null), 5000);
+      const timer = setTimeout(() => setError(null), ERROR_DISPLAY_DURATION_MS);
       return () => clearTimeout(timer);
     }
   }, [error]);
