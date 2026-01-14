@@ -425,6 +425,33 @@ export const DEFAULT_QUOTA_MANAGEMENT_CONFIG: QuotaManagementConfig = {
 };
 
 /**
+ * Dashboard authentication configuration.
+ * Optional login protection for CCS dashboard.
+ * Disabled by default for backward compatibility.
+ */
+export interface DashboardAuthConfig {
+  /** Enable dashboard authentication (default: false) */
+  enabled: boolean;
+  /** Username for dashboard login */
+  username: string;
+  /** Bcrypt-hashed password (use: npx bcrypt-cli hash 'password') */
+  password_hash: string;
+  /** Session timeout in hours (default: 24) */
+  session_timeout_hours?: number;
+}
+
+/**
+ * Default dashboard auth configuration.
+ * Disabled by default - must be explicitly enabled.
+ */
+export const DEFAULT_DASHBOARD_AUTH_CONFIG: DashboardAuthConfig = {
+  enabled: false,
+  username: '',
+  password_hash: '',
+  session_timeout_hours: 24,
+};
+
+/**
  * Main unified configuration structure.
  * Stored in ~/.ccs/config.yaml
  */
@@ -451,6 +478,8 @@ export interface UnifiedConfig {
   cliproxy_server?: CliproxyServerConfig;
   /** Quota management configuration (v7+) */
   quota_management?: QuotaManagementConfig;
+  /** Dashboard authentication configuration (optional) */
+  dashboard_auth?: DashboardAuthConfig;
 }
 
 /**
@@ -540,6 +569,7 @@ export function createEmptyUnifiedConfig(): UnifiedConfig {
     copilot: { ...DEFAULT_COPILOT_CONFIG },
     cliproxy_server: { ...DEFAULT_CLIPROXY_SERVER_CONFIG },
     quota_management: { ...DEFAULT_QUOTA_MANAGEMENT_CONFIG },
+    dashboard_auth: { ...DEFAULT_DASHBOARD_AUTH_CONFIG },
   };
 }
 

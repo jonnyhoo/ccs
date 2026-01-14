@@ -1,14 +1,18 @@
-import { lazy } from 'react';
+import { lazy, Suspense } from 'react';
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import { QueryClientProvider } from '@tanstack/react-query';
 import { Toaster } from 'sonner';
 import { queryClient } from '@/lib/query-client';
 import { ThemeProvider } from '@/components/layout/theme-provider';
 import { PrivacyProvider } from '@/contexts/privacy-context';
+import { AuthProvider } from '@/contexts/auth-context';
+import { RequireAuth } from '@/components/auth/require-auth';
 import { Layout } from '@/components/layout/layout';
+import { Loader2 } from 'lucide-react';
 
-// Eager load: HomePage (initial route)
+// Eager load: HomePage (initial route) + LoginPage (auth flow)
 import { HomePage } from '@/pages';
+import { LoginPage } from '@/pages/login';
 
 // Lazy load: heavy pages with charts or complex dependencies
 const AnalyticsPage = lazy(() =>
@@ -31,28 +35,108 @@ const SettingsPage = lazy(() =>
 const HealthPage = lazy(() => import('@/pages/health').then((m) => ({ default: m.HealthPage })));
 const SharedPage = lazy(() => import('@/pages/shared').then((m) => ({ default: m.SharedPage })));
 
+// Loading fallback for lazy components
+function PageLoader() {
+  return (
+    <div className="flex h-64 items-center justify-center">
+      <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+    </div>
+  );
+}
+
 export default function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <ThemeProvider defaultTheme="system" storageKey="vite-ui-theme">
         <PrivacyProvider>
-          <BrowserRouter>
-            <Routes>
-              <Route element={<Layout />}>
-                <Route path="/" element={<HomePage />} />
-                <Route path="/analytics" element={<AnalyticsPage />} />
-                <Route path="/providers" element={<ApiPage />} />
-                <Route path="/cliproxy" element={<CliproxyPage />} />
-                <Route path="/cliproxy/control-panel" element={<CliproxyControlPanelPage />} />
-                <Route path="/copilot" element={<CopilotPage />} />
-                <Route path="/accounts" element={<AccountsPage />} />
-                <Route path="/settings" element={<SettingsPage />} />
-                <Route path="/health" element={<HealthPage />} />
-                <Route path="/shared" element={<SharedPage />} />
-              </Route>
-            </Routes>
-            <Toaster position="top-right" />
-          </BrowserRouter>
+          <AuthProvider>
+            <BrowserRouter>
+              <Routes>
+                {/* Public route: Login page */}
+                <Route path="/login" element={<LoginPage />} />
+
+                {/* Protected routes: wrapped with RequireAuth */}
+                <Route element={<RequireAuth />}>
+                  <Route element={<Layout />}>
+                    <Route path="/" element={<HomePage />} />
+                    <Route
+                      path="/analytics"
+                      element={
+                        <Suspense fallback={<PageLoader />}>
+                          <AnalyticsPage />
+                        </Suspense>
+                      }
+                    />
+                    <Route
+                      path="/providers"
+                      element={
+                        <Suspense fallback={<PageLoader />}>
+                          <ApiPage />
+                        </Suspense>
+                      }
+                    />
+                    <Route
+                      path="/cliproxy"
+                      element={
+                        <Suspense fallback={<PageLoader />}>
+                          <CliproxyPage />
+                        </Suspense>
+                      }
+                    />
+                    <Route
+                      path="/cliproxy/control-panel"
+                      element={
+                        <Suspense fallback={<PageLoader />}>
+                          <CliproxyControlPanelPage />
+                        </Suspense>
+                      }
+                    />
+                    <Route
+                      path="/copilot"
+                      element={
+                        <Suspense fallback={<PageLoader />}>
+                          <CopilotPage />
+                        </Suspense>
+                      }
+                    />
+                    <Route
+                      path="/accounts"
+                      element={
+                        <Suspense fallback={<PageLoader />}>
+                          <AccountsPage />
+                        </Suspense>
+                      }
+                    />
+                    <Route
+                      path="/settings"
+                      element={
+                        <Suspense fallback={<PageLoader />}>
+                          <SettingsPage />
+                        </Suspense>
+                      }
+                    />
+                    <Route
+                      path="/health"
+                      element={
+                        <Suspense fallback={<PageLoader />}>
+                          <HealthPage />
+                        </Suspense>
+                      }
+                    />
+                    <Route
+                      path="/shared"
+                      element={
+                        <Suspense fallback={<PageLoader />}>
+                          <SharedPage />
+                        </Suspense>
+                      }
+                    />
+                  </Route>
+                </Route>
+              </Routes>
+              <Toaster position="top-right" />
+            </BrowserRouter>
+          </AuthProvider>
         </PrivacyProvider>
       </ThemeProvider>
     </QueryClientProvider>

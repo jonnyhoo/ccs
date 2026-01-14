@@ -13,6 +13,7 @@ import { ClaudeKitBadge } from '@/components/shared/claudekit-badge';
 import { SponsorButton } from '@/components/shared/sponsor-button';
 import { ProjectSelectionDialog } from '@/components/shared/project-selection-dialog';
 import { DeviceCodeDialog } from '@/components/shared/device-code-dialog';
+import { UserMenu } from '@/components/auth/user-menu';
 import { useProjectSelection } from '@/hooks/use-project-selection';
 import { useDeviceCode } from '@/hooks/use-device-code';
 
@@ -44,6 +45,7 @@ export function Layout() {
             <GitHubLink />
             <PrivacyToggle />
             <ThemeToggle />
+            <UserMenu />
           </div>
         </header>
         <div className="flex-1 overflow-auto min-h-0">

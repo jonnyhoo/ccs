@@ -18,7 +18,9 @@ import {
   DEFAULT_GLOBAL_ENV,
   DEFAULT_CLIPROXY_SERVER_CONFIG,
   DEFAULT_QUOTA_MANAGEMENT_CONFIG,
+  DEFAULT_DASHBOARD_AUTH_CONFIG,
   GlobalEnvConfig,
+  DashboardAuthConfig,
 } from './unified-config-types';
 import { isUnifiedConfigEnabled } from './feature-flags';
 
@@ -242,6 +244,16 @@ function mergeWithDefaults(partial: Partial<UnifiedConfig>): UnifiedConfig {
           DEFAULT_QUOTA_MANAGEMENT_CONFIG.manual.tier_lock,
       },
     },
+    // Dashboard auth config - disabled by default
+    dashboard_auth: {
+      enabled: partial.dashboard_auth?.enabled ?? DEFAULT_DASHBOARD_AUTH_CONFIG.enabled,
+      username: partial.dashboard_auth?.username ?? DEFAULT_DASHBOARD_AUTH_CONFIG.username,
+      password_hash:
+        partial.dashboard_auth?.password_hash ?? DEFAULT_DASHBOARD_AUTH_CONFIG.password_hash,
+      session_timeout_hours:
+        partial.dashboard_auth?.session_timeout_hours ??
+        DEFAULT_DASHBOARD_AUTH_CONFIG.session_timeout_hours,
+    },
   };
 }
 
@@ -427,6 +439,26 @@ function generateYamlWithComments(config: UnifiedConfig): string {
     lines.push('');
   }
 
+  // Dashboard auth section (only if configured)
+  if (config.dashboard_auth?.enabled) {
+    lines.push('# ----------------------------------------------------------------------------');
+    lines.push('# Dashboard Auth: Optional login protection for CCS dashboard');
+    lines.push('# Generate password hash: npx bcrypt-cli hash "your-password"');
+    lines.push(
+      '# ENV override: CCS_DASHBOARD_AUTH_ENABLED, CCS_DASHBOARD_USERNAME, CCS_DASHBOARD_PASSWORD_HASH'
+    );
+    lines.push('# ----------------------------------------------------------------------------');
+    lines.push(
+      yaml
+        .dump(
+          { dashboard_auth: config.dashboard_auth },
+          { indent: 2, lineWidth: -1, quotingType: '"' }
+        )
+        .trim()
+    );
+    lines.push('');
+  }
+
   return lines.join('\n');
 }
 
@@ -573,5 +605,28 @@ export function getGlobalEnvConfig(): GlobalEnvConfig {
   return {
     enabled: config.global_env?.enabled ?? true,
     env: config.global_env?.env ?? { ...DEFAULT_GLOBAL_ENV },
+  };
+}
+
+/**
+ * Get dashboard_auth configuration with ENV var override.
+ * Priority: ENV vars > config.yaml > defaults
+ */
+export function getDashboardAuthConfig(): DashboardAuthConfig {
+  const config = loadOrCreateUnifiedConfig();
+
+  // ENV vars take precedence
+  const envEnabled = process.env.CCS_DASHBOARD_AUTH_ENABLED;
+  const envUsername = process.env.CCS_DASHBOARD_USERNAME;
+  const envPasswordHash = process.env.CCS_DASHBOARD_PASSWORD_HASH;
+
+  return {
+    enabled:
+      envEnabled !== undefined
+        ? envEnabled === 'true' || envEnabled === '1'
+        : (config.dashboard_auth?.enabled ?? false),
+    username: envUsername ?? config.dashboard_auth?.username ?? '',
+    password_hash: envPasswordHash ?? config.dashboard_auth?.password_hash ?? '',
+    session_timeout_hours: config.dashboard_auth?.session_timeout_hours ?? 24,
   };
 }

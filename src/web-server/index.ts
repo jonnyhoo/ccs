@@ -11,6 +11,7 @@ import http from 'http';
 import path from 'path';
 import { WebSocketServer } from 'ws';
 import { setupWebSocket } from './websocket';
+import { createSessionMiddleware, authMiddleware } from './middleware/auth-middleware';
 
 export interface ServerOptions {
   port: number;
@@ -48,6 +49,12 @@ export async function startServer(options: ServerOptions): Promise<ServerInstanc
       next(err);
     }
   );
+
+  // Session middleware (for dashboard auth)
+  app.use(createSessionMiddleware());
+
+  // Auth middleware (protects API routes when enabled)
+  app.use(authMiddleware);
 
   // REST API routes (modularized)
   const { apiRoutes } = await import('./routes/index');

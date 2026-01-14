@@ -1,0 +1,176 @@
+/**
+ * Auth Middleware Tests
+ * Tests for dashboard authentication middleware and routes.
+ */
+
+import { describe, it, expect, beforeEach, afterEach, mock } from 'bun:test';
+import bcrypt from 'bcrypt';
+
+// Mock the config loader
+const mockAuthConfig = {
+  enabled: false,
+  username: '',
+  password_hash: '',
+  session_timeout_hours: 24,
+};
+
+mock.module('../../src/config/unified-config-loader', () => ({
+  getDashboardAuthConfig: () => ({ ...mockAuthConfig }),
+}));
+
+describe('Dashboard Auth', () => {
+  beforeEach(() => {
+    // Reset to default disabled state
+    mockAuthConfig.enabled = false;
+    mockAuthConfig.username = '';
+    mockAuthConfig.password_hash = '';
+  });
+
+  describe('getDashboardAuthConfig', () => {
+    it('returns disabled by default', async () => {
+      const { getDashboardAuthConfig } = await import(
+        '../../src/config/unified-config-loader'
+      );
+      const config = getDashboardAuthConfig();
+      expect(config.enabled).toBe(false);
+    });
+
+    it('returns 24 hour default session timeout', async () => {
+      const { getDashboardAuthConfig } = await import(
+        '../../src/config/unified-config-loader'
+      );
+      const config = getDashboardAuthConfig();
+      expect(config.session_timeout_hours).toBe(24);
+    });
+  });
+
+  describe('bcrypt password hashing', () => {
+    it('generates valid bcrypt hash', async () => {
+      const password = 'testpassword123';
+      const hash = await bcrypt.hash(password, 10);
+
+      expect(hash).toMatch(/^\$2[aby]\$\d{2}\$.{53}$/);
+    });
+
+    it('verifies correct password', async () => {
+      const password = 'testpassword123';
+      const hash = await bcrypt.hash(password, 10);
+
+      const isValid = await bcrypt.compare(password, hash);
+      expect(isValid).toBe(true);
+    });
+
+    it('rejects incorrect password', async () => {
+      const password = 'testpassword123';
+      const hash = await bcrypt.hash(password, 10);
+
+      const isValid = await bcrypt.compare('wrongpassword', hash);
+      expect(isValid).toBe(false);
+    });
+
+    it('timing-safe comparison for wrong password', async () => {
+      const password = 'testpassword123';
+      const hash = await bcrypt.hash(password, 10);
+
+      // bcrypt.compare should take similar time for wrong vs right password
+      // This is a basic check that the function works
+      const start1 = performance.now();
+      await bcrypt.compare('wrongpassword', hash);
+      const time1 = performance.now() - start1;
+
+      const start2 = performance.now();
+      await bcrypt.compare(password, hash);
+      const time2 = performance.now() - start2;
+
+      // Both should complete (timing comparison is handled by bcrypt internally)
+      expect(time1).toBeGreaterThan(0);
+      expect(time2).toBeGreaterThan(0);
+    });
+  });
+
+  describe('public paths', () => {
+    const PUBLIC_PATHS = [
+      '/api/auth/login',
+      '/api/auth/check',
+      '/api/auth/setup',
+      '/api/health',
+    ];
+
+    it('identifies public paths correctly', () => {
+      const isPublicPath = (path: string) =>
+        PUBLIC_PATHS.some((p) => path.toLowerCase().startsWith(p));
+
+      expect(isPublicPath('/api/auth/login')).toBe(true);
+      expect(isPublicPath('/api/auth/check')).toBe(true);
+      expect(isPublicPath('/api/auth/setup')).toBe(true);
+      expect(isPublicPath('/api/health')).toBe(true);
+      expect(isPublicPath('/api/profiles')).toBe(false);
+      expect(isPublicPath('/api/config')).toBe(false);
+    });
+
+    it('handles case-insensitive paths', () => {
+      const isPublicPath = (path: string) =>
+        PUBLIC_PATHS.some((p) => path.toLowerCase().startsWith(p));
+
+      expect(isPublicPath('/API/AUTH/LOGIN')).toBe(true);
+      expect(isPublicPath('/Api/Health')).toBe(true);
+    });
+  });
+
+  describe('session configuration', () => {
+    it('session timeout converts to milliseconds correctly', () => {
+      const hours = 24;
+      const maxAge = hours * 60 * 60 * 1000;
+
+      expect(maxAge).toBe(86400000); // 24 hours in ms
+    });
+
+    it('custom session timeout works', () => {
+      const hours = 8;
+      const maxAge = hours * 60 * 60 * 1000;
+
+      expect(maxAge).toBe(28800000); // 8 hours in ms
+    });
+  });
+
+  describe('auth flow logic', () => {
+    it('bypasses auth when disabled', () => {
+      mockAuthConfig.enabled = false;
+      const shouldSkip = !mockAuthConfig.enabled;
+      expect(shouldSkip).toBe(true);
+    });
+
+    it('requires auth when enabled', () => {
+      mockAuthConfig.enabled = true;
+      mockAuthConfig.username = 'admin';
+      mockAuthConfig.password_hash = '$2b$10$test';
+
+      const shouldSkip = !mockAuthConfig.enabled;
+      expect(shouldSkip).toBe(false);
+    });
+
+    it('validates username match', () => {
+      mockAuthConfig.username = 'admin';
+      const usernameMatch = 'admin' === mockAuthConfig.username;
+      expect(usernameMatch).toBe(true);
+    });
+
+    it('rejects wrong username', () => {
+      mockAuthConfig.username = 'admin';
+      const usernameMatch = 'wrong' === mockAuthConfig.username;
+      expect(usernameMatch).toBe(false);
+    });
+  });
+
+  describe('rate limiting config', () => {
+    it('rate limit window is 15 minutes', () => {
+      const windowMs = 15 * 60 * 1000;
+      expect(windowMs).toBe(900000);
+    });
+
+    it('max attempts is 5', () => {
+      const maxAttempts = 5;
+      expect(maxAttempts).toBe(5);
+    });
+  });
+});

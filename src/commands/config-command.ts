@@ -52,9 +52,15 @@ function parseArgs(args: string[]): ConfigOptions {
  */
 function showHelp(): void {
   console.log('');
-  console.log('Usage: ccs config [options]');
+  console.log('Usage: ccs config [command] [options]');
   console.log('');
   console.log('Open web-based configuration dashboard');
+  console.log('');
+  console.log('Commands:');
+  console.log('  auth               Manage dashboard authentication');
+  console.log('    auth setup       Configure username and password');
+  console.log('    auth show        Display current auth status');
+  console.log('    auth disable     Disable authentication');
   console.log('');
   console.log('Options:');
   console.log('  --port, -p PORT    Specify server port (default: auto-detect)');
@@ -65,6 +71,7 @@ function showHelp(): void {
   console.log('  ccs config              Auto-detect available port');
   console.log('  ccs config --port 3000  Use specific port');
   console.log('  ccs config --dev        Development mode with hot reload');
+  console.log('  ccs config auth setup   Configure dashboard login');
   console.log('');
 }
 
@@ -72,6 +79,13 @@ function showHelp(): void {
  * Handle config command
  */
 export async function handleConfigCommand(args: string[]): Promise<void> {
+  // Route subcommands before dashboard launch
+  if (args[0] === 'auth') {
+    const { handleConfigAuthCommand } = await import('./config-auth');
+    await handleConfigAuthCommand(args.slice(1));
+    return;
+  }
+
   await initUI();
 
   const options = parseArgs(args);
