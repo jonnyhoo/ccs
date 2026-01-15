@@ -1,3 +1,26 @@
+## [7.22.0](https://github.com/kaitranntt/ccs/compare/v7.21.0...v7.22.0) (2026-01-15)
+
+### Features
+
+* **cliproxy:** add HTTPS tunnel for remote proxy mode ([#1](https://github.com/kaitranntt/ccs/issues/1)) ([9e9cbd4](https://github.com/kaitranntt/ccs/commit/9e9cbd48585200c890fe6bb83539fe3a99b25cdc))
+* **dashboard:** add project_id display for Antigravity accounts ([ed2ce13](https://github.com/kaitranntt/ccs/commit/ed2ce138e41f07997eb6fa7e650cb4f16849b3df))
+* **dashboard:** show projectId warning in Live Account Monitor ([28b0faa](https://github.com/kaitranntt/ccs/commit/28b0faa0cb842737c9a2b0409822b1339078cf0d))
+
+### Bug Fixes
+
+* address PR [#4](https://github.com/kaitranntt/ccs/issues/4) review - HTTPS tests and timeout handling ([e055890](https://github.com/kaitranntt/ccs/commit/e055890e16fa6d79411faae5f04794807db39c87))
+* address PR [#4](https://github.com/kaitranntt/ccs/issues/4) review suggestions ([c3bfa34](https://github.com/kaitranntt/ccs/commit/c3bfa34703a501b502508dbf41cff75d2cd84dbe))
+* **cliproxy:** add try-catch for file operations in pause/resume ([d87a653](https://github.com/kaitranntt/ccs/commit/d87a6531952313b1e3795feb67ab152f2bfbb1e9))
+* **cliproxy:** move token files when pausing/resuming accounts ([9d2442f](https://github.com/kaitranntt/ccs/commit/9d2442f9fa772e1048b8153b8a2d586a4ec032ce)), closes [#337](https://github.com/kaitranntt/ccs/issues/337)
+* **cliproxy:** show clear message for paused accounts in Live Monitor ([a931bc9](https://github.com/kaitranntt/ccs/commit/a931bc9745572c0b5ddb488f568f1bec62d69a25))
+* **cliproxy:** use sibling auth-paused/ dir to prevent token refresh loops ([4d31128](https://github.com/kaitranntt/ccs/commit/4d31128b63ad3996dcb783cd08d956d53ff7face))
+* **dashboard:** harden projectId handling with edge case fixes ([bc02ecc](https://github.com/kaitranntt/ccs/commit/bc02ecc94c5120bb0a4491fd9f88c71fb9f26b7f))
+* **dashboard:** update projectId for existing accounts during discovery ([36367d4](https://github.com/kaitranntt/ccs/commit/36367d49f0f51f4ecba9a32adf54308af153bdb2))
+* increase timeout in connection tracking test for CI ([e7e95e6](https://github.com/kaitranntt/ccs/commit/e7e95e69700ed4c94c89d88bdf7d674a55053961))
+* make connection tracking test deterministic ([b735234](https://github.com/kaitranntt/ccs/commit/b735234beb6c9559c2798ab48d8b876cf5e6c495))
+* resolve CI test timing and merge conflict with dev ([504b1b3](https://github.com/kaitranntt/ccs/commit/504b1b3974c2538a692a54a7d83b1dea7e500433))
+* **ui:** improve paused account display in Live Account Monitor ([502b30a](https://github.com/kaitranntt/ccs/commit/502b30a589c8aef948e8d58ffc543fcb4e0248ad))
+
 ## [7.21.0](https://github.com/kaitranntt/ccs/compare/v7.20.1...v7.21.0) (2026-01-14)
 
 ### Features
