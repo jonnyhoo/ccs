@@ -177,8 +177,14 @@ export function AccountItem({
                     <Tooltip>
                       <TooltipTrigger asChild>
                         <div className="flex items-center gap-1 text-xs text-muted-foreground">
-                          <FolderCode className="w-3 h-3" />
-                          <span className={cn('font-mono', privacyMode && PRIVACY_BLUR_CLASS)}>
+                          <FolderCode className="w-3 h-3" aria-hidden="true" />
+                          <span
+                            className={cn(
+                              'font-mono max-w-[180px] truncate',
+                              privacyMode && PRIVACY_BLUR_CLASS
+                            )}
+                            title={account.projectId}
+                          >
                             {account.projectId}
                           </span>
                         </div>
@@ -193,7 +199,7 @@ export function AccountItem({
                     <Tooltip>
                       <TooltipTrigger asChild>
                         <div className="flex items-center gap-1 text-xs text-amber-600 dark:text-amber-500">
-                          <AlertTriangle className="w-3 h-3" />
+                          <AlertTriangle className="w-3 h-3" aria-label="Warning" />
                           <span>Project ID: N/A</span>
                         </div>
                       </TooltipTrigger>

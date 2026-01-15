@@ -384,6 +384,7 @@ export function registerAccount(
     tokenFile,
     createdAt: providerAccounts.accounts[accountId].createdAt,
     lastUsedAt: providerAccounts.accounts[accountId].lastUsedAt,
+    projectId: providerAccounts.accounts[accountId].projectId,
   };
 }
 
@@ -640,12 +641,17 @@ export function discoverExistingAccounts(): void {
       const existingTokenFiles = Object.values(providerAccounts.accounts).map((a) => a.tokenFile);
       if (existingTokenFiles.includes(file)) {
         // Token file exists - check if we need to update projectId for agy accounts
-        if (provider === 'agy' && data.project_id) {
+        const projectIdValue =
+          typeof data.project_id === 'string' && data.project_id.trim()
+            ? data.project_id.trim()
+            : null;
+        if (provider === 'agy' && projectIdValue) {
           const existingEntry = Object.entries(providerAccounts.accounts).find(
             ([, meta]) => meta.tokenFile === file
           );
-          if (existingEntry && !existingEntry[1].projectId) {
-            existingEntry[1].projectId = data.project_id;
+          // Update if missing or changed
+          if (existingEntry && existingEntry[1].projectId !== projectIdValue) {
+            existingEntry[1].projectId = projectIdValue;
           }
         }
         continue;
@@ -699,8 +705,12 @@ export function discoverExistingAccounts(): void {
       };
 
       // Read project_id for Antigravity accounts (read-only field from auth token)
-      if (provider === 'agy' && data.project_id) {
-        accountMeta.projectId = data.project_id;
+      const discoveredProjectId =
+        typeof data.project_id === 'string' && data.project_id.trim()
+          ? data.project_id.trim()
+          : null;
+      if (provider === 'agy' && discoveredProjectId) {
+        accountMeta.projectId = discoveredProjectId;
       }
 
       providerAccounts.accounts[accountId] = accountMeta;
