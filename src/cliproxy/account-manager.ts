@@ -423,6 +423,12 @@ export function pauseAccount(provider: CLIProxyProvider, accountId: string): boo
   }
 
   const accountMeta = providerAccounts.accounts[accountId];
+
+  // Skip if already paused (idempotent)
+  if (accountMeta.paused) {
+    return true;
+  }
+
   const authDir = getAuthDir();
   const pausedDir = getPausedDir();
   const tokenPath = path.join(authDir, accountMeta.tokenFile);
@@ -430,11 +436,16 @@ export function pauseAccount(provider: CLIProxyProvider, accountId: string): boo
 
   // Move token file to paused directory (if it exists in auth dir)
   if (fs.existsSync(tokenPath)) {
-    // Create paused directory if it doesn't exist
-    if (!fs.existsSync(pausedDir)) {
-      fs.mkdirSync(pausedDir, { recursive: true, mode: 0o700 });
+    try {
+      // Create paused directory if it doesn't exist
+      if (!fs.existsSync(pausedDir)) {
+        fs.mkdirSync(pausedDir, { recursive: true, mode: 0o700 });
+      }
+      fs.renameSync(tokenPath, pausedPath);
+    } catch {
+      // File operation failed, but continue with registry update
+      // syncRegistryWithTokenFiles() will handle recovery on next load
     }
-    fs.renameSync(tokenPath, pausedPath);
   }
 
   providerAccounts.accounts[accountId].paused = true;
@@ -456,6 +467,12 @@ export function resumeAccount(provider: CLIProxyProvider, accountId: string): bo
   }
 
   const accountMeta = providerAccounts.accounts[accountId];
+
+  // Skip if already active (idempotent)
+  if (!accountMeta.paused) {
+    return true;
+  }
+
   const authDir = getAuthDir();
   const pausedDir = getPausedDir();
   const tokenPath = path.join(authDir, accountMeta.tokenFile);
@@ -463,7 +480,12 @@ export function resumeAccount(provider: CLIProxyProvider, accountId: string): bo
 
   // Move token file back from paused directory (if it exists in paused dir)
   if (fs.existsSync(pausedPath)) {
-    fs.renameSync(pausedPath, tokenPath);
+    try {
+      fs.renameSync(pausedPath, tokenPath);
+    } catch {
+      // File operation failed, but continue with registry update
+      // syncRegistryWithTokenFiles() will handle recovery on next load
+    }
   }
 
   providerAccounts.accounts[accountId].paused = false;
