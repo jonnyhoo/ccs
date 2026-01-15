@@ -11,6 +11,7 @@ import { getAuthDir } from './config-generator';
 import { CLIProxyProvider } from './types';
 import {
   getProviderAccounts,
+  isAccountPaused,
   setAccountTier,
   type AccountInfo,
   type AccountTier,
@@ -545,6 +546,18 @@ export async function fetchAccountQuota(
   if (provider !== 'agy') {
     const error = `Quota not supported for provider: ${provider}`;
     if (verbose) console.error(`[!] Error: ${error}`);
+    return {
+      success: false,
+      models: [],
+      lastUpdated: Date.now(),
+      error,
+    };
+  }
+
+  // Check if account is paused (token moved to auth-paused/ directory)
+  if (isAccountPaused(provider, accountId)) {
+    const error = 'Account is paused';
+    if (verbose) console.error(`[i] ${error}`);
     return {
       success: false,
       models: [],
