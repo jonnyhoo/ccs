@@ -1,3 +1,14 @@
+## [7.23.0](https://github.com/kaitranntt/ccs/compare/v7.22.0...v7.23.0) (2026-01-18)
+
+### Features
+
+* **docker:** add Docker/Compose setup for CCS dashboard ([a14c7f3](https://github.com/kaitranntt/ccs/commit/a14c7f3f6ba0d694dda622a59c9f878f648976b4))
+
+### Bug Fixes
+
+* **docker:** address security and reproducibility issues ([b386410](https://github.com/kaitranntt/ccs/commit/b38641002fadc8732c81aa9c7bd01bee826095a5))
+* **docker:** use bun 1.2.21 ([1dee718](https://github.com/kaitranntt/ccs/commit/1dee71897e89cc20bc1e78a57e29176ddacdb321))
+
 ## [7.22.0](https://github.com/kaitranntt/ccs/compare/v7.21.0...v7.22.0) (2026-01-15)
 
 ### Features
