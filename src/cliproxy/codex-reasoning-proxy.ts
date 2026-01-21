@@ -1,6 +1,7 @@
 import * as http from 'http';
 import * as https from 'https';
 import { URL } from 'url';
+import { getModelMaxLevel } from './model-catalog';
 
 export type CodexReasoningEffort = 'medium' | 'high' | 'xhigh';
 
@@ -51,8 +52,30 @@ const EFFORT_RANK: Record<CodexReasoningEffort, number> = {
   xhigh: 3,
 };
 
+/** All valid codex effort levels in rank order */
+const EFFORT_BY_RANK: CodexReasoningEffort[] = ['medium', 'high', 'xhigh'];
+
 function minEffort(a: CodexReasoningEffort, b: CodexReasoningEffort): CodexReasoningEffort {
   return EFFORT_RANK[a] <= EFFORT_RANK[b] ? a : b;
+}
+
+/**
+ * Cap effort at model's max level from catalog.
+ * Returns the capped effort (or original if no cap applies).
+ */
+function capEffortAtModelMax(model: string, effort: CodexReasoningEffort): CodexReasoningEffort {
+  const maxLevel = getModelMaxLevel('codex', model);
+  if (!maxLevel) return effort;
+
+  // Map maxLevel to CodexReasoningEffort (only medium/high/xhigh are valid)
+  const maxEffort = EFFORT_BY_RANK.find((e) => e === maxLevel);
+  if (!maxEffort) return effort;
+
+  // Cap if effort exceeds max
+  if (EFFORT_RANK[effort] > EFFORT_RANK[maxEffort]) {
+    return maxEffort;
+  }
+  return effort;
 }
 
 export function buildCodexModelEffortMap(
@@ -85,7 +108,9 @@ export function getEffortForModel(
   defaultEffort: CodexReasoningEffort
 ): CodexReasoningEffort {
   if (!model) return defaultEffort;
-  return modelEffort.get(model) ?? defaultEffort;
+  const effort = modelEffort.get(model) ?? defaultEffort;
+  // Apply model-specific cap from catalog
+  return capEffortAtModelMax(model, effort);
 }
 
 export function injectReasoningEffortIntoBody(

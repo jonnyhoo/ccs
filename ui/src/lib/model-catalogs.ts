@@ -114,12 +114,34 @@ export const MODEL_CATALOGS: Record<string, ProviderCatalog> = {
   codex: {
     provider: 'codex',
     displayName: 'Codex',
-    defaultModel: 'gpt-5.1-codex-max',
+    defaultModel: 'gpt-5.2-codex',
     models: [
+      {
+        id: 'gpt-5.2-codex',
+        name: 'GPT-5.2 Codex',
+        description: 'Full reasoning support (xhigh)',
+        presetMapping: {
+          default: 'gpt-5.2-codex',
+          opus: 'gpt-5.2-codex',
+          sonnet: 'gpt-5.2-codex',
+          haiku: 'gpt-5-mini',
+        },
+      },
+      {
+        id: 'gpt-5-mini',
+        name: 'GPT-5 Mini',
+        description: 'Fast, capped at high reasoning (no xhigh)',
+        presetMapping: {
+          default: 'gpt-5-mini',
+          opus: 'gpt-5.2-codex',
+          sonnet: 'gpt-5-mini',
+          haiku: 'gpt-5-mini',
+        },
+      },
       {
         id: 'gpt-5.1-codex-max',
         name: 'Codex Max (5.1)',
-        description: 'Most capable Codex model',
+        description: 'Legacy most capable Codex model',
         presetMapping: {
           default: 'gpt-5.1-codex-max',
           opus: 'gpt-5.1-codex-max-high',

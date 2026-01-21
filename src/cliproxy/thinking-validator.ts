@@ -41,10 +41,38 @@ export const THINKING_LEVEL_BUDGETS: Record<string, number> = {
 };
 
 /**
+ * Level rank for comparison (higher = more intensive)
+ */
+export const THINKING_LEVEL_RANK: Record<string, number> = {
+  minimal: 1,
+  low: 2,
+  medium: 3,
+  high: 4,
+  xhigh: 5,
+};
+
+/**
  * Valid thinking level names
  */
 export const VALID_THINKING_LEVELS = ['minimal', 'low', 'medium', 'high', 'xhigh', 'auto'] as const;
 export type ThinkingLevel = (typeof VALID_THINKING_LEVELS)[number];
+
+/**
+ * Cap a level at the model's maximum supported level.
+ * Returns the capped level and whether capping occurred.
+ */
+export function capLevelAtMax(
+  level: string,
+  maxLevel: string | undefined
+): { level: string; capped: boolean } {
+  if (!maxLevel) return { level, capped: false };
+  const levelRank = THINKING_LEVEL_RANK[level] ?? 0;
+  const maxRank = THINKING_LEVEL_RANK[maxLevel] ?? 5;
+  if (levelRank > maxRank) {
+    return { level: maxLevel, capped: true };
+  }
+  return { level, capped: false };
+}
 
 /**
  * Special thinking values
@@ -263,6 +291,24 @@ function validateLevelThinking(
   modelId: string
 ): ThinkingValidationResult {
   const validLevels = thinking.levels ?? [];
+  const maxLevel = thinking.maxLevel;
+
+  // Helper to apply maxLevel cap and build result
+  const applyMaxCap = (level: string, baseWarning?: string): ThinkingValidationResult => {
+    const { level: cappedLevel, capped } = capLevelAtMax(level, maxLevel);
+    const warnings: string[] = [];
+    if (baseWarning) warnings.push(baseWarning);
+    if (capped) {
+      warnings.push(
+        `Level "${level}" exceeds max "${maxLevel}" for ${modelId}. Capped to "${cappedLevel}".`
+      );
+    }
+    return {
+      valid: true,
+      value: cappedLevel,
+      warning: warnings.length > 0 ? warnings.join(' ') : undefined,
+    };
+  };
 
   // If numeric, try to map to closest level by budget
   if (typeof value === 'number') {
@@ -279,11 +325,10 @@ function validateLevelThinking(
       }
     }
 
-    return {
-      valid: true,
-      value: closestLevel,
-      warning: `Model ${modelId} uses named levels. Mapped budget ${value} to "${closestLevel}".`,
-    };
+    return applyMaxCap(
+      closestLevel,
+      `Model ${modelId} uses named levels. Mapped budget ${value} to "${closestLevel}".`
+    );
   }
 
   // String level
@@ -291,17 +336,16 @@ function validateLevelThinking(
 
   // Check if it's a valid level for this model
   if (validLevels.includes(normalizedLevel)) {
-    return { valid: true, value: normalizedLevel };
+    return applyMaxCap(normalizedLevel);
   }
 
   // Try to find closest match
   const closest = findClosestLevel(normalizedLevel, validLevels);
   if (closest) {
-    return {
-      valid: true,
-      value: closest,
-      warning: `Level "${value}" not valid for ${modelId}. Mapped to "${closest}".`,
-    };
+    return applyMaxCap(
+      closest,
+      `Level "${value}" not valid for ${modelId}. Mapped to "${closest}".`
+    );
   }
 
   // Try to map from standard level names to model's levels
@@ -321,11 +365,10 @@ function validateLevelThinking(
 
   const mapped = standardToModelLevel[normalizedLevel];
   if (mapped) {
-    return {
-      valid: true,
-      value: mapped,
-      warning: `Level "${value}" mapped to "${mapped}" for ${modelId} (available: ${validLevels.join(', ')}).`,
-    };
+    return applyMaxCap(
+      mapped,
+      `Level "${value}" mapped to "${mapped}" for ${modelId} (available: ${validLevels.join(', ')}).`
+    );
   }
 
   // Default to first level

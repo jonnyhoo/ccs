@@ -20,6 +20,8 @@ export interface ThinkingSupport {
   max?: number;
   /** Valid level names (for levels type) */
   levels?: string[];
+  /** Maximum reasoning effort level (caps effort at this level for levels type) */
+  maxLevel?: 'minimal' | 'low' | 'medium' | 'high' | 'xhigh';
   /** Whether zero/disabled thinking is allowed */
   zeroAllowed?: boolean;
   /** Whether dynamic/auto thinking is allowed */
@@ -135,6 +137,35 @@ export const MODEL_CATALOG: Partial<Record<CLIProxyProvider, ProviderCatalog>> =
       },
     ],
   },
+  codex: {
+    provider: 'codex',
+    displayName: 'Copilot Codex',
+    defaultModel: 'gpt-5.2-codex',
+    models: [
+      {
+        id: 'gpt-5.2-codex',
+        name: 'GPT-5.2 Codex',
+        description: 'Full reasoning support (xhigh)',
+        thinking: {
+          type: 'levels',
+          levels: ['medium', 'high', 'xhigh'],
+          maxLevel: 'xhigh',
+          dynamicAllowed: false,
+        },
+      },
+      {
+        id: 'gpt-5-mini',
+        name: 'GPT-5 Mini',
+        description: 'Capped at high reasoning (no xhigh)',
+        thinking: {
+          type: 'levels',
+          levels: ['medium', 'high'],
+          maxLevel: 'high',
+          dynamicAllowed: false,
+        },
+      },
+    ],
+  },
 };
 
 /**
@@ -206,6 +237,18 @@ export function getModelThinkingSupport(
 ): ThinkingSupport | undefined {
   const model = findModel(provider, modelId);
   return model?.thinking;
+}
+
+/**
+ * Get the maximum reasoning effort level for a model.
+ * Returns undefined if model has no cap or is not in catalog.
+ */
+export function getModelMaxLevel(
+  provider: CLIProxyProvider,
+  modelId: string
+): ThinkingSupport['maxLevel'] | undefined {
+  const thinking = getModelThinkingSupport(provider, modelId);
+  return thinking?.maxLevel;
 }
 
 /**
