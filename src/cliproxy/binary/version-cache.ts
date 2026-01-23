@@ -5,7 +5,7 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
-import { getCliproxyDir, getBinDir } from '../config-generator';
+import { getBinDir } from '../config-generator';
 import {
   VersionCache,
   VERSION_CACHE_DURATION_MS,
@@ -181,17 +181,19 @@ export function migrateVersionPin(backend: CLIProxyBackend): void {
 const VERSION_LIST_CACHE_FILE = '.version-list-cache.json';
 
 /**
- * Get path to version list cache file
+ * Get path to version list cache file (backend-specific)
  */
-export function getVersionListCachePath(): string {
-  return path.join(getCliproxyDir(), VERSION_LIST_CACHE_FILE);
+export function getVersionListCachePath(backend: CLIProxyBackend = DEFAULT_BACKEND): string {
+  return path.join(getBinDir(), backend, VERSION_LIST_CACHE_FILE);
 }
 
 /**
- * Read version list cache if still valid
+ * Read version list cache if still valid (backend-specific)
  */
-export function readVersionListCache(): VersionListCache | null {
-  const cachePath = getVersionListCachePath();
+export function readVersionListCache(
+  backend: CLIProxyBackend = DEFAULT_BACKEND
+): VersionListCache | null {
+  const cachePath = getVersionListCachePath(backend);
   if (!fs.existsSync(cachePath)) {
     return null;
   }
@@ -212,10 +214,13 @@ export function readVersionListCache(): VersionListCache | null {
 }
 
 /**
- * Write version list to cache
+ * Write version list to cache (backend-specific)
  */
-export function writeVersionListCache(cache: VersionListCache): void {
-  const cachePath = getVersionListCachePath();
+export function writeVersionListCache(
+  cache: VersionListCache,
+  backend: CLIProxyBackend = DEFAULT_BACKEND
+): void {
+  const cachePath = getVersionListCachePath(backend);
 
   try {
     fs.mkdirSync(path.dirname(cachePath), { recursive: true });

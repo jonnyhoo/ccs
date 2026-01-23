@@ -34,9 +34,21 @@ import {
 import {
   CLIPROXY_MAX_STABLE_VERSION,
   CLIPROXY_FAULTY_RANGE,
+  DEFAULT_BACKEND,
 } from '../../cliproxy/platform-detector';
+import { loadOrCreateUnifiedConfig } from '../../config/unified-config-loader';
 
 const router = Router();
+
+/** Get configured backend from config */
+function getConfiguredBackend() {
+  try {
+    const config = loadOrCreateUnifiedConfig();
+    return config.cliproxy?.backend || DEFAULT_BACKEND;
+  } catch {
+    return DEFAULT_BACKEND;
+  }
+}
 
 /**
  * Extract status code and model from error log file (lightweight parsing)
@@ -549,8 +561,9 @@ router.get('/quota/:provider/:accountId', async (req: Request, res: Response): P
  */
 router.get('/versions', async (_req: Request, res: Response): Promise<void> => {
   try {
-    const result = await fetchAllVersions();
-    const currentVersion = getInstalledCliproxyVersion();
+    const backend = getConfiguredBackend();
+    const result = await fetchAllVersions(false, backend);
+    const currentVersion = getInstalledCliproxyVersion(backend);
 
     res.json({
       ...result,

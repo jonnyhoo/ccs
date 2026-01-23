@@ -24,13 +24,29 @@ export const VERSION_CACHE_DURATION_MS = 60 * 60 * 1000;
 /** Version pin file name - stores user's explicit version choice */
 export const VERSION_PIN_FILE = '.version-pin';
 
-/** GitHub API URL for latest release (CLIProxyAPIPlus fork with Kiro + Copilot support) */
+/**
+ * GitHub API URLs - backend-specific
+ * @deprecated Use getGitHubApiUrls(backend) instead
+ */
 export const GITHUB_API_LATEST_RELEASE =
   'https://api.github.com/repos/router-for-me/CLIProxyAPIPlus/releases/latest';
-
-/** GitHub API URL for all releases */
 export const GITHUB_API_ALL_RELEASES =
   'https://api.github.com/repos/router-for-me/CLIProxyAPIPlus/releases';
+
+/** GitHub repos per backend */
+export const GITHUB_REPOS = {
+  original: 'router-for-me/CLIProxyAPI',
+  plus: 'router-for-me/CLIProxyAPIPlus',
+} as const;
+
+/** Get GitHub API URLs for specific backend */
+export function getGitHubApiUrls(backend: 'original' | 'plus') {
+  const repo = GITHUB_REPOS[backend];
+  return {
+    latestRelease: `https://api.github.com/repos/${repo}/releases/latest`,
+    allReleases: `https://api.github.com/repos/${repo}/releases`,
+  };
+}
 
 /** Version list cache structure */
 export interface VersionListCache {

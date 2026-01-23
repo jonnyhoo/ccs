@@ -11,12 +11,7 @@ import {
   readVersionListCache,
   writeVersionListCache,
 } from './version-cache';
-import {
-  UpdateCheckResult,
-  GITHUB_API_LATEST_RELEASE,
-  GITHUB_API_ALL_RELEASES,
-  VersionListResult,
-} from './types';
+import { UpdateCheckResult, VersionListResult, getGitHubApiUrls } from './types';
 import {
   CLIPROXY_MAX_STABLE_VERSION,
   CLIPROXY_FAULTY_RANGE,
@@ -61,9 +56,15 @@ export function isVersionFaulty(version: string): boolean {
 
 /**
  * Fetch latest version from GitHub API
+ * @param verbose Enable verbose logging
+ * @param backend Backend to fetch version for (uses correct GitHub repo)
  */
-export async function fetchLatestVersion(verbose = false): Promise<string> {
-  const response = await fetchJson(GITHUB_API_LATEST_RELEASE, verbose);
+export async function fetchLatestVersion(
+  verbose = false,
+  backend: CLIProxyBackend = DEFAULT_BACKEND
+): Promise<string> {
+  const urls = getGitHubApiUrls(backend);
+  const response = await fetchJson(urls.latestRelease, verbose);
 
   // Extract version from tag_name (format: "v6.5.27" or "6.5.27")
   const tagName = response.tag_name as string;
@@ -102,8 +103,8 @@ export async function checkForUpdates(
     };
   }
 
-  // Fetch from GitHub API
-  const latestVersion = await fetchLatestVersion(verbose);
+  // Fetch from GitHub API (backend-specific repo)
+  const latestVersion = await fetchLatestVersion(verbose, backend);
   const now = Date.now();
   writeVersionCache(latestVersion, backend);
 
@@ -119,10 +120,15 @@ export async function checkForUpdates(
 /**
  * Fetch all available versions from GitHub releases
  * Caches result for 1 hour to avoid rate limiting
+ * @param verbose Enable verbose logging
+ * @param backend Backend to fetch versions for (uses correct GitHub repo)
  */
-export async function fetchAllVersions(verbose = false): Promise<VersionListResult> {
-  // Try cache first
-  const cache = readVersionListCache();
+export async function fetchAllVersions(
+  verbose = false,
+  backend: CLIProxyBackend = DEFAULT_BACKEND
+): Promise<VersionListResult> {
+  // Try cache first (backend-specific)
+  const cache = readVersionListCache(backend);
   if (cache) {
     if (verbose) {
       console.error(`[cliproxy] Using cached version list (${cache.versions.length} versions)`);
@@ -130,8 +136,9 @@ export async function fetchAllVersions(verbose = false): Promise<VersionListResu
     return { ...cache, fromCache: true };
   }
 
-  // Fetch from GitHub API
-  const response = await fetchJson(GITHUB_API_ALL_RELEASES, verbose);
+  // Fetch from GitHub API (backend-specific repo)
+  const urls = getGitHubApiUrls(backend);
+  const response = await fetchJson(urls.allReleases, verbose);
 
   // Extract and normalize versions
   const releases = response as unknown as Array<{ tag_name: string }>;
@@ -154,6 +161,6 @@ export async function fetchAllVersions(verbose = false): Promise<VersionListResu
     checkedAt: Date.now(),
   };
 
-  writeVersionListCache(result);
+  writeVersionListCache(result, backend);
   return result;
 }
