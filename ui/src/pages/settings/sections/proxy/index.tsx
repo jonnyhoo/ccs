@@ -320,7 +320,7 @@ export default function ProxySection() {
             </h3>
             {/* Warning when proxy is running - must stop to change backend */}
             {isProxyRunning && (
-              <Alert className="py-2 border-amber-200 bg-amber-50 dark:border-amber-900/50 dark:bg-amber-900/20">
+              <Alert className="py-2 border-amber-200 bg-amber-50 dark:border-amber-900/50 dark:bg-amber-900/20 [&>svg]:top-2.5">
                 <AlertTriangle className="h-4 w-4 text-amber-600" />
                 <AlertDescription className="text-amber-700 dark:text-amber-400">
                   Stop the running proxy in Instance Status to switch backend.
