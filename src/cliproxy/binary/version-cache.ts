@@ -16,10 +16,10 @@ import { DEFAULT_BACKEND } from '../platform-detector';
 import type { CLIProxyBackend } from '../types';
 
 /**
- * Get path to version cache file
+ * Get path to version cache file (backend-specific)
  */
-export function getVersionCachePath(): string {
-  return path.join(getCliproxyDir(), '.version-cache.json');
+export function getVersionCachePath(backend: CLIProxyBackend = DEFAULT_BACKEND): string {
+  return path.join(getBinDir(), backend, '.version-cache.json');
 }
 
 /**
@@ -30,10 +30,10 @@ export function getVersionPinPath(backend: CLIProxyBackend = DEFAULT_BACKEND): s
 }
 
 /**
- * Read version cache if still valid
+ * Read version cache if still valid (backend-specific)
  */
-export function readVersionCache(): VersionCache | null {
-  const cachePath = getVersionCachePath();
+export function readVersionCache(backend: CLIProxyBackend = DEFAULT_BACKEND): VersionCache | null {
+  const cachePath = getVersionCachePath(backend);
   if (!fs.existsSync(cachePath)) {
     return null;
   }
@@ -55,10 +55,13 @@ export function readVersionCache(): VersionCache | null {
 }
 
 /**
- * Write version to cache
+ * Write version to cache (backend-specific)
  */
-export function writeVersionCache(version: string): void {
-  const cachePath = getVersionCachePath();
+export function writeVersionCache(
+  version: string,
+  backend: CLIProxyBackend = DEFAULT_BACKEND
+): void {
+  const cachePath = getVersionCachePath(backend);
   const cache: VersionCache = {
     latestVersion: version,
     checkedAt: Date.now(),

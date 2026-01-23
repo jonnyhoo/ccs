@@ -17,7 +17,12 @@ import {
   GITHUB_API_ALL_RELEASES,
   VersionListResult,
 } from './types';
-import { CLIPROXY_MAX_STABLE_VERSION, CLIPROXY_FAULTY_RANGE } from '../platform-detector';
+import {
+  CLIPROXY_MAX_STABLE_VERSION,
+  CLIPROXY_FAULTY_RANGE,
+  DEFAULT_BACKEND,
+} from '../platform-detector';
+import type { CLIProxyBackend } from '../types';
 
 /**
  * Compare semver versions (true if latest > current)
@@ -72,16 +77,18 @@ export async function fetchLatestVersion(verbose = false): Promise<string> {
 /**
  * Check for updates by comparing installed version with latest release
  * Uses cache to avoid hitting GitHub API on every run
+ * Cache is backend-specific to handle different repos for original vs plus
  */
 export async function checkForUpdates(
   binPath: string,
   configVersion: string,
-  verbose = false
+  verbose = false,
+  backend: CLIProxyBackend = DEFAULT_BACKEND
 ): Promise<UpdateCheckResult> {
   const currentVersion = readInstalledVersion(binPath, configVersion);
 
-  // Try cache first
-  const cache = readVersionCache();
+  // Try cache first (backend-specific)
+  const cache = readVersionCache(backend);
   if (cache) {
     if (verbose) {
       console.error(`[cliproxy] Using cached version: ${cache.latestVersion}`);
@@ -98,7 +105,7 @@ export async function checkForUpdates(
   // Fetch from GitHub API
   const latestVersion = await fetchLatestVersion(verbose);
   const now = Date.now();
-  writeVersionCache(latestVersion);
+  writeVersionCache(latestVersion, backend);
 
   return {
     hasUpdate: isNewerVersion(latestVersion, currentVersion),

@@ -85,7 +85,12 @@ export class BinaryManager {
 
   /** Check for updates by comparing installed version with latest release */
   async checkForUpdates(): Promise<UpdateCheckResult> {
-    return checkForUpdates(this.config.binPath, this.config.version, this.config.verbose);
+    return checkForUpdates(
+      this.config.binPath,
+      this.config.version,
+      this.config.verbose,
+      this.backend
+    );
   }
 
   /** Get full path to binary executable */

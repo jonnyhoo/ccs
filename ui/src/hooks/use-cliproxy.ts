@@ -353,8 +353,10 @@ export function useUpdateBackend() {
       api.cliproxyServer.updateBackend(backend, force),
     onSuccess: () => {
       // Invalidate all queries that depend on backend setting
-      queryClient.invalidateQueries({ queryKey: ['cliproxy-update-check'] });
-      queryClient.invalidateQueries({ queryKey: ['cliproxy-versions'] });
+      // Use refetchType: 'all' to force immediate refetch even if query is stale
+      queryClient.invalidateQueries({ queryKey: ['cliproxy-update-check'], refetchType: 'all' });
+      queryClient.invalidateQueries({ queryKey: ['cliproxy-versions'], refetchType: 'all' });
+      queryClient.invalidateQueries({ queryKey: ['cliproxy-server-config'], refetchType: 'all' });
       queryClient.invalidateQueries({ queryKey: ['proxy-status'] });
       queryClient.invalidateQueries({ queryKey: ['cliproxy-stats'] });
       toast.success('Backend updated');
