@@ -27,6 +27,7 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useCliproxyStats, useCliproxyStatus } from '@/hooks/use-cliproxy-stats';
+import { useCliproxyUpdateCheck } from '@/hooks/use-cliproxy';
 import { usePrivacy, PRIVACY_BLUR_CLASS } from '@/contexts/privacy-context';
 
 interface CliproxyStatsOverviewProps {
@@ -37,6 +38,8 @@ export function CliproxyStatsOverview({ className }: CliproxyStatsOverviewProps)
   const { privacyMode } = usePrivacy();
   const { data: status, isLoading: statusLoading } = useCliproxyStatus();
   const { data: stats, isLoading: statsLoading, error } = useCliproxyStats(status?.running);
+  const { data: updateCheck } = useCliproxyUpdateCheck();
+  const backendLabel = updateCheck?.backendLabel ?? 'CLIProxy';
 
   const isLoading = statusLoading || (status?.running && statsLoading);
 
@@ -71,7 +74,7 @@ export function CliproxyStatsOverview({ className }: CliproxyStatsOverviewProps)
               Session Statistics
             </h2>
             <p className="text-sm text-muted-foreground">
-              Real-time usage metrics from CLIProxy Plus
+              Real-time usage metrics from {backendLabel}
             </p>
           </div>
           <Badge variant="secondary" className="w-fit gap-1.5">
@@ -146,7 +149,9 @@ export function CliproxyStatsOverview({ className }: CliproxyStatsOverviewProps)
             <Activity className="h-5 w-5" />
             Session Statistics
           </h2>
-          <p className="text-sm text-muted-foreground">Real-time usage metrics from CLIProxyAPI</p>
+          <p className="text-sm text-muted-foreground">
+            Real-time usage metrics from {backendLabel}
+          </p>
         </div>
         <Badge
           variant="outline"

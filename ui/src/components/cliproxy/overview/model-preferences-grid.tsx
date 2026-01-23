@@ -8,7 +8,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Cpu, AlertCircle } from 'lucide-react';
-import { useCliproxyModels } from '@/hooks/use-cliproxy';
+import { useCliproxyModels, useCliproxyUpdateCheck } from '@/hooks/use-cliproxy';
 import { cn } from '@/lib/utils';
 
 /** Category display configuration */
@@ -70,6 +70,8 @@ function EmptyModelsState() {
 
 export function ModelPreferencesGrid() {
   const { data: modelsData, isLoading, isError } = useCliproxyModels();
+  const { data: updateCheck } = useCliproxyUpdateCheck();
+  const backendLabel = updateCheck?.backendLabel ?? 'CLIProxy';
 
   // Sort categories by model count
   const sortedCategories = useMemo(() => {
@@ -102,7 +104,7 @@ export function ModelPreferencesGrid() {
           </Badge>
         </CardTitle>
         <CardDescription>
-          Models available through CLIProxy Plus, grouped by provider
+          Models available through {backendLabel}, grouped by provider
         </CardDescription>
       </CardHeader>
       <CardContent>

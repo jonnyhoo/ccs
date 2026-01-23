@@ -11,6 +11,7 @@ import { Router, Request, Response } from 'express';
 import { loadOrCreateUnifiedConfig, saveUnifiedConfig } from '../../config/unified-config-loader';
 import { testConnection } from '../../cliproxy/remote-proxy-client';
 import { isProxyRunning } from '../../cliproxy/services/proxy-lifecycle-service';
+import { DEFAULT_BACKEND } from '../../cliproxy/platform-detector';
 import {
   DEFAULT_CLIPROXY_SERVER_CONFIG,
   CliproxyServerConfig,
@@ -73,7 +74,7 @@ router.put('/', async (req: Request, res: Response) => {
 router.get('/backend', async (_req: Request, res: Response) => {
   try {
     const config = await loadOrCreateUnifiedConfig();
-    res.json({ backend: config.cliproxy?.backend ?? 'plus' });
+    res.json({ backend: config.cliproxy?.backend ?? DEFAULT_BACKEND });
   } catch (error) {
     console.error('[cliproxy-server-routes] Failed to load backend config:', error);
     res.status(500).json({ error: 'Failed to load backend config' });
@@ -99,7 +100,7 @@ router.put('/backend', async (req: Request, res: Response) => {
 
     // Check if proxy is running - warn about restart requirement
     const config = await loadOrCreateUnifiedConfig();
-    const currentBackend = config.cliproxy?.backend ?? 'plus';
+    const currentBackend = config.cliproxy?.backend ?? DEFAULT_BACKEND;
     if (currentBackend !== backend && isProxyRunning() && !force) {
       res.status(409).json({
         error: 'Proxy is running. Stop proxy first or use force=true to change backend.',

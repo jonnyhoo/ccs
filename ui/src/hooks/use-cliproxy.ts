@@ -333,9 +333,40 @@ export function useCliproxyUpdateCheck() {
   return useQuery({
     queryKey: ['cliproxy-update-check'],
     queryFn: () => api.cliproxy.updateCheck(),
-    staleTime: 60 * 60 * 1000, // 1 hour (matches backend cache)
-    refetchInterval: 60 * 60 * 1000, // Refresh every hour
-    refetchOnWindowFocus: false, // Don't refresh on window focus (save API calls)
+    staleTime: 5 * 60 * 1000, // 5 minutes (reduced from 1 hour for faster backend switch response)
+    refetchInterval: 5 * 60 * 1000, // Refresh every 5 minutes
+    refetchOnWindowFocus: true, // Refetch on window focus to catch backend changes
+  });
+}
+
+// ==================== Backend Management ====================
+
+/**
+ * Hook for switching CLIProxy backend (original vs plus)
+ * Invalidates all backend-dependent queries to ensure UI consistency
+ */
+export function useUpdateBackend() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({ backend, force = false }: { backend: 'original' | 'plus'; force?: boolean }) =>
+      api.cliproxyServer.updateBackend(backend, force),
+    onSuccess: () => {
+      // Invalidate all queries that depend on backend setting
+      queryClient.invalidateQueries({ queryKey: ['cliproxy-update-check'] });
+      queryClient.invalidateQueries({ queryKey: ['cliproxy-versions'] });
+      queryClient.invalidateQueries({ queryKey: ['proxy-status'] });
+      queryClient.invalidateQueries({ queryKey: ['cliproxy-stats'] });
+      toast.success('Backend updated');
+    },
+    onError: (error: Error) => {
+      // Handle 409 conflict (proxy running)
+      if (error.message.includes('Proxy is running')) {
+        toast.error('Stop the proxy first to change backend');
+      } else {
+        toast.error(error.message);
+      }
+    },
   });
 }
 

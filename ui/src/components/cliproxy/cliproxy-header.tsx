@@ -15,6 +15,7 @@ interface VersionInfo {
   currentVersion: string;
   isStable: boolean;
   stabilityMessage?: string;
+  backendLabel?: string;
 }
 
 interface LoginButtonProps {
@@ -127,6 +128,7 @@ export function CliproxyHeader({
             currentVersion: data.currentVersion,
             isStable: data.isStable,
             stabilityMessage: data.stabilityMessage,
+            backendLabel: data.backendLabel,
           });
         }
       })
@@ -157,7 +159,9 @@ export function CliproxyHeader({
       {/* Top row: Title and Login Buttons */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight">CLIProxy Plus</h1>
+          <h1 className="text-2xl font-bold tracking-tight">
+            {versionInfo?.backendLabel ?? 'CLIProxy'}
+          </h1>
           <p className="text-sm text-muted-foreground mt-1">CCS-level account management</p>
         </div>
 
