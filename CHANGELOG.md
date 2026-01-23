@@ -1,3 +1,21 @@
+## [7.26.1](https://github.com/kaitranntt/ccs/compare/v7.26.0...v7.26.1) (2026-01-23)
+
+### Bug Fixes
+
+* **cliproxy:** complete backend param propagation per code review ([388ab69](https://github.com/kaitranntt/ccs/commit/388ab69a970e7bbd249948f34d7ab3e7ab5ddcb9))
+* **cliproxy:** complete backend switching with proper binary extraction ([2794a54](https://github.com/kaitranntt/ccs/commit/2794a548a57c94002ab8c4f926bd47f04de3f8ff))
+* **cliproxy:** make backend switching work with version pins and status ([628148c](https://github.com/kaitranntt/ccs/commit/628148c3590e09dcb04fb205bd41880c3f295e87))
+* **cliproxy:** make version cache backend-specific for proper switching ([a41fd2a](https://github.com/kaitranntt/ccs/commit/a41fd2a093d207d9216cde2a58da8669c09c7c04))
+* **cliproxy:** use backend-aware labels in error messages and API ([f0c845c](https://github.com/kaitranntt/ccs/commit/f0c845c32e7f389d8427941dd685898a3f894faa))
+* **cliproxy:** use backend-specific GitHub repos for version fetching ([0a1cbcc](https://github.com/kaitranntt/ccs/commit/0a1cbcc612d81ec8dc837cdada7c943ffedd4483))
+* **ui:** add backend fields to CliproxyUpdateCheckResult type ([c916356](https://github.com/kaitranntt/ccs/commit/c9163568391208c346a6ca0e04562d2931e8092a))
+* **ui:** align alert icon vertically with text when using py-2 ([0511c5e](https://github.com/kaitranntt/ccs/commit/0511c5e2fd008d953b357861a7941c3176280ecd))
+* **ui:** correct warning text to reference Instance Status section ([46e75e2](https://github.com/kaitranntt/ccs/commit/46e75e2a746ab46801d4d731a08405dc029fdf5a))
+* **ui:** display dynamic backend label in dashboard ([dad4349](https://github.com/kaitranntt/ccs/commit/dad434999469b6ed6e87c186c690004b83676420))
+* **ui:** integrate ProxyStatusWidget in Settings & block backend switch when running ([6458173](https://github.com/kaitranntt/ccs/commit/64581734c61f3ad31e52c3decc6de10a6f983050))
+* **ui:** prevent race conditions during backend switch ([498175e](https://github.com/kaitranntt/ccs/commit/498175e9fbc70010aececc276749356e8f8a8070))
+* **ui:** sync backend state across all CLIProxy UI components ([88560c7](https://github.com/kaitranntt/ccs/commit/88560c71194b66093410cd5189a84d1224b16b2a))
+
 ## [7.26.0](https://github.com/kaitranntt/ccs/compare/v7.25.0...v7.26.0) (2026-01-23)
 
 ### Features
