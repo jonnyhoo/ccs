@@ -12,22 +12,40 @@ import {
   getAllAccountsSummary,
   setDefaultAccount as setCliproxyDefault,
   removeAccount as removeCliproxyAccount,
+  bulkPauseAccounts,
+  bulkResumeAccounts,
+  soloAccount,
 } from '../../cliproxy/account-manager';
-import { CLIProxyProvider } from '../../cliproxy/types';
+import type { CLIProxyProvider } from '../../cliproxy/types';
 
 const router = Router();
 const registry = new ProfileRegistry();
 
+/** Valid CLIProxy providers */
+const VALID_PROVIDERS: CLIProxyProvider[] = [
+  'gemini',
+  'codex',
+  'agy',
+  'qwen',
+  'iflow',
+  'kiro',
+  'ghcp',
+];
+
+/** Check if provider is valid */
+function isValidProvider(provider: string): provider is CLIProxyProvider {
+  return VALID_PROVIDERS.includes(provider as CLIProxyProvider);
+}
+
 /** Parse CLIProxy account key format: "provider:accountId" */
 function parseCliproxyKey(key: string): { provider: CLIProxyProvider; accountId: string } | null {
-  const providers: CLIProxyProvider[] = ['gemini', 'codex', 'agy', 'qwen', 'iflow', 'kiro', 'ghcp'];
   const colonIndex = key.indexOf(':');
   if (colonIndex === -1) return null;
 
   const provider = key.slice(0, colonIndex) as CLIProxyProvider;
   const accountId = key.slice(colonIndex + 1);
 
-  if (!providers.includes(provider) || !accountId) return null;
+  if (!isValidProvider(provider) || !accountId) return null;
   return { provider, accountId };
 }
 
@@ -198,6 +216,109 @@ router.delete('/:name', (req: Request, res: Response): void => {
     registry.deleteProfile(name);
 
     res.json({ success: true, deleted: name });
+  } catch (error) {
+    res.status(500).json({ error: (error as Error).message });
+  }
+});
+
+/**
+ * POST /api/accounts/bulk-pause - Bulk pause multiple accounts
+ */
+router.post('/bulk-pause', (req: Request, res: Response): void => {
+  try {
+    const { provider, accountIds } = req.body;
+
+    if (!provider || !Array.isArray(accountIds)) {
+      res.status(400).json({ error: 'Missing required fields: provider and accountIds (array)' });
+      return;
+    }
+
+    if (!isValidProvider(provider)) {
+      res.status(400).json({ error: `Invalid provider: ${provider}` });
+      return;
+    }
+
+    // Allow empty arrays - return early success
+    if (accountIds.length === 0) {
+      res.json({ succeeded: [], failed: [] });
+      return;
+    }
+
+    // Validate accountIds are non-empty strings
+    const invalidIds = accountIds.filter((id) => typeof id !== 'string' || id.trim().length === 0);
+    if (invalidIds.length > 0) {
+      res.status(400).json({ error: 'Invalid accountIds: must be non-empty strings' });
+      return;
+    }
+
+    const result = bulkPauseAccounts(provider, accountIds);
+    res.json(result);
+  } catch (error) {
+    res.status(500).json({ error: (error as Error).message });
+  }
+});
+
+/**
+ * POST /api/accounts/bulk-resume - Bulk resume multiple accounts
+ */
+router.post('/bulk-resume', (req: Request, res: Response): void => {
+  try {
+    const { provider, accountIds } = req.body;
+
+    if (!provider || !Array.isArray(accountIds)) {
+      res.status(400).json({ error: 'Missing required fields: provider and accountIds (array)' });
+      return;
+    }
+
+    if (!isValidProvider(provider)) {
+      res.status(400).json({ error: `Invalid provider: ${provider}` });
+      return;
+    }
+
+    // Allow empty arrays - return early success
+    if (accountIds.length === 0) {
+      res.json({ succeeded: [], failed: [] });
+      return;
+    }
+
+    // Validate accountIds are non-empty strings
+    const invalidIds = accountIds.filter((id) => typeof id !== 'string' || id.trim().length === 0);
+    if (invalidIds.length > 0) {
+      res.status(400).json({ error: 'Invalid accountIds: must be non-empty strings' });
+      return;
+    }
+
+    const result = bulkResumeAccounts(provider, accountIds);
+    res.json(result);
+  } catch (error) {
+    res.status(500).json({ error: (error as Error).message });
+  }
+});
+
+/**
+ * POST /api/accounts/solo - Solo mode: activate one account, pause all others
+ */
+router.post('/solo', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { provider, accountId } = req.body;
+
+    if (!provider || !accountId) {
+      res.status(400).json({ error: 'Missing required fields: provider and accountId' });
+      return;
+    }
+
+    if (!isValidProvider(provider)) {
+      res.status(400).json({ error: `Invalid provider: ${provider}` });
+      return;
+    }
+
+    const result = await soloAccount(provider, accountId);
+    if (!result) {
+      res.status(404).json({ error: `Account not found: ${accountId}` });
+      return;
+    }
+
+    res.json(result);
   } catch (error) {
     res.status(500).json({ error: (error as Error).message });
   }
