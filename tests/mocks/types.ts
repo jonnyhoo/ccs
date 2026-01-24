@@ -21,22 +21,10 @@ export interface MockResponse {
   headers?: Record<string, string>;
   /** Delay in ms before responding (for timeout testing) */
   delay?: number;
-  /** Throw error instead of responding */
-  error?: Error;
 }
 
 /** Route key format: "METHOD /path" */
 export type RouteKey = `${HttpMethod} ${string}`;
-
-/** Mock route configuration */
-export interface MockRoute {
-  /** HTTP method */
-  method: HttpMethod;
-  /** URL path pattern (string or regex) */
-  path: string | RegExp;
-  /** Response to return */
-  response: MockResponse;
-}
 
 /** Configuration for createMockHttpServer */
 export interface MockHttpServerConfig {

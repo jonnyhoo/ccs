@@ -55,12 +55,18 @@ export function createMockHttpServer(config: MockHttpServerConfig): MockHttpServ
 
       // Try pattern matching for routes with wildcards
       for (const [key, response] of Object.entries(routes)) {
-        const [routeMethod, routePath] = key.split(' ', 2);
+        // Split on first space only to preserve spaces in path
+        const spaceIndex = key.indexOf(' ');
+        if (spaceIndex === -1) continue;
+        const routeMethod = key.slice(0, spaceIndex);
+        const routePath = key.slice(spaceIndex + 1);
         if (routeMethod !== method) continue;
 
         // Check if route path is a pattern (contains *)
         if (routePath.includes('*')) {
-          const pattern = routePath.replace(/\*/g, '.*');
+          // Escape regex special chars, then replace * with .*
+          const escaped = routePath.replace(/[.+?^${}()|[\]\\]/g, '\\$&');
+          const pattern = escaped.replace(/\*/g, '.*');
           const regex = new RegExp(`^${pattern}$`);
           if (regex.test(path)) {
             return response;

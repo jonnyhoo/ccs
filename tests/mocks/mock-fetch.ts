@@ -27,7 +27,13 @@ let capturedRequests: CapturedRequest[] = [];
  * afterEach(() => restoreFetch());
  */
 export function mockFetch(handlers: MockFetchHandler[]): void {
-  // Store original if not already mocked
+  // Restore previous mock if exists (prevents spy leak on double-call)
+  if (mockInstance) {
+    mockInstance.mockRestore();
+    mockInstance = null;
+  }
+
+  // Store original if not already stored
   if (!originalFetch) {
     originalFetch = globalThis.fetch;
   }
@@ -64,12 +70,20 @@ export function mockFetch(handlers: MockFetchHandler[]): void {
         }
       }
 
-      // Extract body
+      // Extract body with type differentiation
       if (init?.body) {
         if (typeof init.body === 'string') {
           captured.body = init.body;
         } else if (init.body instanceof FormData) {
           captured.body = '[FormData]';
+        } else if (init.body instanceof URLSearchParams) {
+          captured.body = '[URLSearchParams]';
+        } else if (init.body instanceof ArrayBuffer || ArrayBuffer.isView(init.body)) {
+          captured.body = '[ArrayBuffer]';
+        } else if (init.body instanceof Blob) {
+          captured.body = '[Blob]';
+        } else if (typeof init.body === 'object' && 'getReader' in init.body) {
+          captured.body = '[ReadableStream]';
         } else {
           captured.body = '[Binary]';
         }
