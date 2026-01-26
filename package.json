@@ -51,6 +51,7 @@
   "preferGlobal": true,
   "scripts": {
     "preinstall": "node scripts/preinstall.js",
+    "postuninstall": "node scripts/postuninstall.js",
     "build": "tsc && node scripts/add-shebang.js",
     "build:watch": "tsc --watch",
     "build:server": "tsc && node scripts/add-shebang.js",

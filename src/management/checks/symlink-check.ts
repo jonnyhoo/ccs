@@ -7,11 +7,22 @@ import * as path from 'path';
 import * as os from 'os';
 import { ok, fail, warn } from '../../utils/ui';
 import { HealthCheck, IHealthChecker, createSpinner } from './types';
+import { getCcsDir } from '../../utils/config-manager';
 
 const ora = createSpinner();
-const homedir = os.homedir();
-const ccsDir = path.join(homedir, '.ccs');
-const claudeDir = path.join(homedir, '.claude');
+
+// Get paths at runtime to respect CCS_HOME for test isolation
+function getHomedir(): string {
+  return os.homedir();
+}
+
+function getCcsDirPath(): string {
+  return getCcsDir();
+}
+
+function getClaudeDir(): string {
+  return path.join(getHomedir(), '.claude');
+}
 
 /**
  * Check file permissions on ~/.ccs/
@@ -21,7 +32,7 @@ export class PermissionsChecker implements IHealthChecker {
 
   run(results: HealthCheck): void {
     const spinner = ora('Checking permissions').start();
-    const testFile = path.join(ccsDir, '.permission-test');
+    const testFile = path.join(getCcsDirPath(), '.permission-test');
 
     try {
       fs.writeFileSync(testFile, 'test', 'utf8');
@@ -113,6 +124,8 @@ export class SettingsSymlinksChecker implements IHealthChecker {
   run(results: HealthCheck): void {
     const spinner = ora('Checking settings.json symlinks').start();
     const label = 'settings.json';
+    const ccsDir = getCcsDirPath();
+    const claudeDir = getClaudeDir();
     const sharedSettings = path.join(ccsDir, 'shared', 'settings.json');
     const claudeSettings = path.join(claudeDir, 'settings.json');
 

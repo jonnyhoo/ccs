@@ -11,15 +11,20 @@ import * as path from 'path';
 import * as os from 'os';
 import { info, warn } from '../ui';
 import { getWebSearchConfig } from '../../config/unified-config-loader';
+import { getCcsDir } from '../config-manager';
 
-// Path to Claude settings.json
+// Path to Claude settings.json (intentionally uses real homedir for global settings)
 const CLAUDE_SETTINGS_PATH = path.join(os.homedir(), '.claude', 'settings.json');
-
-// CCS hooks directory
-const CCS_HOOKS_DIR = path.join(os.homedir(), '.ccs', 'hooks');
 
 // Hook file name
 const WEBSEARCH_HOOK = 'websearch-transformer.cjs';
+
+/**
+ * Get CCS hooks directory (respects CCS_HOME for test isolation)
+ */
+export function getCcsHooksDir(): string {
+  return path.join(getCcsDir(), 'hooks');
+}
 
 // Buffer time added to max provider timeout for hook timeout (seconds)
 const HOOK_TIMEOUT_BUFFER = 30;
@@ -31,7 +36,7 @@ const MIN_HOOK_TIMEOUT = 60;
  * Get path to WebSearch hook
  */
 export function getHookPath(): string {
-  return path.join(CCS_HOOKS_DIR, WEBSEARCH_HOOK);
+  return path.join(getCcsHooksDir(), WEBSEARCH_HOOK);
 }
 
 /**
@@ -174,6 +179,69 @@ export function ensureHookConfig(): boolean {
   } catch (error) {
     if (process.env.CCS_DEBUG) {
       console.error(warn(`Failed to configure WebSearch hook: ${(error as Error).message}`));
+    }
+    return false;
+  }
+}
+
+/**
+ * Remove CCS WebSearch hook from ~/.claude/settings.json
+ * Only removes hooks matching: matcher='WebSearch' AND command contains '.ccs/hooks/websearch-transformer'
+ * Preserves user-defined WebSearch hooks
+ */
+export function removeHookConfig(): boolean {
+  try {
+    if (!fs.existsSync(CLAUDE_SETTINGS_PATH)) {
+      return true; // Nothing to remove
+    }
+
+    const content = fs.readFileSync(CLAUDE_SETTINGS_PATH, 'utf8');
+    let settings: Record<string, unknown>;
+    try {
+      settings = JSON.parse(content);
+    } catch {
+      return false; // Malformed JSON, don't touch
+    }
+
+    const hooks = settings.hooks as Record<string, unknown[]> | undefined;
+    if (!hooks?.PreToolUse) {
+      return true; // No hooks to remove
+    }
+
+    const originalLength = hooks.PreToolUse.length;
+    hooks.PreToolUse = hooks.PreToolUse.filter((h: unknown) => {
+      const hook = h as Record<string, unknown>;
+      if (hook.matcher !== 'WebSearch') return true; // Keep non-WebSearch hooks
+
+      const hookArray = hook.hooks as Array<Record<string, unknown>> | undefined;
+      if (!hookArray?.[0]?.command) return true; // Keep malformed entries
+
+      const command = hookArray[0].command as string;
+      return !command.includes('.ccs/hooks/websearch-transformer'); // Remove if CCS hook
+    });
+
+    if (hooks.PreToolUse.length === originalLength) {
+      return true; // Nothing changed
+    }
+
+    // Clean up empty hooks object
+    if (hooks.PreToolUse.length === 0) {
+      delete hooks.PreToolUse;
+    }
+    if (Object.keys(hooks).length === 0) {
+      delete settings.hooks;
+    }
+
+    fs.writeFileSync(CLAUDE_SETTINGS_PATH, JSON.stringify(settings, null, 2), 'utf8');
+
+    if (process.env.CCS_DEBUG) {
+      console.error(info('Removed WebSearch hook from settings.json'));
+    }
+
+    return true;
+  } catch (error) {
+    if (process.env.CCS_DEBUG) {
+      console.error(warn(`Failed to remove hook config: ${(error as Error).message}`));
     }
     return false;
   }

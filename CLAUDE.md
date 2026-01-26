@@ -2,6 +2,19 @@
 
 AI-facing guidance for Claude Code when working with this repository.
 
+## Critical Constraints (NEVER VIOLATE)
+
+### Test Isolation (MANDATORY)
+
+**NEVER touch the user's real `~/.ccs/` or `~/.claude/` directories during tests.**
+
+- All code accessing CCS paths MUST use `getCcsDir()` from `src/utils/config-manager.ts`
+- This function respects `CCS_HOME` env var for test isolation
+- **WRONG:** `path.join(os.homedir(), '.ccs', ...)`
+- **CORRECT:** `path.join(getCcsDir(), ...)`
+
+Tests set `process.env.CCS_HOME` to a temp directory. Code using `os.homedir()` directly will modify the user's real files.
+
 ## Core Function
 
 CLI wrapper for instant switching between multiple Claude accounts and alternative models (GLM, GLMT, Kimi). See README.md for user documentation.

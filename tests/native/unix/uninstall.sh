@@ -118,6 +118,8 @@ test_case "Empty uninstall: Reports 0 items removed" "Zero removed count" bash -
 # ============================================================================
 
 # Install first so we can test uninstall
+# NOTE: --install is currently a no-op (under development), but we call it
+# to test the install/uninstall cycle works without errors
 echo ""
 echo -e "${YELLOW}Setting up for install/uninstall cycle test...${NC}"
 bash -c "HOME='$TEST_HOME' '$CCS_PATH' --install > /dev/null 2>&1"
@@ -276,6 +278,71 @@ test_case "Edge case: Partial install (skills only)" "Handles partial installati
 test_case "Edge case: Missing parent directories" "Handles missing .claude directory" bash -c "
     # Ensure .claude directory doesn't exist
     rm -rf '$TEST_CLAUDE_DIR'
+    HOME='$TEST_HOME' '$CCS_PATH' --uninstall > /dev/null 2>&1
+    exit_code=\$?
+    [[ \$exit_code -eq 0 ]]
+"
+
+# ============================================================================
+# TEST SECTION 7: PER-PROFILE HOOK BEHAVIOR (Global settings untouched)
+# ============================================================================
+
+echo ""
+echo "========================================"
+echo "SECTION 7: PER-PROFILE HOOK BEHAVIOR"
+echo "========================================"
+
+test_case "Per-profile: Uninstall does NOT touch global settings.json" "Global settings unchanged" bash -c "
+    # Setup: Create settings.json with user hook
+    mkdir -p '$TEST_CLAUDE_DIR'
+    cat > '$TEST_CLAUDE_DIR/settings.json' << 'EOFINNER'
+{
+  \"hooks\": {
+    \"PreToolUse\": [
+      { \"matcher\": \"WebSearch\", \"hooks\": [{ \"command\": \"my-custom-hook.sh\" }] }
+    ]
+  }
+}
+EOFINNER
+    # Uninstall
+    HOME='$TEST_HOME' '$CCS_PATH' --uninstall > /dev/null 2>&1
+    # Verify global settings unchanged
+    grep -q 'my-custom-hook' '$TEST_CLAUDE_DIR/settings.json'
+"
+
+test_case "Per-profile: Uninstall preserves user hooks in global settings" "User hooks in global preserved" bash -c "
+    # Setup: Create settings.json with CCS hook (old format - shouldn't be touched)
+    mkdir -p '$TEST_CLAUDE_DIR'
+    cat > '$TEST_CLAUDE_DIR/settings.json' << 'EOFINNER'
+{
+  \"hooks\": {
+    \"PreToolUse\": [
+      { \"matcher\": \"WebSearch\", \"hooks\": [{ \"command\": \"node ~/.ccs/hooks/websearch-transformer.cjs\" }] },
+      { \"matcher\": \"WebSearch\", \"hooks\": [{ \"command\": \"my-custom-hook.sh\" }] }
+    ]
+  }
+}
+EOFINNER
+    # Uninstall - should NOT modify global settings
+    HOME='$TEST_HOME' '$CCS_PATH' --uninstall > /dev/null 2>&1
+    # Both hooks should still be in global settings (not touched)
+    grep -q 'websearch-transformer' '$TEST_CLAUDE_DIR/settings.json' &&
+    grep -q 'my-custom-hook' '$TEST_CLAUDE_DIR/settings.json'
+"
+
+test_case "Per-profile: Migration marker cleanup on uninstall" "Marker file removed" bash -c "
+    # Setup: Create ~/.ccs/.hook-migrated marker
+    mkdir -p '$TEST_HOME/.ccs'
+    echo '2026-01-25T00:00:00.000Z' > '$TEST_HOME/.ccs/.hook-migrated'
+    # Uninstall
+    HOME='$TEST_HOME' '$CCS_PATH' --uninstall > /dev/null 2>&1
+    # Verify marker removed
+    [[ ! -f '$TEST_HOME/.ccs/.hook-migrated' ]]
+"
+
+test_case "Per-profile: Handles missing settings.json" "No error when settings.json missing" bash -c "
+    # Ensure settings.json doesn't exist
+    rm -f '$TEST_CLAUDE_DIR/settings.json'
     HOME='$TEST_HOME' '$CCS_PATH' --uninstall > /dev/null 2>&1
     exit_code=\$?
     [[ \$exit_code -eq 0 ]]

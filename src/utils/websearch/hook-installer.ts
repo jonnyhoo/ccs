@@ -8,16 +8,13 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
-import * as os from 'os';
 import { info, warn } from '../ui';
 import { getWebSearchConfig } from '../../config/unified-config-loader';
-import { getHookPath, ensureHookConfig } from './hook-config';
+import { getHookPath, ensureHookConfig, getCcsHooksDir } from './hook-config';
+import { removeMigrationMarker } from './profile-hook-injector';
 
 // Re-export from hook-config for backward compatibility
 export { getHookPath, getWebSearchHookConfig } from './hook-config';
-
-// CCS hooks directory
-const CCS_HOOKS_DIR = path.join(os.homedir(), '.ccs', 'hooks');
 
 // Hook file name
 const WEBSEARCH_HOOK = 'websearch-transformer.cjs';
@@ -49,8 +46,9 @@ export function installWebSearchHook(): boolean {
     }
 
     // Ensure hooks directory exists
-    if (!fs.existsSync(CCS_HOOKS_DIR)) {
-      fs.mkdirSync(CCS_HOOKS_DIR, { recursive: true, mode: 0o700 });
+    const hooksDir = getCcsHooksDir();
+    if (!fs.existsSync(hooksDir)) {
+      fs.mkdirSync(hooksDir, { recursive: true, mode: 0o700 });
     }
 
     const hookPath = getHookPath();
@@ -102,6 +100,9 @@ export function installWebSearchHook(): boolean {
 /**
  * Uninstall WebSearch hook from ~/.ccs/hooks/
  *
+ * Note: Does NOT touch global ~/.claude/settings.json.
+ * Profile-specific hooks are removed when ~/.ccs/ is deleted.
+ *
  * @returns true if hook uninstalled successfully
  */
 export function uninstallWebSearchHook(): boolean {
@@ -115,7 +116,11 @@ export function uninstallWebSearchHook(): boolean {
       }
     }
 
-    // TODO: Optionally remove from settings.json
+    // Remove migration marker (so fresh install re-runs migration)
+    removeMigrationMarker();
+
+    // Note: Do NOT call removeHookConfig() - global settings should not be touched.
+    // Per-profile hooks in ~/.ccs/*.settings.json are cleaned up when ~/.ccs/ is deleted.
 
     return true;
   } catch (error) {

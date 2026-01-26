@@ -11,6 +11,7 @@ import {
   installWebSearchHook,
   displayWebSearchStatus,
   getWebSearchHookEnv,
+  ensureProfileHooks,
 } from './utils/websearch-manager';
 import { getGlobalEnvConfig } from './config/unified-config-loader';
 import { fail, info } from './utils/ui';
@@ -518,6 +519,9 @@ async function main(): Promise<void> {
 
     if (profileInfo.type === 'cliproxy') {
       // CLIPROXY FLOW: OAuth-based profiles (gemini, codex, agy, qwen) or user-defined variants
+      // Inject WebSearch hook into profile settings before launch
+      ensureProfileHooks(profileInfo.name);
+
       const provider = profileInfo.provider || (profileInfo.name as CLIProxyProvider);
       const customSettingsPath = profileInfo.settingsPath; // undefined for hardcoded profiles
       const variantPort = profileInfo.port; // variant-specific port for isolation
@@ -527,6 +531,9 @@ async function main(): Promise<void> {
       });
     } else if (profileInfo.type === 'copilot') {
       // COPILOT FLOW: GitHub Copilot subscription via copilot-api proxy
+      // Inject WebSearch hook into profile settings before launch
+      ensureProfileHooks(profileInfo.name);
+
       const { executeCopilotProfile } = await import('./copilot');
       const copilotConfig = profileInfo.copilotConfig;
       if (!copilotConfig) {
@@ -538,6 +545,9 @@ async function main(): Promise<void> {
     } else if (profileInfo.type === 'settings') {
       // Settings-based profiles (glm, glmt, kimi) are third-party providers
       // WebSearch is server-side tool - third-party providers have no access
+      // Inject WebSearch hook into profile settings before launch
+      ensureProfileHooks(profileInfo.name);
+
       ensureMcpWebSearch();
       installWebSearchHook();
 

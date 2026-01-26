@@ -7,7 +7,6 @@
 
 import { spawn } from 'child_process';
 import * as path from 'path';
-import * as os from 'os';
 import * as fs from 'fs';
 import { SessionManager } from './session-manager';
 import { SettingsParser } from './settings-parser';
@@ -15,6 +14,7 @@ import { ui, warn, info } from '../utils/ui';
 import { type ExecutionOptions, type ExecutionResult, type StreamMessage } from './executor/types';
 import { StreamBuffer, formatToolVerbose } from './executor/stream-parser';
 import { buildExecutionResult } from './executor/result-aggregator';
+import { getCcsDir } from '../utils/config-manager';
 
 // Re-export types for consumers
 export type { ExecutionOptions, ExecutionResult, StreamMessage } from './executor/types';
@@ -63,7 +63,7 @@ export class HeadlessExecutor {
     }
 
     // Get settings path for profile
-    const settingsPath = path.join(os.homedir(), '.ccs', `${profile}.settings.json`);
+    const settingsPath = path.join(getCcsDir(), `${profile}.settings.json`);
 
     // Validate settings file exists
     if (!fs.existsSync(settingsPath)) {

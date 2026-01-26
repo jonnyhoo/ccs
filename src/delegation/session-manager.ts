@@ -6,7 +6,7 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
-import * as os from 'os';
+import { getCcsDir } from '../utils/config-manager';
 
 interface SessionData {
   sessionId: string;
@@ -39,7 +39,7 @@ class SessionManager {
   private readonly sessionsPath: string;
 
   constructor() {
-    this.sessionsPath = path.join(os.homedir(), '.ccs', 'delegation-sessions.json');
+    this.sessionsPath = path.join(getCcsDir(), 'delegation-sessions.json');
   }
 
   /**

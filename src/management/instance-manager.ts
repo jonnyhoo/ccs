@@ -8,8 +8,8 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
-import * as os from 'os';
 import SharedManager from './shared-manager';
+import { getCcsDir } from '../utils/config-manager';
 
 /**
  * Instance Manager Class
@@ -19,7 +19,7 @@ class InstanceManager {
   private readonly sharedManager: SharedManager;
 
   constructor() {
-    this.instancesDir = path.join(os.homedir(), '.ccs', 'instances');
+    this.instancesDir = path.join(getCcsDir(), 'instances');
     this.sharedManager = new SharedManager();
   }
 

@@ -10,8 +10,8 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
-import * as os from 'os';
 import { DeltaAccumulator } from './delta-accumulator';
+import { getCcsDir } from '../utils/config-manager';
 import {
   RequestTransformer,
   StreamParser,
@@ -48,7 +48,7 @@ export class GlmtTransformer {
 
     const debugEnabled = process.env.CCS_DEBUG === '1';
     this.debugLog = config.debugLog ?? debugEnabled;
-    this.debugLogDir = config.debugLogDir || path.join(os.homedir(), '.ccs', 'logs');
+    this.debugLogDir = config.debugLogDir || path.join(getCcsDir(), 'logs');
 
     // Initialize pipeline components
     this.requestTransformer = new RequestTransformer({

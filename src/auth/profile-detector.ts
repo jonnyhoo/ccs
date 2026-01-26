@@ -11,11 +11,11 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
-import * as os from 'os';
 import { findSimilarStrings, expandPath } from '../utils/helpers';
 import { Config, Settings, ProfileMetadata } from '../types';
 import { UnifiedConfig, CopilotConfig } from '../config/unified-config-types';
 import { loadUnifiedConfig, isUnifiedMode } from '../config/unified-config-loader';
+import { getCcsDir } from '../utils/config-manager';
 
 export type ProfileType = 'settings' | 'account' | 'cliproxy' | 'copilot' | 'default';
 
@@ -84,8 +84,9 @@ class ProfileDetector {
   private readonly profilesPath: string;
 
   constructor() {
-    this.configPath = path.join(os.homedir(), '.ccs', 'config.json');
-    this.profilesPath = path.join(os.homedir(), '.ccs', 'profiles.json');
+    const ccsDir = getCcsDir();
+    this.configPath = path.join(ccsDir, 'config.json');
+    this.profilesPath = path.join(ccsDir, 'profiles.json');
   }
 
   /**

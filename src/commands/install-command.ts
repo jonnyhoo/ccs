@@ -4,7 +4,9 @@
  * Handle --install and --uninstall commands for CCS.
  */
 
-import { info, color, initUI } from '../utils/ui';
+import { info, ok, color, box, initUI } from '../utils/ui';
+import { uninstallWebSearchHook } from '../utils/websearch';
+import { ClaudeSymlinkManager } from '../utils/claude-symlink-manager';
 
 /**
  * Handle install command
@@ -28,12 +30,36 @@ export async function handleInstallCommand(): Promise<void> {
 export async function handleUninstallCommand(): Promise<void> {
   await initUI();
   console.log('');
-  console.log(info('Feature not available'));
+  console.log(box('Uninstalling CCS', { borderColor: 'cyan' }));
   console.log('');
-  console.log('The --uninstall flag is currently under development.');
-  console.log('.claude/ integration testing is not complete.');
+
+  let removed = 0;
+
+  // 1. Remove WebSearch hook file + migration marker (does NOT touch global settings.json)
+  const hookRemoved = uninstallWebSearchHook();
+  if (hookRemoved) {
+    console.log(ok('Removed WebSearch hook'));
+    removed++;
+  }
+
+  // 2. Remove symlinks from ~/.claude/
+  const symlinkManager = new ClaudeSymlinkManager();
+  const symlinksRemoved = symlinkManager.uninstall();
+  if (symlinksRemoved > 0) {
+    removed++;
+  }
+
+  // 3. Summary
   console.log('');
-  console.log(`For updates: ${color('https://github.com/kaitranntt/ccs/issues', 'path')}`);
+  if (removed > 0) {
+    console.log(ok('Uninstall complete!'));
+    console.log('');
+    console.log(info('~/.ccs/ directory preserved'));
+    console.log(info('To reinstall: ccs --install'));
+  } else {
+    console.log(info('Nothing to uninstall'));
+  }
   console.log('');
+
   process.exit(0);
 }

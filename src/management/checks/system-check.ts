@@ -3,13 +3,12 @@
  */
 
 import * as fs from 'fs';
-import * as path from 'path';
-import * as os from 'os';
 import { spawn } from 'child_process';
 import { getClaudeCliInfo } from '../../utils/claude-detector';
 import { escapeShellArg } from '../../utils/shell-executor';
 import { ok, fail } from '../../utils/ui';
 import { HealthCheck, IHealthChecker, createSpinner } from './types';
+import { getCcsDir } from '../../utils/config-manager';
 
 const ora = createSpinner();
 
@@ -99,7 +98,7 @@ export class CcsDirectoryChecker implements IHealthChecker {
   private readonly ccsDir: string;
 
   constructor() {
-    this.ccsDir = path.join(os.homedir(), '.ccs');
+    this.ccsDir = getCcsDir();
   }
 
   run(results: HealthCheck): void {

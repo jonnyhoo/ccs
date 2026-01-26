@@ -7,6 +7,7 @@ import * as path from 'path';
 import * as os from 'os';
 import { ok, fail, warn, info } from '../../utils/ui';
 import { HealthCheck, IHealthChecker, createSpinner } from './types';
+import { getCcsDir } from '../../utils/config-manager';
 
 const ora = createSpinner();
 
@@ -20,7 +21,7 @@ export class ConfigFilesChecker implements IHealthChecker {
   private readonly ccsDir: string;
 
   constructor() {
-    this.ccsDir = path.join(os.homedir(), '.ccs');
+    this.ccsDir = getCcsDir();
   }
 
   run(results: HealthCheck): void {

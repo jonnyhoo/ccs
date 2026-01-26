@@ -14,8 +14,8 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
-import * as os from 'os';
 import { ok, fail, warn, info, color } from './ui';
+import { getCcsDir, getCcsHome } from './config-manager';
 
 // Ora fallback type for when ora is not available
 interface OraSpinner {
@@ -71,8 +71,9 @@ export class ClaudeSymlinkManager {
   private ccsItems: CcsItem[];
 
   constructor() {
-    this.homeDir = os.homedir();
-    this.ccsClaudeDir = path.join(this.homeDir, '.ccs', '.claude');
+    // Use getCcsHome() for test isolation - respects CCS_HOME env var
+    this.homeDir = getCcsHome();
+    this.ccsClaudeDir = path.join(getCcsDir(), '.claude');
     this.userClaudeDir = path.join(this.homeDir, '.claude');
 
     // CCS items to symlink (selective, item-level)
@@ -279,8 +280,9 @@ export class ClaudeSymlinkManager {
   /**
    * Uninstall CCS items from ~/.claude/ (remove symlinks or copied files)
    * Safe: only removes items that are CCS symlinks or valid copies
+   * @returns number of items removed
    */
-  uninstall(): void {
+  uninstall(): number {
     let removed = 0;
 
     for (const item of this.ccsItems) {
@@ -315,6 +317,8 @@ export class ClaudeSymlinkManager {
     } else {
       console.log(info('No delegation commands or skills to remove'));
     }
+
+    return removed;
   }
 
   /**

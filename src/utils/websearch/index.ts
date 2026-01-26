@@ -41,6 +41,9 @@ export {
   uninstallWebSearchHook,
 } from './hook-installer';
 
+// Hook Config (removal)
+export { removeHookConfig } from './hook-config';
+
 // Hook Environment
 export { getWebSearchHookEnv } from './hook-env';
 
@@ -52,3 +55,6 @@ export {
   getWebSearchReadiness,
   displayWebSearchStatus,
 } from './status';
+
+// Profile Hook Injection
+export { ensureProfileHooks, removeMigrationMarker } from './profile-hook-injector';

@@ -39,9 +39,8 @@ describe('integration: special commands', () => {
 
   it('handles --uninstall command', () => {
     const output = execSync(`node ${ccsPath} --uninstall`, { encoding: 'utf8' });
-    assert(output.includes('Feature not available'));
-    assert(output.includes('under development'));
-    assert(output.includes('.claude/ integration testing'));
+    assert(output.includes('Uninstalling CCS'));
+    assert(output.includes('[OK] Uninstall complete!') || output.includes('Nothing to uninstall'));
   });
 
   describe('ccs update command flags', () => {

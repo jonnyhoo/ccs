@@ -60,6 +60,9 @@ export {
   displayWebSearchStatus,
 } from './websearch/status';
 
+// Re-export profile hook injection
+export { ensureProfileHooks, removeMigrationMarker } from './websearch/profile-hook-injector';
+
 // Import for local use
 import { clearGeminiCliCache, clearGrokCliCache, clearOpenCodeCliCache } from './websearch';
 

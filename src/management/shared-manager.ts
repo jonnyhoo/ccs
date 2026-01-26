@@ -10,6 +10,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 import { ok, info, warn } from '../utils/ui';
+import { getCcsDir } from '../utils/config-manager';
 
 interface SharedItem {
   name: string;
@@ -28,9 +29,10 @@ class SharedManager {
 
   constructor() {
     this.homeDir = os.homedir();
-    this.sharedDir = path.join(this.homeDir, '.ccs', 'shared');
+    const ccsDir = getCcsDir();
+    this.sharedDir = path.join(ccsDir, 'shared');
     this.claudeDir = path.join(this.homeDir, '.claude');
-    this.instancesDir = path.join(this.homeDir, '.ccs', 'instances');
+    this.instancesDir = path.join(ccsDir, 'instances');
     this.sharedItems = [
       { name: 'commands', type: 'directory' },
       { name: 'skills', type: 'directory' },

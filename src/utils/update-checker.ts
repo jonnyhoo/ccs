@@ -4,10 +4,10 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
-import * as os from 'os';
 import * as https from 'https';
+import { getCcsDir } from './config-manager';
 
-const CACHE_DIR = path.join(os.homedir(), '.ccs', 'cache');
+const CACHE_DIR = path.join(getCcsDir(), 'cache');
 const UPDATE_CHECK_FILE = path.join(CACHE_DIR, 'update-check.json');
 const CHECK_INTERVAL = 24 * 60 * 60 * 1000; // 24 hours
 const GITHUB_API_URL = 'https://api.github.com/repos/kaitranntt/ccs/releases/latest';

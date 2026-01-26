@@ -1,12 +1,12 @@
 import * as fs from 'fs';
 import * as path from 'path';
-import * as os from 'os';
 import { ProfileMetadata } from '../types';
 import {
   loadOrCreateUnifiedConfig,
   saveUnifiedConfig,
   isUnifiedMode,
 } from '../config/unified-config-loader';
+import { getCcsDir } from '../utils/config-manager';
 
 /**
  * Profile Registry (Simplified)
@@ -43,7 +43,7 @@ export class ProfileRegistry {
   private profilesPath: string;
 
   constructor() {
-    this.profilesPath = path.join(os.homedir(), '.ccs', 'profiles.json');
+    this.profilesPath = path.join(getCcsDir(), 'profiles.json');
   }
 
   /**
