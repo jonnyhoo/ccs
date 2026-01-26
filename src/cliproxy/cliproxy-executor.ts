@@ -500,7 +500,9 @@ export async function execClaudeWithCLIProxy(
   // 3. Ensure OAuth completed (if provider requires it)
   // Skip local OAuth check when using remote proxy with auth token
   // The remote proxy has its own OAuth sessions and handles authentication
-  const skipLocalAuth = useRemoteProxy && proxyConfig.authToken;
+  // Note: Trim authToken to reject whitespace-only values
+  const remoteAuthToken = proxyConfig.authToken?.trim();
+  const skipLocalAuth = useRemoteProxy && !!remoteAuthToken;
   if (skipLocalAuth) {
     log(`Using remote proxy authentication (skipping local OAuth)`);
   }
@@ -585,21 +587,23 @@ export async function execClaudeWithCLIProxy(
   }
 
   // 5. Check for known broken models and warn user
-  // Skip for remote proxy - model selection is on the remote server
-  if (!skipLocalAuth) {
-    const currentModel = getCurrentModel(provider, cfg.customSettingsPath);
-    if (currentModel && isModelBroken(provider, currentModel)) {
-      const modelEntry = findModel(provider, currentModel);
-      const issueUrl = getModelIssueUrl(provider, currentModel);
-      console.error('');
-      console.error(warn(`${modelEntry?.name || currentModel} has known issues with Claude Code`));
-      console.error('    Tool calls will fail. Use "gemini-3-pro-preview" instead.');
-      if (issueUrl) {
-        console.error(`    Tracking: ${issueUrl}`);
-      }
-      console.error(`    Run "ccs ${provider} --config" to change model.`);
-      console.error('');
+  // Show warning for both local and remote modes - user should be aware of model issues
+  const currentModel = getCurrentModel(provider, cfg.customSettingsPath);
+  if (currentModel && isModelBroken(provider, currentModel)) {
+    const modelEntry = findModel(provider, currentModel);
+    const issueUrl = getModelIssueUrl(provider, currentModel);
+    console.error('');
+    console.error(warn(`${modelEntry?.name || currentModel} has known issues with Claude Code`));
+    console.error('    Tool calls will fail. Use "gemini-3-pro-preview" instead.');
+    if (issueUrl) {
+      console.error(`    Tracking: ${issueUrl}`);
     }
+    if (skipLocalAuth) {
+      console.error('    Note: Model may be overridden by remote proxy configuration.');
+    } else {
+      console.error(`    Run "ccs ${provider} --config" to change model.`);
+    }
+    console.error('');
   }
 
   // 6. Ensure user settings file exists (creates from defaults if not)

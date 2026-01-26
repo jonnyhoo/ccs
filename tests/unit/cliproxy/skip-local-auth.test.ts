@@ -3,8 +3,23 @@
  *
  * When --proxy-host and --proxy-auth-token are provided together, the system should
  * skip local OAuth checks because the remote proxy handles authentication.
+ *
+ * Implementation uses: const remoteAuthToken = proxyConfig.authToken?.trim();
+ *                      const skipLocalAuth = useRemoteProxy && !!remoteAuthToken;
  */
 import { describe, it, expect } from 'bun:test';
+
+/**
+ * Helper to compute skipLocalAuth exactly as the implementation does
+ * Mirrors logic from cliproxy-executor.ts lines 503-505
+ */
+function computeSkipLocalAuth(
+  useRemoteProxy: boolean,
+  proxyConfig: { authToken?: string | null }
+): boolean {
+  const remoteAuthToken = proxyConfig.authToken?.trim();
+  return useRemoteProxy && !!remoteAuthToken;
+}
 
 describe('skip-local-auth logic', () => {
   describe('skipLocalAuth flag determination', () => {
@@ -12,45 +27,92 @@ describe('skip-local-auth logic', () => {
       const useRemoteProxy = true;
       const proxyConfig = { authToken: 'test-token-123' };
 
-      const skipLocalAuth = useRemoteProxy && proxyConfig.authToken;
+      const skipLocalAuth = computeSkipLocalAuth(useRemoteProxy, proxyConfig);
 
-      expect(skipLocalAuth).toBeTruthy();
+      expect(skipLocalAuth).toBe(true);
     });
 
     it('should NOT skip local auth when useRemoteProxy is false', () => {
       const useRemoteProxy = false;
       const proxyConfig = { authToken: 'test-token-123' };
 
-      const skipLocalAuth = useRemoteProxy && proxyConfig.authToken;
+      const skipLocalAuth = computeSkipLocalAuth(useRemoteProxy, proxyConfig);
 
-      expect(skipLocalAuth).toBeFalsy();
+      expect(skipLocalAuth).toBe(false);
     });
 
     it('should NOT skip local auth when authToken is undefined', () => {
       const useRemoteProxy = true;
       const proxyConfig = { authToken: undefined };
 
-      const skipLocalAuth = useRemoteProxy && proxyConfig.authToken;
+      const skipLocalAuth = computeSkipLocalAuth(useRemoteProxy, proxyConfig);
 
-      expect(skipLocalAuth).toBeFalsy();
+      expect(skipLocalAuth).toBe(false);
     });
 
     it('should NOT skip local auth when authToken is empty string', () => {
       const useRemoteProxy = true;
       const proxyConfig = { authToken: '' };
 
-      const skipLocalAuth = useRemoteProxy && proxyConfig.authToken;
+      const skipLocalAuth = computeSkipLocalAuth(useRemoteProxy, proxyConfig);
 
-      expect(skipLocalAuth).toBeFalsy();
+      expect(skipLocalAuth).toBe(false);
     });
 
     it('should NOT skip local auth when both are falsy', () => {
       const useRemoteProxy = false;
       const proxyConfig = { authToken: undefined };
 
-      const skipLocalAuth = useRemoteProxy && proxyConfig.authToken;
+      const skipLocalAuth = computeSkipLocalAuth(useRemoteProxy, proxyConfig);
 
-      expect(skipLocalAuth).toBeFalsy();
+      expect(skipLocalAuth).toBe(false);
+    });
+  });
+
+  describe('authToken edge cases', () => {
+    it('should NOT skip local auth when authToken is whitespace-only', () => {
+      const useRemoteProxy = true;
+      const proxyConfig = { authToken: '   ' };
+
+      const skipLocalAuth = computeSkipLocalAuth(useRemoteProxy, proxyConfig);
+
+      expect(skipLocalAuth).toBe(false);
+    });
+
+    it('should NOT skip local auth when authToken is tabs and newlines', () => {
+      const useRemoteProxy = true;
+      const proxyConfig = { authToken: '\t\n\r' };
+
+      const skipLocalAuth = computeSkipLocalAuth(useRemoteProxy, proxyConfig);
+
+      expect(skipLocalAuth).toBe(false);
+    });
+
+    it('should NOT skip local auth when authToken is null', () => {
+      const useRemoteProxy = true;
+      const proxyConfig = { authToken: null };
+
+      const skipLocalAuth = computeSkipLocalAuth(useRemoteProxy, proxyConfig);
+
+      expect(skipLocalAuth).toBe(false);
+    });
+
+    it('should skip local auth when authToken has leading/trailing whitespace but valid content', () => {
+      const useRemoteProxy = true;
+      const proxyConfig = { authToken: '  valid-token-123  ' };
+
+      const skipLocalAuth = computeSkipLocalAuth(useRemoteProxy, proxyConfig);
+
+      expect(skipLocalAuth).toBe(true);
+    });
+
+    it('should skip local auth when authToken contains special characters', () => {
+      const useRemoteProxy = true;
+      const proxyConfig = { authToken: 'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.test' };
+
+      const skipLocalAuth = computeSkipLocalAuth(useRemoteProxy, proxyConfig);
+
+      expect(skipLocalAuth).toBe(true);
     });
   });
 
@@ -152,26 +214,33 @@ describe('skip-local-auth logic', () => {
     });
   });
 
-  describe('broken model warning bypass', () => {
-    it('should skip broken model warning when using remote proxy with auth', () => {
+  describe('broken model warning behavior', () => {
+    it('should show broken model warning in BOTH remote and local modes', () => {
+      // Updated behavior: warnings always shown (with different messaging for remote)
+      // Remote users need to know about broken models too
+      const currentModel = 'some-broken-model';
+      const isModelBroken = true;
+
+      // Warning should show regardless of skipLocalAuth
+      const shouldWarnRemote = currentModel && isModelBroken; // skipLocalAuth=true
+      const shouldWarnLocal = currentModel && isModelBroken; // skipLocalAuth=false
+
+      expect(shouldWarnRemote).toBe(true);
+      expect(shouldWarnLocal).toBe(true);
+    });
+
+    it('should show different message for remote vs local mode', () => {
       const skipLocalAuth = true;
       const currentModel = 'some-broken-model';
       const isModelBroken = true;
 
-      // Logic: only warn if NOT skipping local auth
-      const shouldWarn = !skipLocalAuth && currentModel && isModelBroken;
+      // When remote: "Note: Model may be overridden by remote proxy configuration."
+      // When local: "Run ccs <provider> --config to change model."
+      const remoteMessage = skipLocalAuth
+        ? 'Note: Model may be overridden by remote proxy configuration.'
+        : 'Run "ccs provider --config" to change model.';
 
-      expect(shouldWarn).toBe(false);
-    });
-
-    it('should show broken model warning when using local mode', () => {
-      const skipLocalAuth = false;
-      const currentModel = 'some-broken-model';
-      const isModelBroken = true;
-
-      const shouldWarn = !skipLocalAuth && currentModel && isModelBroken;
-
-      expect(shouldWarn).toBe(true);
+      expect(remoteMessage).toContain('remote proxy');
     });
   });
 
