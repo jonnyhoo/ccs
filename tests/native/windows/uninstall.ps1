@@ -428,42 +428,15 @@ Test-Case "Edge case: Missing parent directories" "Handles missing .claude direc
 }
 
 # ============================================================================
-# TEST SECTION 7: SETTINGS.JSON HOOK CLEANUP
+# TEST SECTION 7: PER-PROFILE HOOK BEHAVIOR (Global settings untouched)
 # ============================================================================
 
 Write-Host ""
 Write-ColorOutput "========================================" "Yellow"
-Write-ColorOutput "SECTION 7: SETTINGS.JSON HOOK CLEANUP" "Yellow"
+Write-ColorOutput "SECTION 7: PER-PROFILE HOOK BEHAVIOR" "Yellow"
 Write-ColorOutput "========================================" "Yellow"
 
-Test-Case "Hook cleanup: Removes CCS WebSearch hook from settings.json" "Hook removed" {
-    # Setup: Create settings.json with CCS hook
-    New-Item -ItemType Directory -Path $TestClaudeDir -Force | Out-Null
-    $settingsPath = Join-Path $TestClaudeDir "settings.json"
-    $settingsContent = @'
-{
-  "hooks": {
-    "PreToolUse": [
-      { "matcher": "WebSearch", "hooks": [{ "command": "node ~/.ccs/hooks/websearch-transformer.cjs" }] }
-    ]
-  }
-}
-'@
-    Set-Content -Path $settingsPath -Value $settingsContent
-
-    # Install then uninstall
-    $env:HOME = $TestHome
-    try {
-        & $CcsPath --install | Out-Null
-        & $CcsPath --uninstall | Out-Null
-    } catch { }
-
-    # Check hook removed
-    $content = Get-Content -Path $settingsPath -Raw
-    -not ($content -match "websearch-transformer")
-}
-
-Test-Case "Hook cleanup: Preserves user-defined WebSearch hooks" "User hooks kept" {
+Test-Case "Per-profile: Uninstall does NOT touch global settings.json" "Global settings unchanged" {
     # Setup: Create settings.json with user hook
     New-Item -ItemType Directory -Path $TestClaudeDir -Force | Out-Null
     $settingsPath = Join-Path $TestClaudeDir "settings.json"
@@ -484,13 +457,13 @@ Test-Case "Hook cleanup: Preserves user-defined WebSearch hooks" "User hooks kep
         & $CcsPath --uninstall | Out-Null
     } catch { }
 
-    # Check user hook preserved
+    # Verify global settings unchanged
     $content = Get-Content -Path $settingsPath -Raw
     $content -match "my-custom-hook"
 }
 
-Test-Case "Hook cleanup: Handles mixed CCS and user hooks" "Only CCS hook removed" {
-    # Setup: Create settings.json with both CCS and user hooks
+Test-Case "Per-profile: Uninstall preserves CCS hooks in global settings (not touched)" "Both hooks preserved" {
+    # Setup: Create settings.json with CCS hook (old format - shouldn't be touched)
     New-Item -ItemType Directory -Path $TestClaudeDir -Force | Out-Null
     $settingsPath = Join-Path $TestClaudeDir "settings.json"
     $settingsContent = @'
@@ -498,13 +471,29 @@ Test-Case "Hook cleanup: Handles mixed CCS and user hooks" "Only CCS hook remove
   "hooks": {
     "PreToolUse": [
       { "matcher": "WebSearch", "hooks": [{ "command": "node ~/.ccs/hooks/websearch-transformer.cjs" }] },
-      { "matcher": "WebSearch", "hooks": [{ "command": "my-custom-hook.sh" }] },
-      { "matcher": "Bash", "hooks": [{ "command": "bash-hook.sh" }] }
+      { "matcher": "WebSearch", "hooks": [{ "command": "my-custom-hook.sh" }] }
     ]
   }
 }
 '@
     Set-Content -Path $settingsPath -Value $settingsContent
+
+    # Uninstall - should NOT modify global settings
+    $env:HOME = $TestHome
+    try {
+        & $CcsPath --uninstall | Out-Null
+    } catch { }
+
+    # Both hooks should still be in global settings (not touched)
+    $content = Get-Content -Path $settingsPath -Raw
+    ($content -match "websearch-transformer") -and ($content -match "my-custom-hook")
+}
+
+Test-Case "Per-profile: Migration marker cleanup on uninstall" "Marker file removed" {
+    # Setup: Create ~/.ccs/.hook-migrated marker
+    $ccsDir = Join-Path $TestHome ".ccs"
+    New-Item -ItemType Directory -Path $ccsDir -Force | Out-Null
+    Set-Content -Path (Join-Path $ccsDir ".hook-migrated") -Value "2026-01-25T00:00:00.000Z"
 
     # Uninstall
     $env:HOME = $TestHome
@@ -512,14 +501,11 @@ Test-Case "Hook cleanup: Handles mixed CCS and user hooks" "Only CCS hook remove
         & $CcsPath --uninstall | Out-Null
     } catch { }
 
-    # Check CCS hook removed, user hooks preserved
-    $content = Get-Content -Path $settingsPath -Raw
-    (-not ($content -match "websearch-transformer")) -and
-    ($content -match "my-custom-hook") -and
-    ($content -match "bash-hook")
+    # Verify marker removed
+    -not (Test-Path (Join-Path $ccsDir ".hook-migrated"))
 }
 
-Test-Case "Hook cleanup: Handles missing settings.json" "No error when settings.json missing" {
+Test-Case "Per-profile: Handles missing settings.json" "No error when settings.json missing" {
     # Ensure settings.json doesn't exist
     $settingsPath = Join-Path $TestClaudeDir "settings.json"
     if (Test-Path $settingsPath) {

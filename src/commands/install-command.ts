@@ -39,15 +39,13 @@ export async function handleUninstallCommand(): Promise<void> {
   const hookRemoved = uninstallWebSearchHook();
   if (hookRemoved) {
     console.log(ok('Removed WebSearch hook'));
-    removed++;
+    removed += 1; // Count as 1 item (the hook file)
   }
 
   // 2. Remove symlinks from ~/.claude/
   const symlinkManager = new ClaudeSymlinkManager();
   const symlinksRemoved = symlinkManager.uninstall();
-  if (symlinksRemoved > 0) {
-    removed++;
-  }
+  removed += symlinksRemoved; // Add actual count of symlinks removed
 
   // 3. Summary
   console.log('');

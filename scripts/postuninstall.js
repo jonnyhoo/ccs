@@ -34,8 +34,14 @@ function cleanupCcsFiles() {
     // Note: Do NOT touch ~/.claude/settings.json
     // Per-profile hooks in ~/.ccs/*.settings.json will be cleaned up
     // when the user removes ~/.ccs/ directory.
-  } catch {
-    // Silent fail - not critical
+  } catch (err) {
+    // Silent fail - not critical, but log for debugging
+    try {
+      const logPath = path.join(CCS_DIR, 'uninstall.log');
+      fs.appendFileSync(logPath, `${new Date().toISOString()}: ${err.message}\n`);
+    } catch {
+      // Ignore logging failures
+    }
   }
 }
 

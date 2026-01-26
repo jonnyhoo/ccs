@@ -63,8 +63,8 @@ function migrateGlobalHook(): void {
     if (!fs.existsSync(ccsDir)) {
       fs.mkdirSync(ccsDir, { recursive: true, mode: 0o700 });
     }
-    // Create marker file
-    fs.writeFileSync(markerPath, new Date().toISOString(), 'utf8');
+    // Create marker file atomically (wx = fail if exists, prevents race condition)
+    fs.writeFileSync(markerPath, new Date().toISOString(), { encoding: 'utf8', flag: 'wx' });
   } catch (error) {
     if (process.env.CCS_DEBUG) {
       console.error(warn(`Migration failed: ${(error as Error).message}`));
@@ -114,9 +114,11 @@ export function ensureProfileHooks(profileName: string): boolean {
       try {
         const content = fs.readFileSync(settingsPath, 'utf8');
         settings = JSON.parse(content);
-      } catch {
+      } catch (parseError) {
         if (process.env.CCS_DEBUG) {
-          console.error(warn(`Malformed ${profileName}.settings.json - creating fresh hooks`));
+          console.error(
+            warn(`Malformed ${profileName}.settings.json: ${(parseError as Error).message}`)
+          );
         }
         // Continue with empty settings, will add hooks
       }
