@@ -3,6 +3,7 @@
  */
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { toast } from 'sonner';
 
 /** Sync status response */
 export interface SyncStatus {
@@ -144,17 +145,29 @@ export function useSyncPreview() {
 }
 
 /**
- * Hook to execute sync
+ * Hook to execute sync with toast feedback
  */
 export function useExecuteSync() {
   const queryClient = useQueryClient();
 
   return useMutation({
     mutationFn: executeSync,
-    onSuccess: () => {
+    onSuccess: (data) => {
       // Invalidate sync-related queries after successful sync
       queryClient.invalidateQueries({ queryKey: ['cliproxy-sync-status'] });
       queryClient.invalidateQueries({ queryKey: ['cliproxy-sync-preview'] });
+
+      // Show success toast with synced count
+      if (data.syncedCount === 0) {
+        toast.info('No profiles to sync');
+      } else {
+        toast.success(
+          `Synced ${data.syncedCount} profile${data.syncedCount === 1 ? '' : 's'} to CLIProxy`
+        );
+      }
+    },
+    onError: (error: Error) => {
+      toast.error(`Sync failed: ${error.message}`);
     },
   });
 }
