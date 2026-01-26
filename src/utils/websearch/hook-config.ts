@@ -13,11 +13,23 @@ import { info, warn } from '../ui';
 import { getWebSearchConfig } from '../../config/unified-config-loader';
 import { getCcsDir } from '../config-manager';
 
-// Path to Claude settings.json (intentionally uses real homedir for global settings)
-const CLAUDE_SETTINGS_PATH = path.join(os.homedir(), '.claude', 'settings.json');
-
 // Hook file name
 const WEBSEARCH_HOOK = 'websearch-transformer.cjs';
+
+/**
+ * Get Claude settings path (respects CCS_HOME for test isolation)
+ * In tests, returns path under CCS_HOME; in production, uses real ~/.claude/
+ */
+function getClaudeSettingsPath(): string {
+  const ccsHome = process.env.CCS_HOME;
+  if (ccsHome) {
+    // Test mode: use CCS_HOME parent for .claude directory
+    // This prevents tests from modifying user's real settings
+    return path.join(path.dirname(ccsHome), '.claude', 'settings.json');
+  }
+  // Production: use real home directory
+  return path.join(os.homedir(), '.claude', 'settings.json');
+}
 
 /**
  * Get CCS hooks directory (respects CCS_HOME for test isolation)
@@ -92,9 +104,9 @@ export function ensureHookConfig(): boolean {
 
     // Read existing settings or start fresh
     let settings: Record<string, unknown> = {};
-    if (fs.existsSync(CLAUDE_SETTINGS_PATH)) {
+    if (fs.existsSync(getClaudeSettingsPath())) {
       try {
-        const content = fs.readFileSync(CLAUDE_SETTINGS_PATH, 'utf8');
+        const content = fs.readFileSync(getClaudeSettingsPath(), 'utf8');
         settings = JSON.parse(content);
       } catch {
         if (process.env.CCS_DEBUG) {
@@ -136,7 +148,7 @@ export function ensureHookConfig(): boolean {
         }
 
         if (needsUpdate) {
-          fs.writeFileSync(CLAUDE_SETTINGS_PATH, JSON.stringify(settings, null, 2), 'utf8');
+          fs.writeFileSync(getClaudeSettingsPath(), JSON.stringify(settings, null, 2), 'utf8');
           if (process.env.CCS_DEBUG) {
             console.error(info('Updated WebSearch hook config in settings.json'));
           }
@@ -163,13 +175,13 @@ export function ensureHookConfig(): boolean {
     settingsHooks.PreToolUse.push(...preToolUseHooks);
 
     // Ensure ~/.claude directory exists
-    const claudeDir = path.dirname(CLAUDE_SETTINGS_PATH);
+    const claudeDir = path.dirname(getClaudeSettingsPath());
     if (!fs.existsSync(claudeDir)) {
       fs.mkdirSync(claudeDir, { recursive: true, mode: 0o700 });
     }
 
     // Write updated settings
-    fs.writeFileSync(CLAUDE_SETTINGS_PATH, JSON.stringify(settings, null, 2), 'utf8');
+    fs.writeFileSync(getClaudeSettingsPath(), JSON.stringify(settings, null, 2), 'utf8');
 
     if (process.env.CCS_DEBUG) {
       console.error(info('Added WebSearch hook to settings.json'));
@@ -191,11 +203,11 @@ export function ensureHookConfig(): boolean {
  */
 export function removeHookConfig(): boolean {
   try {
-    if (!fs.existsSync(CLAUDE_SETTINGS_PATH)) {
+    if (!fs.existsSync(getClaudeSettingsPath())) {
       return true; // Nothing to remove
     }
 
-    const content = fs.readFileSync(CLAUDE_SETTINGS_PATH, 'utf8');
+    const content = fs.readFileSync(getClaudeSettingsPath(), 'utf8');
     let settings: Record<string, unknown>;
     try {
       settings = JSON.parse(content);
@@ -232,7 +244,7 @@ export function removeHookConfig(): boolean {
       delete settings.hooks;
     }
 
-    fs.writeFileSync(CLAUDE_SETTINGS_PATH, JSON.stringify(settings, null, 2), 'utf8');
+    fs.writeFileSync(getClaudeSettingsPath(), JSON.stringify(settings, null, 2), 'utf8');
 
     if (process.env.CCS_DEBUG) {
       console.error(info('Removed WebSearch hook from settings.json'));

@@ -8,7 +8,6 @@ import { ErrorManager } from './utils/error-manager';
 import { execClaudeWithCLIProxy, CLIProxyProvider } from './cliproxy';
 import {
   ensureMcpWebSearch,
-  installWebSearchHook,
   displayWebSearchStatus,
   getWebSearchHookEnv,
   ensureProfileHooks,
@@ -549,7 +548,6 @@ async function main(): Promise<void> {
       ensureProfileHooks(profileInfo.name);
 
       ensureMcpWebSearch();
-      installWebSearchHook();
 
       // Display WebSearch status (single line, equilibrium UX)
       displayWebSearchStatus();

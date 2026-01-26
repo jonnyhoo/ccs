@@ -10,7 +10,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { info, warn } from '../ui';
 import { getWebSearchConfig } from '../../config/unified-config-loader';
-import { getHookPath, ensureHookConfig, getCcsHooksDir } from './hook-config';
+import { getHookPath, getCcsHooksDir } from './hook-config';
 import { removeMigrationMarker } from './profile-hook-injector';
 
 // Re-export from hook-config for backward compatibility
@@ -85,8 +85,9 @@ export function installWebSearchHook(): boolean {
       console.error(info(`Installed WebSearch hook: ${hookPath}`));
     }
 
-    // Ensure hook is configured in settings.json
-    ensureHookConfig();
+    // Note: Hook registration is handled by ensureProfileHooks() in profile-hook-injector.ts
+    // which writes to per-profile settings (~/.ccs/<profile>.settings.json)
+    // Global settings (~/.claude/settings.json) are NOT modified here
 
     return true;
   } catch (error) {
