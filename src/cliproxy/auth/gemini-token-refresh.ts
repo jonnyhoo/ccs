@@ -3,11 +3,18 @@
  *
  * Handles proactive token validation and refresh for Gemini OAuth tokens.
  * Prevents UND_ERR_SOCKET errors by ensuring tokens are valid before use.
+ *
+ * Token sources (priority order):
+ * 1. CLIProxy auth dir (~/.ccs/cliproxy/auth/) - CCS-managed tokens
+ * 2. Standard Gemini CLI (~/.gemini/oauth_creds.json) - backward compatibility
  */
 
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
+import { getProviderAuthDir } from '../config-generator';
+import { getDefaultAccount, getProviderAccounts } from '../account-manager';
+import { isTokenFileForProvider } from './token-manager';
 
 /**
  * Gemini OAuth credentials - PUBLIC from official Gemini CLI source code
@@ -39,6 +46,21 @@ interface GeminiOAuthCreds {
   id_token?: string;
 }
 
+/** CLIProxyAPI Gemini token structure (from GeminiTokenStorage Go struct) */
+interface CliproxyGeminiToken {
+  token: {
+    access_token: string;
+    refresh_token?: string;
+    expiry?: number; // Unix timestamp in milliseconds
+  };
+  project_id: string;
+  email: string;
+  type: 'gemini';
+}
+
+/** Tracks the source path of the last read token (for write-back) */
+let lastTokenSourcePath: string | null = null;
+
 /** Token refresh response from Google */
 interface TokenRefreshResponse {
   access_token?: string;
@@ -56,14 +78,95 @@ export function getGeminiOAuthPath(): string {
 }
 
 /**
+ * Map CLIProxyAPI token format to internal GeminiOAuthCreds format
+ */
+function mapCliproxyToGeminiCreds(cliproxy: CliproxyGeminiToken): GeminiOAuthCreds {
+  return {
+    access_token: cliproxy.token.access_token,
+    refresh_token: cliproxy.token.refresh_token,
+    expiry_date: cliproxy.token.expiry,
+    token_type: 'Bearer',
+  };
+}
+
+/**
+ * Read Gemini token from CLIProxy auth directory
+ * Returns null if no valid token found
+ */
+function readCliproxyGeminiCreds(): GeminiOAuthCreds | null {
+  const authDir = getProviderAuthDir('gemini');
+  if (!fs.existsSync(authDir)) return null;
+
+  // Try to find default account's token file
+  const defaultAccount = getDefaultAccount('gemini');
+  let tokenPath: string | null = null;
+
+  if (defaultAccount) {
+    tokenPath = path.join(authDir, defaultAccount.tokenFile);
+    if (!fs.existsSync(tokenPath)) tokenPath = null;
+  }
+
+  // Fallback: find any gemini token file by prefix or type
+  if (!tokenPath) {
+    const accounts = getProviderAccounts('gemini');
+    if (accounts.length > 0) {
+      tokenPath = path.join(authDir, accounts[0].tokenFile);
+      if (!fs.existsSync(tokenPath)) tokenPath = null;
+    }
+  }
+
+  // Last fallback: scan directory for gemini token files
+  if (!tokenPath) {
+    try {
+      const files = fs.readdirSync(authDir).filter((f) => f.endsWith('.json'));
+      for (const file of files) {
+        const filePath = path.join(authDir, file);
+        if (file.startsWith('gemini-') || isTokenFileForProvider(filePath, 'gemini')) {
+          tokenPath = filePath;
+          break;
+        }
+      }
+    } catch {
+      return null;
+    }
+  }
+
+  if (!tokenPath) return null;
+
+  try {
+    const content = fs.readFileSync(tokenPath, 'utf8');
+    const data = JSON.parse(content);
+
+    // Check if this is CLIProxyAPI format (has nested token object)
+    if (data.type === 'gemini' && data.token) {
+      lastTokenSourcePath = tokenPath;
+      return mapCliproxyToGeminiCreds(data as CliproxyGeminiToken);
+    }
+
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Read Gemini OAuth credentials
+ * Priority: CLIProxy auth dir first, then ~/.gemini/oauth_creds.json
  */
 function readGeminiCreds(): GeminiOAuthCreds | null {
+  // 1. Try CLIProxy auth directory first (CCS-managed tokens)
+  const cliproxyCreds = readCliproxyGeminiCreds();
+  if (cliproxyCreds) {
+    return cliproxyCreds;
+  }
+
+  // 2. Fall back to standard Gemini CLI location
   const oauthPath = getGeminiOAuthPath();
   if (!fs.existsSync(oauthPath)) {
     return null;
   }
   try {
+    lastTokenSourcePath = oauthPath;
     const content = fs.readFileSync(oauthPath, 'utf8');
     return JSON.parse(content) as GeminiOAuthCreds;
   } catch {
@@ -72,10 +175,40 @@ function readGeminiCreds(): GeminiOAuthCreds | null {
 }
 
 /**
+ * Write updated credentials to CLIProxy token file
+ * Preserves existing fields (email, project_id), only updates token subfields
+ */
+function writeCliproxyGeminiCreds(tokenPath: string, creds: GeminiOAuthCreds): string | undefined {
+  try {
+    const existing = JSON.parse(fs.readFileSync(tokenPath, 'utf8'));
+    const updated = {
+      ...existing,
+      token: {
+        ...existing.token,
+        access_token: creds.access_token,
+        refresh_token: creds.refresh_token,
+        expiry: creds.expiry_date,
+      },
+    };
+    fs.writeFileSync(tokenPath, JSON.stringify(updated, null, 2), { mode: 0o600 });
+    return undefined;
+  } catch (err) {
+    return err instanceof Error ? err.message : 'Failed to write credentials';
+  }
+}
+
+/**
  * Write Gemini OAuth credentials
+ * Writes back to the source location (CLIProxy or ~/.gemini)
  * @returns error message if write failed, undefined on success
  */
 function writeGeminiCreds(creds: GeminiOAuthCreds): string | undefined {
+  // If we read from CLIProxy, write back there in CLIProxy format
+  if (lastTokenSourcePath && !lastTokenSourcePath.includes('.gemini')) {
+    return writeCliproxyGeminiCreds(lastTokenSourcePath, creds);
+  }
+
+  // Otherwise write to standard Gemini CLI location
   const oauthPath = getGeminiOAuthPath();
   const dir = path.dirname(oauthPath);
   try {
