@@ -38,6 +38,7 @@ import { resolveProxyConfig, PROXY_CLI_FLAGS } from './proxy-config-resolver';
 import { getWebSearchHookEnv } from '../utils/websearch-manager';
 import { supportsModelConfig, isModelBroken, getModelIssueUrl, findModel } from './model-catalog';
 import { CodexReasoningProxy } from './codex-reasoning-proxy';
+import { ToolSanitizationProxy } from './tool-sanitization-proxy';
 import {
   findAccountByQuery,
   getProviderAccounts,
@@ -841,6 +842,37 @@ export async function execClaudeWithCLIProxy(
   // This adds thinking suffix like model(high) or model(8192) for CLIProxyAPIPlus
   applyThinkingConfig(envVars, provider, thinkingOverride);
 
+  // Tool sanitization proxy - applies to ALL CLIProxy providers.
+  // Sanitizes MCP tool names exceeding Gemini's 64-char limit.
+  // Chain: Claude CLI → ToolSanitizationProxy → [CodexReasoningProxy] → CLIProxy → Gemini
+  let toolSanitizationProxy: ToolSanitizationProxy | null = null;
+  let toolSanitizationPort: number | null = null;
+
+  if (envVars.ANTHROPIC_BASE_URL) {
+    try {
+      toolSanitizationProxy = new ToolSanitizationProxy({
+        upstreamBaseUrl: envVars.ANTHROPIC_BASE_URL,
+        verbose,
+        warnOnSanitize: true,
+      });
+      toolSanitizationPort = await toolSanitizationProxy.start();
+      log(`Tool sanitization proxy active on port ${toolSanitizationPort}`);
+    } catch (error) {
+      // Non-fatal: continue without sanitization
+      const err = error as Error;
+      toolSanitizationProxy = null;
+      toolSanitizationPort = null;
+      if (verbose) {
+        console.error(warn(`Tool sanitization proxy disabled: ${err.message}`));
+      }
+    }
+  }
+
+  // Determine the effective upstream URL after tool sanitization
+  const postSanitizationBaseUrl = toolSanitizationPort
+    ? `http://127.0.0.1:${toolSanitizationPort}`
+    : envVars.ANTHROPIC_BASE_URL;
+
   // Codex-only: inject OpenAI reasoning effort based on tier model mapping.
   // Maps by request.model:
   // - OPUS/default model → xhigh
@@ -850,7 +882,7 @@ export async function execClaudeWithCLIProxy(
   let codexReasoningProxy: CodexReasoningProxy | null = null;
   let codexReasoningPort: number | null = null;
   if (provider === 'codex') {
-    if (!envVars.ANTHROPIC_BASE_URL) {
+    if (!postSanitizationBaseUrl) {
       log('ANTHROPIC_BASE_URL not set for Codex, reasoning proxy disabled');
     } else {
       try {
@@ -861,7 +893,7 @@ export async function execClaudeWithCLIProxy(
         // because remote CLIProxyAPI uses root paths (/v1/messages), not provider-prefixed
         const stripPathPrefix = useRemoteProxy ? '/api/provider/codex' : undefined;
         codexReasoningProxy = new CodexReasoningProxy({
-          upstreamBaseUrl: envVars.ANTHROPIC_BASE_URL,
+          upstreamBaseUrl: postSanitizationBaseUrl,
           verbose,
           defaultEffort: 'medium',
           traceFilePath: traceEnabled
@@ -890,13 +922,22 @@ export async function execClaudeWithCLIProxy(
     }
   }
 
-  const effectiveEnvVars =
-    codexReasoningProxy && codexReasoningPort
-      ? {
-          ...envVars,
-          ANTHROPIC_BASE_URL: `http://127.0.0.1:${codexReasoningPort}/api/provider/codex`,
-        }
-      : envVars;
+  // Determine the final ANTHROPIC_BASE_URL based on active proxies
+  // Chain order: Claude CLI → [CodexReasoningProxy] → [ToolSanitizationProxy] → CLIProxy
+  // The outermost active proxy becomes the effective base URL
+  let finalBaseUrl = envVars.ANTHROPIC_BASE_URL;
+  if (toolSanitizationPort) {
+    finalBaseUrl = `http://127.0.0.1:${toolSanitizationPort}`;
+  }
+  if (codexReasoningPort) {
+    // Codex reasoning proxy is the outermost layer for codex provider
+    finalBaseUrl = `http://127.0.0.1:${codexReasoningPort}/api/provider/codex`;
+  }
+
+  const effectiveEnvVars = {
+    ...envVars,
+    ANTHROPIC_BASE_URL: finalBaseUrl,
+  };
   const webSearchEnv = getWebSearchHookEnv();
   const env = {
     ...process.env,
@@ -906,16 +947,12 @@ export async function execClaudeWithCLIProxy(
   };
 
   log(`Claude env: ANTHROPIC_BASE_URL=${effectiveEnvVars.ANTHROPIC_BASE_URL}`);
-  log(`Claude env: ANTHROPIC_MODEL=${effectiveEnvVars.ANTHROPIC_MODEL}`);
+  log(`Claude env: ANTHROPIC_MODEL=${envVars.ANTHROPIC_MODEL}`);
   if (Object.keys(webSearchEnv).length > 0) {
     log(`Claude env: WebSearch config=${JSON.stringify(webSearchEnv)}`);
   }
   // Log global env vars for visibility
-  if (
-    effectiveEnvVars.DISABLE_TELEMETRY ||
-    effectiveEnvVars.DISABLE_ERROR_REPORTING ||
-    effectiveEnvVars.DISABLE_BUG_COMMAND
-  ) {
+  if (envVars.DISABLE_TELEMETRY || envVars.DISABLE_ERROR_REPORTING || envVars.DISABLE_BUG_COMMAND) {
     log(`Claude env: Global env applied (telemetry/reporting disabled)`);
   }
 
@@ -983,6 +1020,10 @@ export async function execClaudeWithCLIProxy(
       codexReasoningProxy.stop();
     }
 
+    if (toolSanitizationProxy) {
+      toolSanitizationProxy.stop();
+    }
+
     if (httpsTunnel) {
       httpsTunnel.stop();
     }
@@ -1007,6 +1048,10 @@ export async function execClaudeWithCLIProxy(
       codexReasoningProxy.stop();
     }
 
+    if (toolSanitizationProxy) {
+      toolSanitizationProxy.stop();
+    }
+
     if (httpsTunnel) {
       httpsTunnel.stop();
     }
@@ -1024,6 +1069,10 @@ export async function execClaudeWithCLIProxy(
 
     if (codexReasoningProxy) {
       codexReasoningProxy.stop();
+    }
+
+    if (toolSanitizationProxy) {
+      toolSanitizationProxy.stop();
     }
 
     if (httpsTunnel) {

@@ -189,3 +189,19 @@ export {
   getSyncableProfileCount,
   isProfileSyncable,
 } from './sync';
+
+// Tool name sanitization (for Gemini 64-char limit compliance)
+export type { SanitizeResult } from './tool-name-sanitizer';
+export {
+  sanitizeToolName,
+  isValidToolName,
+  removeDuplicateSegments,
+  smartTruncate,
+  GEMINI_MAX_TOOL_NAME_LENGTH,
+} from './tool-name-sanitizer';
+
+export type { Tool, ToolUseBlock, ContentBlock, SanitizationChange } from './tool-name-mapper';
+export { ToolNameMapper } from './tool-name-mapper';
+
+export type { ToolSanitizationProxyConfig } from './tool-sanitization-proxy';
+export { ToolSanitizationProxy } from './tool-sanitization-proxy';
