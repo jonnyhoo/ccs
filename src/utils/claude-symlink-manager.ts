@@ -154,7 +154,23 @@ export class ClaudeSymlinkManager {
         return true; // Already correct, counts as success
       }
 
-      // Backup existing file/directory
+      // On Windows, check if it's a valid copy (symlink fallback from previous sync)
+      // This prevents creating duplicate backups on every sync
+      if (process.platform === 'win32' && this.isCopiedItem(targetPath, sourcePath, item.type)) {
+        // Remove existing copy and refresh with latest source content
+        try {
+          if (item.type === 'directory') {
+            fs.rmSync(targetPath, { recursive: true, force: true });
+          } else {
+            fs.unlinkSync(targetPath);
+          }
+        } catch {
+          // If removal fails, proceed to copy which will overwrite
+        }
+        return this.copyFallback(sourcePath, targetPath, item, silent);
+      }
+
+      // Backup existing file/directory (only for non-CCS items)
       this.backupItem(targetPath, silent);
     }
 
