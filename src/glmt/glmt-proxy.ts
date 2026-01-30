@@ -29,6 +29,15 @@ interface GlmtProxyConfig {
   timeout?: number;
 }
 
+/**
+ * Configuration for retry behavior on rate limit errors
+ */
+interface RetryConfig {
+  maxRetries: number;
+  baseDelay: number;
+  enabled: boolean;
+}
+
 interface ThinkingConfig {
   thinking: boolean;
   effort: string;
@@ -79,6 +88,8 @@ export class GlmtProxy {
   private port: number | null;
   private verbose: boolean;
   private timeout: number;
+  private retryConfig: RetryConfig;
+  private httpsAgent: https.Agent;
 
   constructor(config: GlmtProxyConfig = {}) {
     this.transformer = new GlmtTransformer({
@@ -93,6 +104,21 @@ export class GlmtProxy {
     this.port = null;
     this.verbose = config.verbose || false;
     this.timeout = config.timeout || 120000; // 120s default
+
+    // Retry configuration for handling 429 rate limit errors
+    this.retryConfig = {
+      maxRetries: parseInt(process.env.GLMT_MAX_RETRIES || '3', 10),
+      baseDelay: parseInt(process.env.GLMT_RETRY_BASE_DELAY || '1000', 10),
+      enabled: process.env.GLMT_DISABLE_RETRY !== '1',
+    };
+
+    // Connection pooling for better performance
+    this.httpsAgent = new https.Agent({
+      keepAlive: true,
+      maxSockets: 5,
+      maxFreeSockets: 2,
+      timeout: this.timeout,
+    });
   }
 
   /**
@@ -249,8 +275,8 @@ export class GlmtProxy {
 
     this.log(`Transformed request, thinking: ${thinkingConfig.thinking}`);
 
-    // Forward to Z.AI
-    const openaiResponse = (await this.forwardToUpstream(
+    // Forward to Z.AI with retry on rate limit
+    const openaiResponse = (await this.forwardWithRetry(
       openaiRequest as unknown as OpenAIRequest,
       {}
     )) as OpenAIResponse;
@@ -309,8 +335,8 @@ export class GlmtProxy {
 
     this.log('Starting SSE stream to Claude CLI (socket buffering disabled)');
 
-    // Forward and stream
-    await this.forwardAndStreamUpstream(
+    // Forward and stream with retry on rate limit
+    await this.forwardAndStreamWithRetry(
       openaiRequest as unknown as OpenAIRequest,
       {},
       res,
@@ -343,6 +369,146 @@ export class GlmtProxy {
   }
 
   /**
+   * Sleep for specified milliseconds
+   */
+  private sleep(ms: number): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
+  /**
+   * Calculate retry delay with exponential backoff and jitter
+   * Honors Retry-After header if provided
+   */
+  private calculateRetryDelay(attempt: number, retryAfterHeader?: string): number {
+    // Honor Retry-After header if present and valid
+    if (retryAfterHeader) {
+      const retryAfter = parseInt(retryAfterHeader, 10);
+      if (!isNaN(retryAfter) && retryAfter > 0) {
+        return retryAfter * 1000; // Convert seconds to ms
+      }
+    }
+    // Exponential backoff: 2^attempt * baseDelay + random jitter (0-500ms)
+    const exponentialDelay = Math.pow(2, attempt) * this.retryConfig.baseDelay;
+    const jitter = Math.random() * 500;
+    return exponentialDelay + jitter;
+  }
+
+  /**
+   * Check if error is retryable (429 rate limit)
+   * Returns retryable status and optional Retry-After value
+   */
+  private isRetryableError(error: Error): { retryable: boolean; retryAfter?: string } {
+    const message = error.message;
+    if (message.includes('429') || message.toLowerCase().includes('rate limit')) {
+      // Try to extract Retry-After from error message
+      const retryAfterMatch = message.match(/retry-after:\s*(\d+)/i);
+      return {
+        retryable: true,
+        retryAfter: retryAfterMatch?.[1],
+      };
+    }
+    return { retryable: false };
+  }
+
+  /**
+   * Forward request with retry logic for rate limit errors
+   */
+  private async forwardWithRetry(
+    openaiRequest: OpenAIRequest,
+    headers: Record<string, string | undefined>
+  ): Promise<unknown> {
+    if (!this.retryConfig.enabled) {
+      return this.forwardToUpstream(openaiRequest, headers);
+    }
+
+    let lastError: Error | null = null;
+
+    for (let attempt = 0; attempt <= this.retryConfig.maxRetries; attempt++) {
+      try {
+        return await this.forwardToUpstream(openaiRequest, headers);
+      } catch (error) {
+        const err = error as Error;
+        const { retryable, retryAfter } = this.isRetryableError(err);
+
+        if (!retryable || attempt >= this.retryConfig.maxRetries) {
+          throw err;
+        }
+
+        lastError = err;
+        const delay = this.calculateRetryDelay(attempt, retryAfter);
+
+        console.error(
+          `[glmt-proxy] Rate limited, retry ${attempt + 1}/${this.retryConfig.maxRetries} after ${Math.round(delay)}ms`
+        );
+
+        await this.sleep(delay);
+      }
+    }
+
+    throw lastError ?? new Error('Retry failed');
+  }
+
+  /**
+   * Forward streaming request with retry logic for rate limit errors
+   * Only retries if headers haven't been sent yet
+   */
+  private async forwardAndStreamWithRetry(
+    openaiRequest: OpenAIRequest,
+    headers: Record<string, string | undefined>,
+    clientRes: http.ServerResponse,
+    thinkingConfig: ThinkingConfig,
+    startTime: number
+  ): Promise<void> {
+    if (!this.retryConfig.enabled) {
+      return this.forwardAndStreamUpstream(
+        openaiRequest,
+        headers,
+        clientRes,
+        thinkingConfig,
+        startTime
+      );
+    }
+
+    let lastError: Error | null = null;
+
+    for (let attempt = 0; attempt <= this.retryConfig.maxRetries; attempt++) {
+      try {
+        return await this.forwardAndStreamUpstream(
+          openaiRequest,
+          headers,
+          clientRes,
+          thinkingConfig,
+          startTime
+        );
+      } catch (error) {
+        const err = error as Error;
+
+        // Don't retry if headers already sent (streaming started)
+        if (clientRes.headersSent) {
+          throw err;
+        }
+
+        const { retryable, retryAfter } = this.isRetryableError(err);
+
+        if (!retryable || attempt >= this.retryConfig.maxRetries) {
+          throw err;
+        }
+
+        lastError = err;
+        const delay = this.calculateRetryDelay(attempt, retryAfter);
+
+        console.error(
+          `[glmt-proxy] Rate limited, retry ${attempt + 1}/${this.retryConfig.maxRetries} after ${Math.round(delay)}ms`
+        );
+
+        await this.sleep(delay);
+      }
+    }
+
+    throw lastError ?? new Error('Retry failed');
+  }
+
+  /**
    * Forward request to Z.AI upstream
    */
   private forwardToUpstream(
@@ -362,6 +528,7 @@ export class GlmtProxy {
         port: url.port || 443,
         path: url.pathname || '/api/coding/paas/v4/chat/completions',
         method: 'POST',
+        agent: this.httpsAgent,
         headers: {
           'Content-Type': 'application/json',
           'Content-Length': Buffer.byteLength(requestBody),
@@ -438,6 +605,7 @@ export class GlmtProxy {
         port: url.port || 443,
         path: url.pathname || '/api/coding/paas/v4/chat/completions',
         method: 'POST',
+        agent: this.httpsAgent,
         headers: {
           'Content-Type': 'application/json',
           'Content-Length': Buffer.byteLength(requestBody),
@@ -536,6 +704,10 @@ export class GlmtProxy {
     if (this.server) {
       this.log('Stopping proxy server');
       this.server.close();
+    }
+    // Destroy connection pool
+    if (this.httpsAgent) {
+      this.httpsAgent.destroy();
     }
   }
 
