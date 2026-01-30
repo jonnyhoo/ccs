@@ -11,6 +11,7 @@ import { AccountsSection } from './accounts-section';
 import { api } from '@/lib/api-client';
 import type { ProviderCatalog } from '../provider-model-selector';
 import type { OAuthAccount } from '@/lib/api-client';
+import { QUOTA_SUPPORTED_PROVIDERS, type QuotaSupportedProvider } from '@/hooks/use-cliproxy-stats';
 
 interface ModelConfigTabProps {
   provider: string;
@@ -167,7 +168,9 @@ export function ModelConfigTab({
           isBulkPausing={isBulkPausing}
           isBulkResuming={isBulkResuming}
           privacyMode={privacyMode}
-          showQuota={['agy', 'codex', 'gemini'].includes(provider) && !isRemoteMode}
+          showQuota={
+            QUOTA_SUPPORTED_PROVIDERS.includes(provider as QuotaSupportedProvider) && !isRemoteMode
+          }
           isKiro={isKiro}
           kiroNoIncognito={kiroNoIncognito}
           onKiroNoIncognitoChange={saveKiroNoIncognito}

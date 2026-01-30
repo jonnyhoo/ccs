@@ -2,24 +2,14 @@
  * Account Card Component for Flow Visualization
  */
 
-import {
-  cn,
-  formatResetTime,
-  getModelsWithTiers,
-  groupModelsByTier,
-  getProviderMinQuota,
-  getProviderResetTime,
-  isAgyQuotaResult,
-  isCodexQuotaResult,
-  isGeminiQuotaResult,
-  type ModelTier,
-} from '@/lib/utils';
+import { cn, getProviderMinQuota, getProviderResetTime } from '@/lib/utils';
 import { PRIVACY_BLUR_CLASS } from '@/contexts/privacy-context';
-import { GripVertical, Loader2, Clock, Pause, Play } from 'lucide-react';
+import { GripVertical, Loader2, Pause, Play } from 'lucide-react';
 import { useAccountQuota, QUOTA_SUPPORTED_PROVIDERS } from '@/hooks/use-cliproxy-stats';
 import type { QuotaSupportedProvider } from '@/hooks/use-cliproxy-stats';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { Button } from '@/components/ui/button';
+import { QuotaTooltipContent } from '@/components/shared/quota-tooltip-content';
 
 import type { AccountData, DragOffset } from './types';
 import { cleanEmail } from './utils';
@@ -105,6 +95,7 @@ export function AccountCard({
 
   // Use shared helper for provider-specific minimum quota
   const minQuota = getProviderMinQuota(account.provider, quota);
+  const resetTime = getProviderResetTime(account.provider, quota);
 
   // Tier badge (AGY only) - show P for Pro, U for Ultra
   const showTierBadge =
@@ -254,95 +245,7 @@ export function AccountCard({
                   </div>
                 </TooltipTrigger>
                 <TooltipContent side="top" className="max-w-xs">
-                  {quota && isAgyQuotaResult(quota) ? (
-                    <div className="text-xs space-y-1">
-                      <p className="font-medium">Model Quotas:</p>
-                      {(() => {
-                        const tiered = getModelsWithTiers(quota.models || []);
-                        const groups = groupModelsByTier(tiered);
-                        const tierOrder: ModelTier[] = ['primary', 'gemini-3', 'gemini-2', 'other'];
-                        return tierOrder.map((tier, idx) => {
-                          const models = groups.get(tier);
-                          if (!models || models.length === 0) return null;
-                          const isFirst = tierOrder
-                            .slice(0, idx)
-                            .every((t) => !groups.get(t)?.length);
-                          return (
-                            <div key={tier}>
-                              {!isFirst && <div className="border-t border-border/40 my-1" />}
-                              {models.map((m) => (
-                                <div key={m.name} className="flex justify-between gap-4">
-                                  <span className={cn('truncate', m.exhausted && 'text-red-500')}>
-                                    {m.displayName}
-                                  </span>
-                                  <span className={cn('font-mono', m.exhausted && 'text-red-500')}>
-                                    {m.percentage}%
-                                  </span>
-                                </div>
-                              ))}
-                            </div>
-                          );
-                        });
-                      })()}
-                      {(() => {
-                        const resetTime = getProviderResetTime('agy', quota);
-                        return resetTime ? (
-                          <div className="flex items-center gap-1.5 pt-1 border-t border-border/50">
-                            <Clock className="w-3 h-3 text-blue-400" />
-                            <span className="text-blue-400 font-medium">
-                              Resets {formatResetTime(resetTime)}
-                            </span>
-                          </div>
-                        ) : null;
-                      })()}
-                    </div>
-                  ) : quota && isCodexQuotaResult(quota) ? (
-                    <div className="text-xs space-y-1">
-                      <p className="font-medium">Rate Limits:</p>
-                      {quota.windows.map((w) => (
-                        <div key={w.label} className="flex justify-between gap-4">
-                          <span className={cn(w.remainingPercent < 20 && 'text-red-500')}>
-                            {w.label}
-                          </span>
-                          <span className="font-mono">{w.remainingPercent}%</span>
-                        </div>
-                      ))}
-                      {(() => {
-                        const resetTime = getProviderResetTime('codex', quota);
-                        return resetTime ? (
-                          <div className="flex items-center gap-1.5 pt-1 border-t border-border/50">
-                            <Clock className="w-3 h-3 text-blue-400" />
-                            <span className="text-blue-400 font-medium">
-                              Resets {formatResetTime(resetTime)}
-                            </span>
-                          </div>
-                        ) : null;
-                      })()}
-                    </div>
-                  ) : quota && isGeminiQuotaResult(quota) ? (
-                    <div className="text-xs space-y-1">
-                      <p className="font-medium">Buckets:</p>
-                      {quota.buckets.map((b) => (
-                        <div key={b.id} className="flex justify-between gap-4">
-                          <span className={cn(b.remainingPercent < 20 && 'text-red-500')}>
-                            {b.label}
-                          </span>
-                          <span className="font-mono">{b.remainingPercent}%</span>
-                        </div>
-                      ))}
-                      {(() => {
-                        const resetTime = getProviderResetTime('gemini', quota);
-                        return resetTime ? (
-                          <div className="flex items-center gap-1.5 pt-1 border-t border-border/50">
-                            <Clock className="w-3 h-3 text-blue-400" />
-                            <span className="text-blue-400 font-medium">
-                              Resets {formatResetTime(resetTime)}
-                            </span>
-                          </div>
-                        ) : null;
-                      })()}
-                    </div>
-                  ) : null}
+                  {quota && <QuotaTooltipContent quota={quota} resetTime={resetTime} />}
                 </TooltipContent>
               </Tooltip>
             </TooltipProvider>

@@ -29,20 +29,10 @@ import {
   FolderCode,
   Check,
 } from 'lucide-react';
-import {
-  cn,
-  formatResetTime,
-  getModelsWithTiers,
-  groupModelsByTier,
-  getProviderMinQuota,
-  getProviderResetTime,
-  isAgyQuotaResult,
-  isCodexQuotaResult,
-  isGeminiQuotaResult,
-  type ModelTier,
-} from '@/lib/utils';
+import { cn, getProviderMinQuota, getProviderResetTime } from '@/lib/utils';
 import { PRIVACY_BLUR_CLASS } from '@/contexts/privacy-context';
 import { useAccountQuota, useCliproxyStats } from '@/hooks/use-cliproxy-stats';
+import { QuotaTooltipContent } from '@/components/shared/quota-tooltip-content';
 import type { AccountItemProps } from './types';
 
 /**
@@ -124,97 +114,6 @@ export function AccountItem({
   // Use shared utility functions for provider-specific quota handling
   const minQuota = getProviderMinQuota(account.provider, quota);
   const nextReset = getProviderResetTime(account.provider, quota);
-
-  // Provider-specific tooltip content renderer using type guards
-  const renderQuotaTooltip = () => {
-    if (!quota?.success) return null;
-
-    // Antigravity (agy) provider tooltip
-    if (isAgyQuotaResult(quota)) {
-      const tiered = getModelsWithTiers(quota.models || []);
-      const groups = groupModelsByTier(tiered);
-      const tierOrder: ModelTier[] = ['primary', 'gemini-3', 'gemini-2', 'other'];
-      return (
-        <div className="text-xs space-y-1">
-          <p className="font-medium">Model Quotas:</p>
-          {tierOrder.map((tier, idx) => {
-            const models = groups.get(tier);
-            if (!models || models.length === 0) return null;
-            const isFirst = tierOrder.slice(0, idx).every((t) => !groups.get(t)?.length);
-            return (
-              <div key={tier}>
-                {!isFirst && <div className="border-t border-border/40 my-1" />}
-                {models.map((m) => (
-                  <div key={m.name} className="flex justify-between gap-4">
-                    <span className={cn('truncate', m.exhausted && 'text-red-500')}>
-                      {m.displayName}
-                    </span>
-                    <span className={cn('font-mono', m.exhausted && 'text-red-500')}>
-                      {m.percentage}%
-                    </span>
-                  </div>
-                ))}
-              </div>
-            );
-          })}
-          {nextReset && (
-            <div className="flex items-center gap-1.5 pt-1 border-t border-border/50">
-              <Clock className="w-3 h-3 text-blue-400" />
-              <span className="text-blue-400 font-medium">Resets {formatResetTime(nextReset)}</span>
-            </div>
-          )}
-        </div>
-      );
-    }
-
-    // Codex provider tooltip
-    if (isCodexQuotaResult(quota)) {
-      return (
-        <div className="text-xs space-y-1">
-          <p className="font-medium">Rate Limit Windows:</p>
-          {quota.planType && <p className="text-muted-foreground">Plan: {quota.planType}</p>}
-          {quota.windows.map((w) => (
-            <div key={w.label} className="flex justify-between gap-4">
-              <span>{w.label}</span>
-              <span className="font-mono">{w.remainingPercent}%</span>
-            </div>
-          ))}
-          {nextReset && (
-            <div className="flex items-center gap-1.5 pt-1 border-t border-border/50">
-              <Clock className="w-3 h-3 text-blue-400" />
-              <span className="text-blue-400 font-medium">Resets {formatResetTime(nextReset)}</span>
-            </div>
-          )}
-        </div>
-      );
-    }
-
-    // Gemini provider tooltip
-    if (isGeminiQuotaResult(quota)) {
-      return (
-        <div className="text-xs space-y-1">
-          <p className="font-medium">Model Buckets:</p>
-          {quota.buckets.map((b) => (
-            <div key={b.id} className="flex justify-between gap-4">
-              <span>
-                {b.label}
-                {b.tokenType ? ` (${b.tokenType})` : ''}
-              </span>
-              <span className="font-mono">{b.remainingPercent}%</span>
-            </div>
-          ))}
-          {nextReset && (
-            <div className="flex items-center gap-1.5 pt-1 border-t border-border/50">
-              <Clock className="w-3 h-3 text-blue-400" />
-              <span className="text-blue-400 font-medium">Resets {formatResetTime(nextReset)}</span>
-            </div>
-          )}
-        </div>
-      );
-    }
-
-    return null;
-  };
 
   return (
     <div
@@ -447,7 +346,7 @@ export function AccountItem({
                     </div>
                   </TooltipTrigger>
                   <TooltipContent side="bottom" className="max-w-xs">
-                    {renderQuotaTooltip()}
+                    {quota && <QuotaTooltipContent quota={quota} resetTime={nextReset} />}
                   </TooltipContent>
                 </Tooltip>
               </TooltipProvider>
