@@ -1,3 +1,24 @@
+## [7.33.0](https://github.com/kaitranntt/ccs/compare/v7.32.0...v7.33.0) (2026-01-30)
+
+### Features
+
+* **cliproxy:** add backend caching and reauth indicator for quota endpoints ([7947a7a](https://github.com/kaitranntt/ccs/commit/7947a7ac89b977a34adc9ab72b89b38a61fb5200))
+* **cliproxy:** add Codex/Gemini quota API routes ([2f5a50b](https://github.com/kaitranntt/ccs/commit/2f5a50b801a48314b76f102ccdd4f71c4d1cf87d))
+* **cliproxy:** add proactive token refresh for Gemini quota (match AGY pattern) ([606bb72](https://github.com/kaitranntt/ccs/commit/606bb7272318bea9f294d9b563369d595b336cf4))
+* **ui:** add Codex/Gemini quota API client and hooks ([19a57c3](https://github.com/kaitranntt/ccs/commit/19a57c395c29beb83661edb28286e01211b80261))
+* **ui:** display Codex/Gemini quota in dashboard ([387c010](https://github.com/kaitranntt/ccs/commit/387c01026731d251459420d70830df418fd1311f))
+
+### Code Refactoring
+
+* **ui:** address code review feedback ([32ef233](https://github.com/kaitranntt/ccs/commit/32ef23314a517bcda1816ce0c55691b3dd2616de))
+* **ui:** extract duplicated quota helpers to shared utils ([8ce7495](https://github.com/kaitranntt/ccs/commit/8ce749581ef7667bec29bdfe17d02f824e06bed4)), closes [#400](https://github.com/kaitranntt/ccs/issues/400)
+* **ui:** extract shared QuotaTooltipContent component ([eeb0dde](https://github.com/kaitranntt/ccs/commit/eeb0dde8cabf0db5eea758d50ca7fd0b126a6404))
+
+### Tests
+
+* **quota:** add extensive test suite for quota caching system ([3df2619](https://github.com/kaitranntt/ccs/commit/3df2619023abee095901636310818a676e02d639))
+* **ui:** add comprehensive tests for quota utility functions ([0b8635d](https://github.com/kaitranntt/ccs/commit/0b8635d3ba47cf954ad9cc5fe4d30c64ec77779c))
+
 ## [7.32.0](https://github.com/kaitranntt/ccs/compare/v7.31.1...v7.32.0) (2026-01-30)
 
 ### Features
