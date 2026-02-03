@@ -630,7 +630,9 @@ router.get('/:provider/status', async (req: Request, res: Response): Promise<voi
 });
 
 /**
- * Parse callback URL to extract code and state parameters.
+ * Parse OAuth callback URL to extract code and state parameters.
+ * @param url - The callback URL to parse
+ * @returns Parsed components (code, state) or empty object on failure
  */
 function parseCallbackUrl(url: string): { code?: string; state?: string } {
   try {

@@ -241,9 +241,9 @@ async function handlePasteCallbackMode(
 
     // Display auth URL in box
     console.log('');
-    console.log('  +--------------------------------------------------------------+');
-    console.log('  |  Open this URL in any browser:                               |');
-    console.log('  +--------------------------------------------------------------+');
+    console.log('  ╔══════════════════════════════════════════════════════════════╗');
+    console.log('  ║  Open this URL in any browser:                               ║');
+    console.log('  ╚══════════════════════════════════════════════════════════════╝');
     console.log('');
     console.log(`    ${authUrl}`);
     console.log('');
