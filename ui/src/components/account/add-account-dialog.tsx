@@ -215,9 +215,16 @@ export function AddAccountDialog({
                         <Button
                           variant="outline"
                           size="sm"
-                          onClick={() =>
-                            authFlow.authUrl && window.open(authFlow.authUrl, '_blank')
-                          }
+                          onClick={() => {
+                            if (!authFlow.authUrl) return;
+                            const popup = window.open(authFlow.authUrl, '_blank');
+                            if (!popup || popup.closed || typeof popup.closed === 'undefined') {
+                              toast.warning(
+                                'Popup blocked. Copy the URL above and open it manually in your browser.',
+                                { duration: 5000 }
+                              );
+                            }
+                          }}
                         >
                           <ExternalLink className="w-3 h-3 mr-1" />
                           Open
