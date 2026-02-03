@@ -246,3 +246,37 @@ export function getSettingsPath(profile: string): string {
 
   return expandedPath;
 }
+
+/**
+ * Get display name for a profile by reading ANTHROPIC_MODEL from settings
+ * @param profile - Profile name (glm, glmt, kimi, custom, etc.)
+ * @returns Formatted display name (e.g., 'GLM-4.7', 'Kimi', 'Custom-Model')
+ */
+export function getModelDisplayName(profile: string): string {
+  if (!profile) {
+    return '';
+  }
+
+  const settingsPath = path.join(getCcsDir(), `${profile}.settings.json`);
+
+  try {
+    if (fs.existsSync(settingsPath)) {
+      const content = fs.readFileSync(settingsPath, 'utf8');
+      const settings = JSON.parse(content) as { env?: { ANTHROPIC_MODEL?: string } };
+      const model = settings.env?.ANTHROPIC_MODEL;
+
+      if (model) {
+        // Format: 'glm-4.7' -> 'GLM-4.7' (uppercase letters, preserve numbers)
+        return model
+          .split('-')
+          .map((part) => part.toUpperCase())
+          .join('-');
+      }
+    }
+  } catch {
+    // Fall through to default
+  }
+
+  // Fallback: profile name uppercase
+  return profile.toUpperCase();
+}

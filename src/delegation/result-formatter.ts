@@ -9,6 +9,7 @@ import * as path from 'path';
 import { execSync } from 'child_process';
 import * as fs from 'fs';
 import { ui } from '../utils/ui';
+import { getModelDisplayName } from '../utils/config-manager';
 import type { ExecutionResult, ExecutionError, PermissionDenial } from './executor/types';
 
 // Alias for backward compatibility
@@ -58,7 +59,7 @@ class ResultFormatter {
     let output = '';
 
     // Header box
-    const modelName = this.getModelDisplayName(profile);
+    const modelName = getModelDisplayName(profile);
     const headerIcon = success ? '[i]' : '[X]';
     output += ui.box(`${headerIcon} Delegated to ${modelName} (ccs:${profile})`, {
       borderStyle: 'round',
@@ -225,7 +226,7 @@ class ResultFormatter {
    */
   private static formatInfoTable(result: ExecutionResult): string {
     const { cwd, profile, duration, exitCode, sessionId, totalCost, numTurns } = result;
-    const modelName = this.getModelDisplayName(profile);
+    const modelName = getModelDisplayName(profile);
     const durationSec = (duration / 1000).toFixed(1);
 
     const rows: string[][] = [
@@ -254,20 +255,6 @@ class ResultFormatter {
   }
 
   /**
-   * Get display name for model profile
-   */
-  private static getModelDisplayName(profile: string): string {
-    const displayNames: Record<string, string> = {
-      glm: 'GLM-4.6',
-      glmt: 'GLM-4.6 (Thinking)',
-      kimi: 'Kimi',
-      default: 'Claude',
-    };
-
-    return displayNames[profile] || profile.toUpperCase();
-  }
-
-  /**
    * Truncate string to max length
    */
   private static truncate(str: string, maxLength: number): string {
@@ -283,7 +270,7 @@ class ResultFormatter {
   static async formatMinimal(result: ExecutionResult): Promise<string> {
     await ui.init();
     const { profile, success, duration } = result;
-    const modelName = this.getModelDisplayName(profile);
+    const modelName = getModelDisplayName(profile);
     const icon = success ? ui.ok('') : ui.fail('');
     const durationSec = (duration / 1000).toFixed(1);
 
@@ -326,7 +313,7 @@ class ResultFormatter {
     await ui.init();
 
     const { profile, duration, sessionId, totalCost, permissionDenials } = result;
-    const modelName = this.getModelDisplayName(profile);
+    const modelName = getModelDisplayName(profile);
     const timeoutMin = (duration / 60000).toFixed(1);
 
     let output = '';

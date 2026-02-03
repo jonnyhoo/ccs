@@ -16,7 +16,7 @@ describe('ResultFormatter', () => {
 
       const formatted = await ResultFormatter.format(result);
 
-      assert.ok(formatted.includes('Delegated to GLM-4.6'));
+      assert.ok(formatted.toLowerCase().includes('delegated to glm'));
       assert.ok(formatted.includes('ccs:glm'));
       assert.ok(formatted.includes('/home/user/project'));
       assert.ok(formatted.includes('2.3s'));
@@ -179,11 +179,13 @@ describe('ResultFormatter', () => {
       };
 
       const glmFormatted = await ResultFormatter.format(glmResult);
-      assert.ok(glmFormatted.includes('GLM-4.6'));
+      // Model display reads from settings or falls back to profile uppercase
+      // Use case-insensitive check since format may vary (GLM, Glm-4.7, etc.)
+      assert.ok(glmFormatted.toLowerCase().includes('glm'));
 
       const kimiResult = { ...glmResult, profile: 'kimi' };
       const kimiFormatted = await ResultFormatter.format(kimiResult);
-      assert.ok(kimiFormatted.includes('Kimi'));
+      assert.ok(kimiFormatted.toLowerCase().includes('kimi'));
     });
   });
 
@@ -220,7 +222,8 @@ describe('ResultFormatter', () => {
       const minimal = await ResultFormatter.formatMinimal(result);
 
       assert.ok(minimal.includes('[OK]'));
-      assert.ok(minimal.includes('GLM-4.6'));
+      // Model display reads from settings or falls back to profile uppercase
+      assert.ok(minimal.toLowerCase().includes('glm'));
       assert.ok(minimal.includes('1.5s'));
       assert.ok(minimal.split('\n').length <= 3);
     });

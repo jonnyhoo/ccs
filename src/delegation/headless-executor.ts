@@ -14,7 +14,7 @@ import { ui, warn, info } from '../utils/ui';
 import { type ExecutionOptions, type ExecutionResult, type StreamMessage } from './executor/types';
 import { StreamBuffer, formatToolVerbose } from './executor/stream-parser';
 import { buildExecutionResult } from './executor/result-aggregator';
-import { getCcsDir } from '../utils/config-manager';
+import { getCcsDir, getModelDisplayName } from '../utils/config-manager';
 
 // Re-export types for consumers
 export type { ExecutionOptions, ExecutionResult, StreamMessage } from './executor/types';
@@ -196,8 +196,7 @@ export class HeadlessExecutor {
       const streamBuffer = new StreamBuffer();
 
       if (showProgress) {
-        const modelName =
-          profile === 'glm' ? 'GLM-4.6' : profile === 'kimi' ? 'Kimi' : profile.toUpperCase();
+        const modelName = getModelDisplayName(profile);
         console.error(ui.info(`Delegating to ${modelName}...`));
       }
 
