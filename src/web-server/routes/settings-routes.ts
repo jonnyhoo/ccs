@@ -156,16 +156,21 @@ router.put('/:profile', (req: Request, res: Response): void => {
       }
     }
 
-    // Create backup only if file exists
+    // Create backup only if file exists AND content actually changed
     let backupPath: string | undefined;
+    const newContent = JSON.stringify(settings, null, 2) + '\n';
     if (fileExists) {
-      const backupDir = path.join(ccsDir, 'backups');
-      if (!fs.existsSync(backupDir)) {
-        fs.mkdirSync(backupDir, { recursive: true });
+      const existingContent = fs.readFileSync(settingsPath, 'utf8');
+      // Only create backup if content differs
+      if (existingContent !== newContent) {
+        const backupDir = path.join(ccsDir, 'backups');
+        if (!fs.existsSync(backupDir)) {
+          fs.mkdirSync(backupDir, { recursive: true });
+        }
+        const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+        backupPath = path.join(backupDir, `${profile}.${timestamp}.settings.json`);
+        fs.copyFileSync(settingsPath, backupPath);
       }
-      const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-      backupPath = path.join(backupDir, `${profile}.${timestamp}.settings.json`);
-      fs.copyFileSync(settingsPath, backupPath);
     }
 
     // Ensure directory exists for new files
@@ -175,7 +180,7 @@ router.put('/:profile', (req: Request, res: Response): void => {
 
     // Write new settings atomically
     const tempPath = settingsPath + '.tmp';
-    fs.writeFileSync(tempPath, JSON.stringify(settings, null, 2) + '\n');
+    fs.writeFileSync(tempPath, newContent);
     fs.renameSync(tempPath, settingsPath);
 
     const newStat = fs.statSync(settingsPath);
