@@ -12,34 +12,25 @@ interface TabNavigationProps {
   onTabChange: (tab: SettingsTab) => void;
 }
 
+const tabs = [
+  { value: 'websearch' as const, label: 'Web', icon: Globe },
+  { value: 'globalenv' as const, label: 'Env', icon: Settings2 },
+  { value: 'thinking' as const, label: 'Think', icon: Brain },
+  { value: 'proxy' as const, label: 'Proxy', icon: Server },
+  { value: 'auth' as const, label: 'Auth', icon: KeyRound },
+  { value: 'backups' as const, label: 'Backup', icon: Archive },
+] as const;
+
 export function TabNavigation({ activeTab, onTabChange }: TabNavigationProps) {
   return (
     <Tabs value={activeTab} onValueChange={(v) => onTabChange(v as SettingsTab)}>
-      <TabsList className="w-full">
-        <TabsTrigger value="websearch" className="flex-1 gap-2">
-          <Globe className="w-4 h-4" />
-          WebSearch
-        </TabsTrigger>
-        <TabsTrigger value="globalenv" className="flex-1 gap-2">
-          <Settings2 className="w-4 h-4" />
-          Global Env
-        </TabsTrigger>
-        <TabsTrigger value="thinking" className="flex-1 gap-2">
-          <Brain className="w-4 h-4" />
-          Thinking
-        </TabsTrigger>
-        <TabsTrigger value="proxy" className="flex-1 gap-2">
-          <Server className="w-4 h-4" />
-          Proxy
-        </TabsTrigger>
-        <TabsTrigger value="auth" className="flex-1 gap-2">
-          <KeyRound className="w-4 h-4" />
-          Auth
-        </TabsTrigger>
-        <TabsTrigger value="backups" className="flex-1 gap-2">
-          <Archive className="w-4 h-4" />
-          Backups
-        </TabsTrigger>
+      <TabsList className="grid w-full grid-cols-6">
+        {tabs.map(({ value, label, icon: Icon }) => (
+          <TabsTrigger key={value} value={value} className="gap-1.5 px-1 text-xs">
+            <Icon className="h-3.5 w-3.5 shrink-0" />
+            <span className="truncate">{label}</span>
+          </TabsTrigger>
+        ))}
       </TabsList>
     </Tabs>
   );

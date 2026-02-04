@@ -4,7 +4,10 @@
  * Tests for exponential backoff retry behavior on 429 rate limit errors
  */
 
-import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
+import { describe, it, expect, beforeEach, afterEach, setDefaultTimeout } from 'bun:test';
+
+// Increase timeout for CI - dynamic imports and proxy creation are slow on CI runners
+setDefaultTimeout(30000);
 
 // Store original env vars
 const originalEnv = { ...process.env };
