@@ -14,6 +14,7 @@ import {
 } from './utils/websearch-manager';
 import { getGlobalEnvConfig } from './config/unified-config-loader';
 import { getImageReadBlockHookEnv } from './utils/hooks/image-read-block-hook-env';
+import { ensureProfileHooks as ensureImageAnalyzerHooks } from './utils/hooks/image-analyzer-profile-hook-injector';
 import { fail, info } from './utils/ui';
 
 // Import centralized error handling
@@ -523,6 +524,8 @@ async function main(): Promise<void> {
       // CLIPROXY FLOW: OAuth-based profiles (gemini, codex, agy, qwen) or user-defined variants
       // Inject WebSearch hook into profile settings before launch
       ensureProfileHooks(profileInfo.name);
+      // Inject Image Analyzer hook into profile settings before launch
+      ensureImageAnalyzerHooks(profileInfo.name);
 
       const provider = profileInfo.provider || (profileInfo.name as CLIProxyProvider);
       const customSettingsPath = profileInfo.settingsPath; // undefined for hardcoded profiles
@@ -535,6 +538,8 @@ async function main(): Promise<void> {
       // COPILOT FLOW: GitHub Copilot subscription via copilot-api proxy
       // Inject WebSearch hook into profile settings before launch
       ensureProfileHooks(profileInfo.name);
+      // Inject Image Analyzer hook into profile settings before launch
+      ensureImageAnalyzerHooks(profileInfo.name);
 
       const { executeCopilotProfile } = await import('./copilot');
       const copilotConfig = profileInfo.copilotConfig;
@@ -549,6 +554,8 @@ async function main(): Promise<void> {
       // WebSearch is server-side tool - third-party providers have no access
       // Inject WebSearch hook into profile settings before launch
       ensureProfileHooks(profileInfo.name);
+      // Inject Image Analyzer hook into profile settings before launch
+      ensureImageAnalyzerHooks(profileInfo.name);
 
       ensureMcpWebSearch();
 
