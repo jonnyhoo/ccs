@@ -1,3 +1,63 @@
+## [7.35.0](https://github.com/kaitranntt/ccs/compare/v7.34.1...v7.35.0) (2026-02-04)
+
+### ⚠ BREAKING CHANGES
+
+* **hooks:** config.yaml image_analysis section now uses
+provider_models instead of providers/model fields.
+
+Provider-to-model mappings:
+- agy → gemini-2.5-flash
+- gemini → gemini-2.5-flash
+- codex → gpt-5.1-codex-mini
+- kiro → kiro-claude-haiku-4-5
+- ghcp → claude-haiku-4.5
+- claude → claude-haiku-4-5-20251001
+
+Hook checks CCS_CURRENT_PROVIDER against provider_models and skips
+if no vision model configured for that provider.
+
+### Features
+
+* **hooks:** add ANTHROPIC_MODEL fallback for image analysis ([ae3eb28](https://github.com/kaitranntt/ccs/commit/ae3eb282b4a6a0754f90be27e259af45d0d09d9b))
+* **hooks:** add block-image-read hook to prevent context overflow ([38eb740](https://github.com/kaitranntt/ccs/commit/38eb74043c7f9e613e308392b2c159ebfc2a05c1)), closes [#426](https://github.com/kaitranntt/ccs/issues/426)
+* **hooks:** add image/PDF analysis via CLIProxy transformer ([d5f2aca](https://github.com/kaitranntt/ccs/commit/d5f2acaa6e9ee5d12a6035c2da1f975551b6a989)), closes [#426](https://github.com/kaitranntt/ccs/issues/426)
+* **hooks:** add UX improvements for image analysis hook ([2b0717e](https://github.com/kaitranntt/ccs/commit/2b0717ed53011dcb67cc03ad09a00cfabb682f1e))
+* **hooks:** extend image analyzer to all CLIProxy providers ([3252228](https://github.com/kaitranntt/ccs/commit/3252228e5c230d291fc705fb5f1f4b3f58cb2d99))
+* **hooks:** inject image analyzer hooks into all profile types ([a8ddf8b](https://github.com/kaitranntt/ccs/commit/a8ddf8bd565ac82131dc4ca02ecadd3b04a61197))
+* **hooks:** skip image analyzer for Claude Sub accounts ([26f4021](https://github.com/kaitranntt/ccs/commit/26f40217703800cb412af74195e350090d39e435))
+* **ui:** improve settings page UX and responsiveness ([4d87a64](https://github.com/kaitranntt/ccs/commit/4d87a649de3873786926dad0f598d4f481b1b563))
+
+### Bug Fixes
+
+* **backup:** create backups only when settings content changes ([c324e92](https://github.com/kaitranntt/ccs/commit/c324e92eb442669656b53a8f685030f5cb15ce3d)), closes [#433](https://github.com/kaitranntt/ccs/issues/433)
+* **checks:** use configurable CLIProxy port in health check ([bfb5350](https://github.com/kaitranntt/ccs/commit/bfb535037ad297b3d838754af74d30b8a88b34f2))
+* **cli:** improve network handling and shell escaping ([3c1cf91](https://github.com/kaitranntt/ccs/commit/3c1cf91da4a27e55578a975f02222120a5d3064c))
+* **config:** remove unused forceReload parameter in showStatus ([8dfd9e9](https://github.com/kaitranntt/ccs/commit/8dfd9e937599305dcdeab453bb866f16ad582020))
+* **delegation:** dynamic model display from settings ([f6b7045](https://github.com/kaitranntt/ccs/commit/f6b7045023e5de52f57fa79445a29de5bfe5a5ff)), closes [#431](https://github.com/kaitranntt/ccs/issues/431)
+* **glmt:** gate retry rate limit logs behind verbose flag ([73824bc](https://github.com/kaitranntt/ccs/commit/73824bc99eec2701164837588a231b56b943c536))
+* **hooks:** add defensive validation for env var generation ([9662490](https://github.com/kaitranntt/ccs/commit/9662490a74297fe1c992e30beb212222abe77799))
+* **hooks:** add edge case validation in image analyzer ([0e7b9c9](https://github.com/kaitranntt/ccs/commit/0e7b9c91900c319a58ec698306be01bb1f665432))
+* **hooks:** add network errors to noRetryPatterns, update E2E test ([1201b4b](https://github.com/kaitranntt/ccs/commit/1201b4bb4b0b207d1c170fc3dcf39e79bbc545bd))
+* **hooks:** enable image-read blocking by default for third-party profiles ([9f3edc5](https://github.com/kaitranntt/ccs/commit/9f3edc5dafb3aeb72f3d1cf2da80ccbda1690e48))
+* **hooks:** improve error handling and edge cases for image analysis ([cb8de2c](https://github.com/kaitranntt/ccs/commit/cb8de2c8e8da2ac5e97b8e1893fc4586d0bf5c8c))
+* **hooks:** improve image analysis output format ([70caaa0](https://github.com/kaitranntt/ccs/commit/70caaa00a090fe6a1cfcff3ff47bcb355427ff42))
+* **ui:** add missing animate property to connection indicator ([57f7a70](https://github.com/kaitranntt/ccs/commit/57f7a70d67cb7bc854fa3aa4c0a932134dc1278c))
+* **update:** pre-remove package on Windows bun before reinstall ([a55e0af](https://github.com/kaitranntt/ccs/commit/a55e0af8ef440d2cbfa7d9a487727fb1ee874bc6)), closes [#435](https://github.com/kaitranntt/ccs/issues/435)
+
+### Documentation
+
+* update documentation for v7.34 release ([c6be09b](https://github.com/kaitranntt/ccs/commit/c6be09b55b9df21be551f4844b4fba3dfd9a6b3f))
+
+### Code Refactoring
+
+* **hooks:** consolidate getCcsHooksDir to config-manager ([b014c4e](https://github.com/kaitranntt/ccs/commit/b014c4e8725c484d37827ea6f2a2e5df59464ce8))
+* **hooks:** deprecate block-image-read, add CLIProxy fallback ([51b719e](https://github.com/kaitranntt/ccs/commit/51b719ef3463950983244d708f1b9bca45774976)), closes [#442](https://github.com/kaitranntt/ccs/issues/442) [#426](https://github.com/kaitranntt/ccs/issues/426)
+* **hooks:** use provider_models mapping for image analysis ([40caff1](https://github.com/kaitranntt/ccs/commit/40caff13ad5e8eaca71bddb05368d2218ce94453))
+
+### Performance Improvements
+
+* **config:** replace busy-wait with Atomics.wait in lock retry ([ec4e1ae](https://github.com/kaitranntt/ccs/commit/ec4e1ae31c882e8422e8defca6c10a9c79addc5d))
+
 ## [7.34.1](https://github.com/kaitranntt/ccs/compare/v7.34.0...v7.34.1) (2026-02-03)
 
 ### Bug Fixes
