@@ -286,6 +286,29 @@ export async function execClaudeWithCLIProxy(
       spinner.succeed('CLIProxy binary ready');
     } catch (error) {
       spinner.fail('Failed to prepare CLIProxy');
+      const err = error as Error;
+
+      // Check if network offline (DNS, connection, or timeout failure)
+      const networkErrors = [
+        'getaddrinfo',
+        'ENOTFOUND',
+        'ETIMEDOUT',
+        'ECONNREFUSED',
+        'ENETUNREACH',
+        'EAI_AGAIN',
+      ];
+      const isNetworkError = networkErrors.some((errCode) => err.message.includes(errCode));
+
+      if (isNetworkError) {
+        console.error('');
+        console.error(fail('No network connection detected'));
+        console.error('');
+        console.error('CLIProxy binary download requires internet access.');
+        console.error('Please check your network connection and try again.');
+        console.error('');
+        process.exit(1);
+      }
+
       throw error;
     }
   }
