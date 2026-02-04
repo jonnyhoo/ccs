@@ -1,3 +1,9 @@
+## [7.35.1](https://github.com/kaitranntt/ccs/compare/v7.35.0...v7.35.1) (2026-02-04)
+
+### Bug Fixes
+
+* **cliproxy:** use os.homedir() for cross-platform path expansion ([39f77bd](https://github.com/kaitranntt/ccs/commit/39f77bd9efffd97fb76fbb7bb550bfe25c58e6a7)), closes [#445](https://github.com/kaitranntt/ccs/issues/445)
+
 ## [7.35.0](https://github.com/kaitranntt/ccs/compare/v7.34.1...v7.35.0) (2026-02-04)
 
 ### ⚠ BREAKING CHANGES
