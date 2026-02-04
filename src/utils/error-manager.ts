@@ -51,12 +51,25 @@ export class ErrorManager {
     console.error('  1. Install Claude CLI');
     console.error(`     ${color('https://docs.claude.com/install', 'path')}`);
     console.error('');
-    console.error('  2. Verify installation');
-    console.error(`     ${color('command -v claude', 'command')}   (Unix)`);
-    console.error(`     ${color('Get-Command claude', 'command')}  (Windows)`);
-    console.error('');
-    console.error('  3. Custom path (if installed elsewhere)');
-    console.error(`     ${color('export CCS_CLAUDE_PATH="/path/to/claude"', 'command')}`);
+
+    // Windows-specific guidance for native installer users
+    if (process.platform === 'win32') {
+      console.error('  2. If you used the Windows installer, run:');
+      console.error(`     ${color('claude install', 'command')}`);
+      console.error(dim('     This adds Claude to your PATH'));
+      console.error('');
+      console.error('  3. Verify installation');
+      console.error(`     ${color('Get-Command claude', 'command')}`);
+      console.error('');
+      console.error('  4. Custom path (if installed elsewhere)');
+      console.error(`     ${color('$env:CCS_CLAUDE_PATH="C:\\path\\to\\claude.exe"', 'command')}`);
+    } else {
+      console.error('  2. Verify installation');
+      console.error(`     ${color('command -v claude', 'command')}`);
+      console.error('');
+      console.error('  3. Custom path (if installed elsewhere)');
+      console.error(`     ${color('export CCS_CLAUDE_PATH="/path/to/claude"', 'command')}`);
+    }
     console.error('');
 
     this.showErrorCode(ERROR_CODES.CLAUDE_NOT_FOUND);

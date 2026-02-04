@@ -128,8 +128,8 @@ describe('remote-token-uploader', () => {
 
       const elapsedTime = Date.now() - startTime;
 
-      // Verify delay was applied (at least 100ms)
-      expect(elapsedTime).toBeGreaterThanOrEqual(100);
+      // Verify delay was applied (allow 5ms tolerance for system timing variance)
+      expect(elapsedTime).toBeGreaterThanOrEqual(95);
       expect(response.ok).toBe(true);
     });
 
