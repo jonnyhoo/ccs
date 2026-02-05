@@ -12,9 +12,10 @@ import {
   getWebSearchHookEnv,
   ensureProfileHooks,
 } from './utils/websearch-manager';
-import { getGlobalEnvConfig } from './config/unified-config-loader';
+import { getGlobalEnvConfig, loadOrCreateUnifiedConfig } from './config/unified-config-loader';
 import { ensureProfileHooks as ensureImageAnalyzerHooks } from './utils/hooks/image-analyzer-profile-hook-injector';
 import { fail, info } from './utils/ui';
+import { execWithScenarioRouting } from './router';
 
 // Import centralized error handling
 import { handleError, runCleanup } from './errors';
@@ -622,34 +623,59 @@ async function main(): Promise<void> {
         // GLMT FLOW: Settings-based with embedded proxy for thinking support
         await execClaudeWithProxy(claudeCli, profileInfo.name, remainingArgs);
       } else {
-        // EXISTING FLOW: Settings-based profile (glm, kimi)
-        // Use --settings flag (backward compatible)
-        const expandedSettingsPath = getSettingsPath(profileInfo.name);
-        const webSearchEnv = getWebSearchHookEnv();
-        // Get global env vars (DISABLE_TELEMETRY, etc.) for third-party profiles
-        const globalEnvConfig = getGlobalEnvConfig();
-        const globalEnv = globalEnvConfig.enabled ? globalEnvConfig.env : {};
+        // Check if scenario router is enabled
+        const unifiedConfig = loadOrCreateUnifiedConfig();
+        const routerEnabled = unifiedConfig.router?.enabled ?? false;
 
-        // Log global env injection for visibility (debug mode only)
-        if (globalEnvConfig.enabled && Object.keys(globalEnv).length > 0 && process.env.CCS_DEBUG) {
-          const envNames = Object.keys(globalEnv).join(', ');
-          console.error(info(`Global env: ${envNames}`));
+        if (routerEnabled) {
+          // SCENARIO ROUTING FLOW: Route sub-agents to different profiles
+          const webSearchEnv = getWebSearchHookEnv();
+          const globalEnvConfig = getGlobalEnvConfig();
+          const globalEnv = globalEnvConfig.enabled ? globalEnvConfig.env : {};
+
+          const envOverrides: NodeJS.ProcessEnv = {
+            ...globalEnv,
+            ...webSearchEnv,
+            CCS_PROFILE_TYPE: 'settings',
+          };
+
+          const exitCode = await execWithScenarioRouting(
+            claudeCli,
+            profileInfo.name,
+            remainingArgs,
+            envOverrides
+          );
+          process.exit(exitCode);
+        } else {
+          // EXISTING FLOW: Settings-based profile (glm, kimi)
+          // Use --settings flag (backward compatible)
+          const expandedSettingsPath = getSettingsPath(profileInfo.name);
+          const webSearchEnv = getWebSearchHookEnv();
+          // Get global env vars (DISABLE_TELEMETRY, etc.) for third-party profiles
+          const globalEnvConfig = getGlobalEnvConfig();
+          const globalEnv = globalEnvConfig.enabled ? globalEnvConfig.env : {};
+
+          // Log global env injection for visibility (debug mode only)
+          if (globalEnvConfig.enabled && Object.keys(globalEnv).length > 0 && process.env.CCS_DEBUG) {
+            const envNames = Object.keys(globalEnv).join(', ');
+            console.error(info(`Global env: ${envNames}`));
+          }
+
+          // CRITICAL: Load settings and explicitly set ANTHROPIC_* env vars
+          // to prevent inheriting stale values from previous CLIProxy sessions.
+          // Environment variables take precedence over --settings file values,
+          // so we must explicitly set them here to ensure correct routing.
+          const settings = loadSettings(expandedSettingsPath);
+          const settingsEnv = settings.env || {};
+
+          const envVars: NodeJS.ProcessEnv = {
+            ...globalEnv,
+            ...settingsEnv, // Explicitly inject all settings env vars
+            ...webSearchEnv,
+            CCS_PROFILE_TYPE: 'settings', // Signal to WebSearch hook this is a third-party provider
+          };
+          execClaude(claudeCli, ['--settings', expandedSettingsPath, ...remainingArgs], envVars);
         }
-
-        // CRITICAL: Load settings and explicitly set ANTHROPIC_* env vars
-        // to prevent inheriting stale values from previous CLIProxy sessions.
-        // Environment variables take precedence over --settings file values,
-        // so we must explicitly set them here to ensure correct routing.
-        const settings = loadSettings(expandedSettingsPath);
-        const settingsEnv = settings.env || {};
-
-        const envVars: NodeJS.ProcessEnv = {
-          ...globalEnv,
-          ...settingsEnv, // Explicitly inject all settings env vars
-          ...webSearchEnv,
-          CCS_PROFILE_TYPE: 'settings', // Signal to WebSearch hook this is a third-party provider
-        };
-        execClaude(claudeCli, ['--settings', expandedSettingsPath, ...remainingArgs], envVars);
       }
     } else if (profileInfo.type === 'account') {
       // NEW FLOW: Account-based profile (work, personal)

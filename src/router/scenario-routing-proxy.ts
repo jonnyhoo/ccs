@@ -131,6 +131,54 @@ export function buildScenarioUpstreams(
   return { upstreams, defaultUpstream };
 }
 
+/**
+ * Build scenario upstreams for settings-based profile entry point.
+ * Used when the entry profile is a settings-based profile (not CLIProxy provider).
+ *
+ * @param routerConfig - Router configuration with scenario -> profile mappings
+ * @param entryProfileName - The entry profile name (e.g., 'zz166')
+ * @returns Map of scenario type to upstream configuration, or null if routing not configured
+ */
+export function buildSettingsUpstreams(
+  routerConfig: ScenarioRouterConfig,
+  entryProfileName: string
+): { upstreams: Partial<Record<ScenarioType, ScenarioUpstream>>; defaultUpstream: ScenarioUpstream } | null {
+  // Load entry profile settings for default upstream
+  const entrySettings = loadProfileSettings(entryProfileName);
+  if (!entrySettings?.baseUrl) {
+    return null;
+  }
+
+  const defaultUpstream: ScenarioUpstream = {
+    baseUrl: entrySettings.baseUrl,
+    headers: entrySettings.authToken
+      ? { 'x-api-key': entrySettings.authToken, 'anthropic-api-key': entrySettings.authToken }
+      : undefined,
+  };
+
+  const upstreams: Partial<Record<ScenarioType, ScenarioUpstream>> = {};
+
+  // Build upstream for each configured route
+  if (routerConfig.routes) {
+    for (const [scenario, profile] of Object.entries(routerConfig.routes)) {
+      // Skip 'default' route - handled by defaultUpstream
+      if (scenario === 'default') continue;
+
+      const profileSettings = loadProfileSettings(profile);
+      if (profileSettings?.baseUrl) {
+        upstreams[scenario as ScenarioType] = {
+          baseUrl: profileSettings.baseUrl,
+          headers: profileSettings.authToken
+            ? { 'x-api-key': profileSettings.authToken, 'anthropic-api-key': profileSettings.authToken }
+            : undefined,
+        };
+      }
+    }
+  }
+
+  return { upstreams, defaultUpstream };
+}
+
 export class ScenarioRoutingProxy {
   private server: http.Server | null = null;
   private port: number | null = null;
