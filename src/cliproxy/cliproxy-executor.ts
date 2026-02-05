@@ -965,14 +965,23 @@ export async function execClaudeWithCLIProxy(
 
   // Scenario Routing Proxy - routes sub-agent requests to different profiles
   // Only enabled for local proxy mode when router config is enabled
+  // Routes through ToolSanitizationProxy (or CLIProxy if not available) to preserve proxy chain
   let scenarioRoutingProxy: ScenarioRoutingProxy | null = null;
   let scenarioRoutingPort: number | null = null;
 
-  if (!useRemoteProxy && unifiedConfig.router?.enabled && finalBaseUrl) {
+  if (!useRemoteProxy && unifiedConfig.router?.enabled && envVars.ANTHROPIC_BASE_URL) {
     try {
+      // ScenarioRoutingProxy should route through ToolSanitizationProxy to preserve
+      // the proxy chain (tool sanitization is needed for all providers).
+      // Note: CodexReasoningProxy is codex-specific, so we skip it for routed requests
+      // (they may go to non-codex providers).
+      const routingUpstreamBase = toolSanitizationPort
+        ? `http://127.0.0.1:${toolSanitizationPort}`
+        : `http://127.0.0.1:${cfg.port}`; // Direct to CLIProxy if no sanitization
+
       const { upstreams, defaultUpstream } = buildScenarioUpstreams(
         unifiedConfig.router,
-        cfg.port,
+        routingUpstreamBase,
         provider
       );
 
@@ -989,7 +998,8 @@ export async function execClaudeWithCLIProxy(
         log(`Routes: ${JSON.stringify(unifiedConfig.router.routes)}`);
 
         // Update final URL to point to scenario routing proxy
-        finalBaseUrl = `http://*********:${scenarioRoutingPort}/api/provider/${provider}`;
+        // The path will be rewritten by ScenarioRoutingProxy based on detected scenario
+        finalBaseUrl = `http://127.0.0.1:${scenarioRoutingPort}`;
       } else {
         log('Scenario routing enabled but no valid routes configured, skipping proxy');
       }

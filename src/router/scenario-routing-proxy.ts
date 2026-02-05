@@ -46,31 +46,36 @@ export interface ScenarioRoutingProxyConfig {
  * Build scenario upstreams map from router config.
  * Maps each configured scenario to its corresponding CLIProxy endpoint.
  *
+ * The upstreams are built to route THROUGH the existing proxy chain:
+ * ScenarioRoutingProxy → ToolSanitizationProxy → CLIProxy → Backend
+ *
  * @param routerConfig - Router configuration with scenario -> profile mappings
- * @param port - CLIProxy port
+ * @param nextProxyBaseUrl - URL of the next proxy in chain (e.g., ToolSanitizationProxy)
  * @param currentProvider - Current provider being used
  * @returns Map of scenario type to upstream configuration
  */
 export function buildScenarioUpstreams(
   routerConfig: ScenarioRouterConfig,
-  port: number,
+  nextProxyBaseUrl: string,
   currentProvider: CLIProxyProvider
 ): { upstreams: Partial<Record<ScenarioType, ScenarioUpstream>>; defaultUpstream: string } {
   const upstreams: Partial<Record<ScenarioType, ScenarioUpstream>> = {};
 
-  // Default upstream is current provider
-  const defaultUpstream = `http://*********:${port}/api/provider/${currentProvider}`;
+  // Default upstream goes through the next proxy with current provider path
+  const defaultUpstream = `${nextProxyBaseUrl}/api/provider/${currentProvider}`;
 
   // Known CLIProxy providers that can be used as route targets
   const validProviders: CLIProxyProvider[] = ['gemini', 'codex', 'agy', 'qwen', 'iflow', 'kiro', 'ghcp', 'claude'];
 
   // Build upstream for each configured route
+  // All routes go through the same next proxy, just with different provider paths
   if (routerConfig.routes) {
     for (const [scenario, profile] of Object.entries(routerConfig.routes)) {
       // Check if profile is a valid CLIProxy provider
       if (validProviders.includes(profile as CLIProxyProvider)) {
         upstreams[scenario as ScenarioType] = {
-          baseUrl: `http://*********:${port}/api/provider/${profile}`,
+          // Route through next proxy (e.g., ToolSanitizationProxy) with target provider path
+          baseUrl: `${nextProxyBaseUrl}/api/provider/${profile}`,
         };
       }
       // Note: Non-CLIProxy profiles (e.g., settings-based) are not supported for routing
@@ -200,6 +205,17 @@ export class ScenarioRoutingProxy {
   }
 
   /**
+   * Combine upstream base path with request path.
+   * Ensures paths like /api/provider/gemini + /v1/messages = /api/provider/gemini/v1/messages
+   */
+  private combinePaths(upstreamPath: string, requestPath: string): string {
+    // Remove trailing slash from upstream, leading slash from request (if both exist)
+    const basePath = upstreamPath.replace(/\/$/, '');
+    const reqPath = requestPath.startsWith('/') ? requestPath : '/' + requestPath;
+    return basePath + reqPath;
+  }
+
+  /**
    * Forward request to upstream (streaming passthrough for non-messages).
    */
   private async forwardRequest(
@@ -207,19 +223,23 @@ export class ScenarioRoutingProxy {
     res: http.ServerResponse,
     upstream: string
   ): Promise<void> {
-    const url = new URL(req.url ?? '/', upstream);
-    const isHttps = url.protocol === 'https:';
+    const upstreamUrl = new URL(upstream);
+    const isHttps = upstreamUrl.protocol === 'https:';
     const httpModule = isHttps ? https : http;
+
+    // Combine upstream base path with request path
+    const requestUrl = new URL(req.url ?? '/', 'http://dummy');
+    const combinedPath = this.combinePaths(upstreamUrl.pathname, requestUrl.pathname);
 
     const proxyReq = httpModule.request(
       {
-        hostname: url.hostname,
-        port: url.port || (isHttps ? 443 : 80),
-        path: url.pathname + url.search,
+        hostname: upstreamUrl.hostname,
+        port: upstreamUrl.port || (isHttps ? 443 : 80),
+        path: combinedPath + requestUrl.search,
         method: req.method,
         headers: {
           ...req.headers,
-          host: url.host,
+          host: upstreamUrl.host,
         },
       },
       (proxyRes) => {
@@ -249,22 +269,26 @@ export class ScenarioRoutingProxy {
     body: Buffer,
     extraHeaders: Record<string, string> = {}
   ): Promise<void> {
-    const url = new URL(req.url ?? '/', upstream);
-    const isHttps = url.protocol === 'https:';
+    const upstreamUrl = new URL(upstream);
+    const isHttps = upstreamUrl.protocol === 'https:';
     const httpModule = isHttps ? https : http;
+
+    // Combine upstream base path with request path
+    const requestUrl = new URL(req.url ?? '/', 'http://dummy');
+    const combinedPath = this.combinePaths(upstreamUrl.pathname, requestUrl.pathname);
 
     const headers = {
       ...req.headers,
       ...extraHeaders,
-      host: url.host,
+      host: upstreamUrl.host,
       'content-length': body.length.toString(),
     };
 
     const proxyReq = httpModule.request(
       {
-        hostname: url.hostname,
-        port: url.port || (isHttps ? 443 : 80),
-        path: url.pathname + url.search,
+        hostname: upstreamUrl.hostname,
+        port: upstreamUrl.port || (isHttps ? 443 : 80),
+        path: combinedPath + requestUrl.search,
         method: req.method,
         headers,
       },
