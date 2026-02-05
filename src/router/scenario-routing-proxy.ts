@@ -25,6 +25,8 @@ export interface ScenarioUpstream {
   baseUrl: string;
   /** Additional headers to add (e.g., auth tokens) */
   headers?: Record<string, string>;
+  /** Model to use for this upstream (overrides request body model) */
+  model?: string;
 }
 
 /**
@@ -51,6 +53,8 @@ export interface ScenarioRoutingProxyConfig {
 export interface ProfileSettings {
   baseUrl?: string;
   authToken?: string;
+  /** Model configured for this profile */
+  model?: string;
   /** Full env object from settings.json (includes ANTHROPIC_MODEL, etc.) */
   env: Record<string, string>;
 }
@@ -82,6 +86,7 @@ export function loadProfileSettings(profileName: string): ProfileSettings | null
     return {
       baseUrl: env.ANTHROPIC_BASE_URL,
       authToken: env.ANTHROPIC_AUTH_TOKEN,
+      model: env.ANTHROPIC_MODEL,
       env,
     };
   } catch {
@@ -134,6 +139,8 @@ export function buildScenarioUpstreams(
           headers: profileSettings.authToken
             ? { 'x-api-key': profileSettings.authToken, 'anthropic-api-key': profileSettings.authToken }
             : undefined,
+          // Include model override if configured
+          model: profileSettings.model,
         };
       }
     }
@@ -187,6 +194,8 @@ export function buildSettingsUpstreams(
           headers: profileSettings.authToken
             ? { 'x-api-key': profileSettings.authToken, 'anthropic-api-key': profileSettings.authToken }
             : undefined,
+          // Include model override if configured
+          model: profileSettings.model,
         };
       }
     }
@@ -230,12 +239,18 @@ export class ScenarioRoutingProxy {
 
   /**
    * Log routing decision (always shown for non-default routes).
+   * @param scenario - The detected scenario
+   * @param targetModel - The model that will be used (after override)
+   * @param originalModel - The original model in request (before override)
    */
-  private logRoute(scenario: ScenarioType, model?: string): void {
+  private logRoute(scenario: ScenarioType, targetModel?: string, originalModel?: string): void {
     // Always log when routing to a non-default upstream
     const targetProfile = this.routeTargets.get(scenario) || 'unknown';
-    const modelInfo = model ? ` [${model}]` : '';
-    console.error(`[router] ${scenario}${modelInfo} → ${targetProfile}`);
+    const modelInfo = targetModel ? ` [${targetModel}]` : '';
+    const overrideInfo = (originalModel && targetModel && originalModel !== targetModel)
+      ? ` (was: ${originalModel})`
+      : '';
+    console.error(`[router] ${scenario}${modelInfo}${overrideInfo} → ${targetProfile}`);
   }
 
   /**
@@ -314,6 +329,7 @@ export class ScenarioRoutingProxy {
     // Detect scenario and get upstream
     let upstream = this.defaultUpstream;
     let extraHeaders: Record<string, string> = {};
+    let modelOverride: string | undefined;
 
     if (body && this.router.isEnabled()) {
       const scenario = this.router.detectScenario(body);
@@ -322,16 +338,29 @@ export class ScenarioRoutingProxy {
       if (scenarioUpstream) {
         upstream = scenarioUpstream.baseUrl;
         extraHeaders = scenarioUpstream.headers ?? {};
+        modelOverride = scenarioUpstream.model;
         // Always log non-default routing so user can see it's working
-        this.logRoute(scenario, body.model);
+        const targetModel = modelOverride || body.model;
+        const originalModel = body.model;
+        this.logRoute(scenario, targetModel, modelOverride ? originalModel : undefined);
         this.log(`Routing ${scenario} → ${upstream}`);
+        if (modelOverride) {
+          this.log(`Model override: ${body.model} → ${modelOverride}`);
+        }
       } else {
         this.log(`No upstream for ${scenario}, using default`);
       }
     }
 
+    // Apply model override to request body if specified
+    let finalBody = bodyBuffer;
+    if (modelOverride && body) {
+      body.model = modelOverride;
+      finalBody = Buffer.from(JSON.stringify(body), 'utf8');
+    }
+
     // Forward request with collected body
-    await this.forwardRequestWithBody(req, res, upstream, bodyBuffer, extraHeaders);
+    await this.forwardRequestWithBody(req, res, upstream, finalBody, extraHeaders);
   }
 
   /**
