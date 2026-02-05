@@ -202,12 +202,21 @@ export class ScenarioRoutingProxy {
   private defaultUpstream: string;
   private upstreams: Map<ScenarioType, ScenarioUpstream>;
   private verbose: boolean;
+  /** Map scenario -> target profile name from router config */
+  private routeTargets: Map<ScenarioType, string> = new Map();
 
   constructor(config: ScenarioRoutingProxyConfig) {
     this.router = new ScenarioRouter(config.routerConfig);
     this.defaultUpstream = config.defaultUpstream;
     this.upstreams = new Map(Object.entries(config.upstreams) as [ScenarioType, ScenarioUpstream][]);
     this.verbose = config.verbose ?? false;
+
+    // Build map for logging: scenario -> target profile name
+    if (config.routerConfig.routes) {
+      for (const [scenario, profile] of Object.entries(config.routerConfig.routes)) {
+        this.routeTargets.set(scenario as ScenarioType, profile);
+      }
+    }
   }
 
   /**
@@ -217,6 +226,16 @@ export class ScenarioRoutingProxy {
     if (this.verbose) {
       console.error(`[scenario-routing-proxy] ${message}`);
     }
+  }
+
+  /**
+   * Log routing decision (always shown for non-default routes).
+   */
+  private logRoute(scenario: ScenarioType, model?: string): void {
+    // Always log when routing to a non-default upstream
+    const targetProfile = this.routeTargets.get(scenario) || 'unknown';
+    const modelInfo = model ? ` [${model}]` : '';
+    console.error(`[router] ${scenario}${modelInfo} → ${targetProfile}`);
   }
 
   /**
@@ -303,6 +322,8 @@ export class ScenarioRoutingProxy {
       if (scenarioUpstream) {
         upstream = scenarioUpstream.baseUrl;
         extraHeaders = scenarioUpstream.headers ?? {};
+        // Always log non-default routing so user can see it's working
+        this.logRoute(scenario, body.model);
         this.log(`Routing ${scenario} → ${upstream}`);
       } else {
         this.log(`No upstream for ${scenario}, using default`);
