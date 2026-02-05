@@ -8,6 +8,7 @@
 import { spawn } from 'child_process';
 import * as path from 'path';
 import * as fs from 'fs';
+import * as os from 'os';
 import { SessionManager } from './session-manager';
 import { SettingsParser } from './settings-parser';
 import { ui, warn, info } from '../utils/ui';
@@ -46,6 +47,7 @@ export class HeadlessExecutor {
       agents,
       betas,
       extraArgs = [],
+      runInBackground = false,
     } = options;
 
     // Validate permission mode
@@ -162,7 +164,12 @@ export class HeadlessExecutor {
     // Initialize UI before spawning
     await ui.init();
 
-    // Execute with spawn
+    // Background execution mode
+    if (runInBackground) {
+      return this._spawnBackground(claudeCli, args, { cwd, profile });
+    }
+
+    // Execute with spawn (blocking)
     return this._spawnAndExecute(claudeCli, args, {
       cwd,
       profile,
@@ -170,6 +177,93 @@ export class HeadlessExecutor {
       resumeSession,
       sessionId,
       sessionMgr,
+    });
+  }
+
+  /**
+   * Spawn Claude CLI in background mode
+   * Returns immediately with task ID and output file path
+   */
+  private static _spawnBackground(
+    claudeCli: string,
+    args: string[],
+    ctx: { cwd: string; profile: string }
+  ): Promise<ExecutionResult> {
+    const { cwd, profile } = ctx;
+    const taskId = `ccs-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`;
+    const outputDir = path.join(os.tmpdir(), 'ccs-tasks');
+    const outputFile = path.join(outputDir, `${taskId}.output`);
+
+    // Ensure output directory exists
+    if (!fs.existsSync(outputDir)) {
+      fs.mkdirSync(outputDir, { recursive: true });
+    }
+
+    const modelName = getModelDisplayName(profile);
+    console.error(ui.info(`Background task started: ${taskId}`));
+    console.error(ui.info(`Delegating to ${modelName} in background...`));
+    console.error(ui.info(`Output file: ${outputFile}`));
+
+    const isWindows = process.platform === 'win32';
+
+    if (isWindows) {
+      // Windows: create temp .ps1 script for reliable background execution with Unicode support
+      const scriptFile = path.join(outputDir, `${taskId}.ps1`);
+      // Escape args for cmd: wrap in quotes, escape internal quotes
+      const cmdArgs = args.map((a) => `"${a.replace(/"/g, '\\"')}"`).join(' ');
+      const psContent = `
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+Set-Location -LiteralPath '${cwd.replace(/'/g, "''")}'
+cmd /c ""${claudeCli}" ${cmdArgs}" 2>&1 | Out-File -FilePath '${outputFile.replace(/'/g, "''")}' -Encoding UTF8
+`;
+      // Write with UTF-8 BOM so PowerShell reads Unicode correctly
+      const bom = Buffer.from([0xef, 0xbb, 0xbf]);
+      fs.writeFileSync(scriptFile, Buffer.concat([bom, Buffer.from(psContent, 'utf8')]));
+
+      // Use wscript.exe + VBS to create truly independent background process
+      // This escapes Job Object restrictions that kill children on parent exit
+      const vbsFile = path.join(outputDir, `${taskId}.vbs`);
+      const ps = `${process.env.SystemRoot}\\System32\\WindowsPowerShell\\v1.0\\powershell.exe`;
+      const vbsContent = `
+Set WshShell = CreateObject("WScript.Shell")
+WshShell.Run """${ps}"" -NoProfile -ExecutionPolicy Bypass -File ""${scriptFile}""", 0, False
+`;
+      fs.writeFileSync(vbsFile, vbsContent);
+
+      spawn('wscript.exe', [vbsFile], {
+        detached: true,
+        stdio: 'ignore',
+        windowsHide: true,
+      }).unref();
+    } else {
+      // Unix: use standard detached spawn with file descriptors
+      const outFd = fs.openSync(outputFile, 'a');
+      const proc = spawn(claudeCli, args, {
+        cwd,
+        stdio: ['ignore', outFd, outFd],
+        detached: true,
+      });
+      proc.unref();
+      fs.closeSync(outFd);
+    }
+
+    // Return immediately with background task info
+    const monitorCmd = isWindows ? `Get-Content -Wait "${outputFile}"` : `tail -f ${outputFile}`;
+
+    return Promise.resolve({
+      exitCode: 0,
+      stdout: '',
+      stderr: '',
+      cwd,
+      profile,
+      duration: 0,
+      timedOut: false,
+      success: true,
+      messages: [],
+      isBackground: true,
+      taskId,
+      outputFile,
+      content: `Background task started.\nTask ID: ${taskId}\nOutput: ${outputFile}\n\nUse '${monitorCmd}' to monitor progress.`,
     });
   }
 
@@ -204,6 +298,7 @@ export class HeadlessExecutor {
         cwd,
         stdio: ['ignore', 'pipe', 'pipe'],
         timeout,
+        shell: process.platform === 'win32', // Windows needs shell for .cmd files
       });
 
       let stdout = '';
@@ -355,8 +450,15 @@ export class HeadlessExecutor {
   private static _detectClaudeCli(): string | null {
     if (process.env.CCS_CLAUDE_PATH) return process.env.CCS_CLAUDE_PATH;
     const { execSync } = require('child_process');
+    const isWindows = process.platform === 'win32';
     try {
-      return execSync('command -v claude', { encoding: 'utf8' }).trim();
+      if (isWindows) {
+        // Windows: use 'where' command, returns multiple lines if found in multiple locations
+        const result = execSync('where claude', { encoding: 'utf8' }).trim();
+        return result.split('\n')[0].trim(); // Return first match
+      } else {
+        return execSync('command -v claude', { encoding: 'utf8' }).trim();
+      }
     } catch {
       return null;
     }

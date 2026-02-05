@@ -52,6 +52,8 @@ interface ParsedArgs {
     agents?: string;
     betas?: string;
     extraArgs?: string[]; // Catch-all for new/unknown flags
+    // Background execution
+    runInBackground?: boolean;
   };
 }
 
@@ -266,6 +268,10 @@ export class DelegationHandler {
     // Parse --betas (experimental features)
     options.betas = parseStringFlag(args, '--betas');
 
+    // Default: run in background
+    // Use --wait / -w to run in foreground (blocking)
+    options.runInBackground = !(args.includes('--wait') || args.includes('-w'));
+
     // Collect extra args to pass through to Claude CLI
     // CCS-handled flags with values (skip these and their values):
     const ccsFlagsWithValue = new Set([
@@ -278,6 +284,8 @@ export class DelegationHandler {
       '--agents',
       '--betas',
     ]);
+    // CCS-handled flags without values (skip these):
+    const ccsFlagsNoValue = new Set(['--wait', '-w']);
     const extraArgs: string[] = [];
     const profile = this._extractProfile(args);
 
@@ -290,6 +298,11 @@ export class DelegationHandler {
       // Skip CCS-handled flags and their values
       if (ccsFlagsWithValue.has(arg)) {
         i++; // Skip next arg (the value)
+        continue;
+      }
+
+      // Skip CCS-handled flags without values
+      if (ccsFlagsNoValue.has(arg)) {
         continue;
       }
 

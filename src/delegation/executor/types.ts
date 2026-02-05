@@ -61,6 +61,8 @@ export interface ExecutionOptions {
   agents?: string; // --agents: Dynamic subagent JSON injection
   betas?: string; // --betas: Enable experimental features
   extraArgs?: string[]; // Catch-all for new/unknown flags (future-proof)
+  // Background execution
+  runInBackground?: boolean; // --background: Run in background, return task ID immediately
 }
 
 /**
@@ -86,6 +88,10 @@ export interface ExecutionResult {
   permissionDenials?: PermissionDenial[];
   errors?: ExecutionError[];
   content?: string;
+  // Background execution
+  isBackground?: boolean;
+  taskId?: string;
+  outputFile?: string;
 }
 
 /**

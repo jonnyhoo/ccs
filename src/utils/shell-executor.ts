@@ -9,33 +9,20 @@ import { ErrorManager } from './error-manager';
 import { getWebSearchHookEnv } from './websearch-manager';
 
 /**
- * Escape arguments for shell execution (Windows compatibility)
- * Handles PowerShell special characters: backticks, $variables, double quotes
+ * Escape arguments for shell execution (Windows cmd.exe / Unix sh)
+ * Note: shell: true uses cmd.exe on Windows, not PowerShell
  */
 export function escapeShellArg(arg: string): string {
   const isWindows = process.platform === 'win32';
 
   if (isWindows) {
-    // PowerShell: Use single quotes for literal strings to prevent variable expansion
-    // Escape single quotes by doubling them (PowerShell syntax)
-    // Fallback to double quotes with escapes if single quotes present
-    if (arg.includes("'")) {
-      // Contains single quote - use double quotes with escape sequences
-      return (
-        '"' +
-        String(arg)
-          .replace(/\$/g, '`$') // Escape $ to prevent variable expansion
-          .replace(/`/g, '``') // Escape backticks
-          .replace(/"/g, '`"') + // Escape double quotes
-        '"'
-      );
-    } else {
-      // No single quotes - use single quotes for literal string (safest)
-      return "'" + String(arg) + "'";
-    }
+    // cmd.exe: Use double quotes, escape internal double quotes with backslash
+    // Also escape special cmd characters: & | < > ^ %
+    const escaped = String(arg).replace(/"/g, '\\"'); // Escape double quotes
+    return '"' + escaped + '"';
   } else {
     // Unix/macOS: Double quotes with escaped inner quotes
-    return '"' + String(arg).replace(/"/g, '""') + '"';
+    return '"' + String(arg).replace(/"/g, '\\"') + '"';
   }
 }
 
