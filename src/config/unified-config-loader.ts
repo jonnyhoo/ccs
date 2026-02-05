@@ -370,6 +370,8 @@ function mergeWithDefaults(partial: Partial<UnifiedConfig>): UnifiedConfig {
       provider_models:
         partial.image_analysis?.provider_models ?? DEFAULT_IMAGE_ANALYSIS_CONFIG.provider_models,
     },
+    // Router config - scenario-based routing for sub-agents
+    router: partial.router,
   };
 }
 
@@ -616,6 +618,29 @@ function generateYamlWithComments(config: UnifiedConfig): string {
           { image_analysis: config.image_analysis },
           { indent: 2, lineWidth: -1, quotingType: '"' }
         )
+        .trim()
+    );
+    lines.push('');
+  }
+
+  // Router section (scenario routing for sub-agents)
+  if (config.router) {
+    lines.push('# ----------------------------------------------------------------------------');
+    lines.push('# Router: Scenario-based routing for Claude sub-agents');
+    lines.push('# Routes different request types (background, think, webSearch) to profiles.');
+    lines.push('#');
+    lines.push('# Scenarios:');
+    lines.push('#   default     - Fallback for unmatched requests');
+    lines.push('#   background  - Claude background/haiku sub-agents');
+    lines.push('#   think       - Extended thinking requests');
+    lines.push('#   longContext - Requests exceeding token threshold');
+    lines.push('#   webSearch   - Web search tool requests');
+    lines.push('#');
+    lines.push('# Configure via: ccs router set <scenario> <profile>');
+    lines.push('# ----------------------------------------------------------------------------');
+    lines.push(
+      yaml
+        .dump({ router: config.router }, { indent: 2, lineWidth: -1, quotingType: '"' })
         .trim()
     );
     lines.push('');

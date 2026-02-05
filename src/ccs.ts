@@ -419,6 +419,13 @@ async function main(): Promise<void> {
     return;
   }
 
+  // Special case: router command (scenario routing for sub-agents)
+  if (firstArg === 'router') {
+    const { handleRouterCommand } = await import('./commands/router');
+    handleRouterCommand(args.slice(1));
+    return;
+  }
+
   // Special case: cliproxy command (manages CLIProxyAPI binary)
   if (firstArg === 'cliproxy') {
     const { handleCliproxyCommand } = await import('./commands/cliproxy-command');

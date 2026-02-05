@@ -518,6 +518,42 @@ export const DEFAULT_DASHBOARD_AUTH_CONFIG: DashboardAuthConfig = {
   session_timeout_hours: 24,
 };
 
+// ============================================================================
+// SCENARIO ROUTER CONFIGURATION (v9+)
+// ============================================================================
+
+/**
+ * Scenario types that can be detected from Claude CLI requests.
+ */
+export type ScenarioType = 'default' | 'background' | 'think' | 'longContext' | 'webSearch';
+
+/**
+ * Scenario router configuration.
+ * Routes Claude CLI sub-agent requests to different CCS profiles
+ * based on request characteristics.
+ */
+export interface ScenarioRouterConfig {
+  /** Enable/disable scenario routing (default: false) */
+  enabled: boolean;
+  /** Maps scenario types to CCS profile names */
+  routes: Partial<Record<ScenarioType, string>>;
+  /** Token count threshold for longContext detection (default: 60000) */
+  longContextThreshold?: number;
+  /** Enable verbose logging for debugging */
+  verbose?: boolean;
+}
+
+/**
+ * Default scenario router configuration.
+ * Disabled by default - must be explicitly enabled.
+ */
+export const DEFAULT_ROUTER_CONFIG: ScenarioRouterConfig = {
+  enabled: false,
+  routes: {},
+  longContextThreshold: 60000,
+  verbose: false,
+};
+
 /**
  * Image analysis configuration.
  * Routes image/PDF files through CLIProxy for vision analysis.
@@ -586,6 +622,8 @@ export interface UnifiedConfig {
   dashboard_auth?: DashboardAuthConfig;
   /** Image analysis configuration (vision via CLIProxy) */
   image_analysis?: ImageAnalysisConfig;
+  /** Scenario router configuration (v9+) */
+  router?: ScenarioRouterConfig;
 }
 
 /**
@@ -680,6 +718,7 @@ export function createEmptyUnifiedConfig(): UnifiedConfig {
     thinking: { ...DEFAULT_THINKING_CONFIG },
     dashboard_auth: { ...DEFAULT_DASHBOARD_AUTH_CONFIG },
     image_analysis: { ...DEFAULT_IMAGE_ANALYSIS_CONFIG },
+    router: { ...DEFAULT_ROUTER_CONFIG },
   };
 }
 

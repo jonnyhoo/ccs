@@ -67,6 +67,7 @@ import { withStartupLock } from './startup-lock';
 import { loadOrCreateUnifiedConfig } from '../config/unified-config-loader';
 import { preflightCheck } from './quota-manager';
 import { HttpsTunnelProxy } from './https-tunnel-proxy';
+import { ScenarioRoutingProxy, buildScenarioUpstreams } from '../router';
 
 /** Default executor configuration */
 const DEFAULT_CONFIG: ExecutorConfig = {
@@ -951,15 +952,56 @@ export async function execClaudeWithCLIProxy(
   }
 
   // Determine the final ANTHROPIC_BASE_URL based on active proxies
-  // Chain order: Claude CLI → [CodexReasoningProxy] → [ToolSanitizationProxy] → CLIProxy
+  // Chain order: Claude CLI → [ScenarioRoutingProxy] → [CodexReasoningProxy] → [ToolSanitizationProxy] → CLIProxy
   // The outermost active proxy becomes the effective base URL
   let finalBaseUrl = envVars.ANTHROPIC_BASE_URL;
   if (toolSanitizationPort) {
-    finalBaseUrl = `http://127.0.0.1:${toolSanitizationPort}`;
+    finalBaseUrl = `http://*********:${toolSanitizationPort}`;
   }
   if (codexReasoningPort) {
     // Codex reasoning proxy is the outermost layer for codex provider
-    finalBaseUrl = `http://127.0.0.1:${codexReasoningPort}/api/provider/codex`;
+    finalBaseUrl = `http://*********:${codexReasoningPort}/api/provider/codex`;
+  }
+
+  // Scenario Routing Proxy - routes sub-agent requests to different profiles
+  // Only enabled for local proxy mode when router config is enabled
+  let scenarioRoutingProxy: ScenarioRoutingProxy | null = null;
+  let scenarioRoutingPort: number | null = null;
+
+  if (!useRemoteProxy && unifiedConfig.router?.enabled && finalBaseUrl) {
+    try {
+      const { upstreams, defaultUpstream } = buildScenarioUpstreams(
+        unifiedConfig.router,
+        cfg.port,
+        provider
+      );
+
+      // Only create proxy if there are actually routes configured
+      if (Object.keys(upstreams).length > 0) {
+        scenarioRoutingProxy = new ScenarioRoutingProxy({
+          routerConfig: unifiedConfig.router,
+          defaultUpstream: defaultUpstream,
+          upstreams,
+          verbose,
+        });
+        scenarioRoutingPort = await scenarioRoutingProxy.start();
+        log(`Scenario routing proxy active on port ${scenarioRoutingPort}`);
+        log(`Routes: ${JSON.stringify(unifiedConfig.router.routes)}`);
+
+        // Update final URL to point to scenario routing proxy
+        finalBaseUrl = `http://*********:${scenarioRoutingPort}/api/provider/${provider}`;
+      } else {
+        log('Scenario routing enabled but no valid routes configured, skipping proxy');
+      }
+    } catch (error) {
+      // Non-fatal: continue without scenario routing
+      const err = error as Error;
+      scenarioRoutingProxy = null;
+      scenarioRoutingPort = null;
+      if (verbose) {
+        console.error(warn(`Scenario routing proxy disabled: ${err.message}`));
+      }
+    }
   }
 
   const effectiveEnvVars = {
@@ -1056,6 +1098,10 @@ export async function execClaudeWithCLIProxy(
   claude.on('exit', (code, signal) => {
     log(`Claude exited: code=${code}, signal=${signal}`);
 
+    if (scenarioRoutingProxy) {
+      scenarioRoutingProxy.stop();
+    }
+
     if (codexReasoningProxy) {
       codexReasoningProxy.stop();
     }
@@ -1084,6 +1130,10 @@ export async function execClaudeWithCLIProxy(
   claude.on('error', (error) => {
     console.error(fail(`Claude CLI error: ${error}`));
 
+    if (scenarioRoutingProxy) {
+      scenarioRoutingProxy.stop();
+    }
+
     if (codexReasoningProxy) {
       codexReasoningProxy.stop();
     }
@@ -1106,6 +1156,10 @@ export async function execClaudeWithCLIProxy(
   // Handle parent process termination (SIGTERM, SIGINT)
   const cleanup = () => {
     log('Parent signal received, cleaning up');
+
+    if (scenarioRoutingProxy) {
+      scenarioRoutingProxy.stop();
+    }
 
     if (codexReasoningProxy) {
       codexReasoningProxy.stop();

@@ -1,6 +1,6 @@
 {
-  "name": "@kaitranntt/ccs",
-  "version": "7.36.0",
+  "name": "@jonnyhoo/ccs",
+  "version": "1.0.0",
   "description": "Claude Code Switch - Instant profile switching between Claude Sonnet 4.5 and GLM 4.6",
   "keywords": [
     "cli",
@@ -10,18 +10,18 @@
     "profile",
     "switch"
   ],
-  "homepage": "https://github.com/kaitranntt/ccs",
+  "homepage": "https://github.com/jonnyhoo/ccs",
   "bugs": {
-    "url": "https://github.com/kaitranntt/ccs/issues"
+    "url": "https://github.com/jonnyhoo/ccs/issues"
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/kaitranntt/ccs.git"
+    "url": "git+https://github.com/jonnyhoo/ccs.git"
   },
   "license": "MIT",
   "author": {
-    "name": "Tam Nhu Tran (Kai)",
-    "email": "kaitranntt@users.noreply.github.com"
+    "name": "jonnyhoo",
+    "email": "jonnyhoo@users.noreply.github.com"
   },
   "main": "dist/ccs.js",
   "types": "dist/ccs.d.ts",
