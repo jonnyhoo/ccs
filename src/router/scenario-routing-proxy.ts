@@ -10,9 +10,12 @@
 
 import * as http from 'http';
 import * as https from 'https';
+import * as fs from 'fs';
+import * as os from 'os';
 import { ScenarioRouter } from './scenario-router';
 import { ScenarioType, ScenarioRouterConfig, AnthropicRequestBody } from './types';
 import { CLIProxyProvider } from '../cliproxy/types';
+import { loadOrCreateUnifiedConfig } from '../config/unified-config-loader';
 
 /**
  * Upstream configuration for a scenario.
@@ -43,15 +46,48 @@ export interface ScenarioRoutingProxyConfig {
  * Intercepts requests and routes them based on detected scenario.
  */
 /**
+ * Load settings from a profile's settings.json file.
+ * Returns the env vars including ANTHROPIC_BASE_URL and ANTHROPIC_AUTH_TOKEN.
+ */
+function loadProfileSettings(profileName: string): { baseUrl?: string; authToken?: string } | null {
+  const config = loadOrCreateUnifiedConfig();
+  const profileConfig = config.profiles?.[profileName];
+  
+  if (!profileConfig?.settings) {
+    return null;
+  }
+  
+  // Expand ~ to home directory
+  const settingsPath = profileConfig.settings.replace(/^~/, os.homedir());
+  
+  if (!fs.existsSync(settingsPath)) {
+    return null;
+  }
+  
+  try {
+    const content = fs.readFileSync(settingsPath, 'utf-8');
+    const settings = JSON.parse(content);
+    const env = settings.env || {};
+    
+    return {
+      baseUrl: env.ANTHROPIC_BASE_URL,
+      authToken: env.ANTHROPIC_AUTH_TOKEN,
+    };
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Build scenario upstreams map from router config.
- * Maps each configured scenario to its corresponding CLIProxy endpoint.
+ * Supports both CLIProxy providers and settings-based profiles.
  *
- * The upstreams are built to route THROUGH the existing proxy chain:
- * ScenarioRoutingProxy → ToolSanitizationProxy → CLIProxy → Backend
+ * For CLIProxy providers: Routes through the proxy chain with different provider paths
+ * For settings-based profiles: Routes directly to the profile's configured endpoint
  *
  * @param routerConfig - Router configuration with scenario -> profile mappings
- * @param nextProxyBaseUrl - URL of the next proxy in chain (e.g., ToolSanitizationProxy)
- * @param currentProvider - Current provider being used
+ * @param nextProxyBaseUrl - URL of the next proxy in chain (for CLIProxy providers)
+ * @param currentProvider - Current provider being used (for default upstream)
  * @returns Map of scenario type to upstream configuration
  */
 export function buildScenarioUpstreams(
@@ -68,18 +104,27 @@ export function buildScenarioUpstreams(
   const validProviders: CLIProxyProvider[] = ['gemini', 'codex', 'agy', 'qwen', 'iflow', 'kiro', 'ghcp', 'claude'];
 
   // Build upstream for each configured route
-  // All routes go through the same next proxy, just with different provider paths
   if (routerConfig.routes) {
     for (const [scenario, profile] of Object.entries(routerConfig.routes)) {
-      // Check if profile is a valid CLIProxy provider
+      // Option 1: CLIProxy provider - route through proxy chain
       if (validProviders.includes(profile as CLIProxyProvider)) {
         upstreams[scenario as ScenarioType] = {
-          // Route through next proxy (e.g., ToolSanitizationProxy) with target provider path
           baseUrl: `${nextProxyBaseUrl}/api/provider/${profile}`,
         };
+        continue;
       }
-      // Note: Non-CLIProxy profiles (e.g., settings-based) are not supported for routing
-      // They require different auth/settings which can't be dynamically switched
+      
+      // Option 2: Settings-based profile - route directly to its endpoint
+      const profileSettings = loadProfileSettings(profile);
+      if (profileSettings?.baseUrl) {
+        upstreams[scenario as ScenarioType] = {
+          baseUrl: profileSettings.baseUrl,
+          // Include auth token if available
+          headers: profileSettings.authToken
+            ? { 'x-api-key': profileSettings.authToken, 'anthropic-api-key': profileSettings.authToken }
+            : undefined,
+        };
+      }
     }
   }
 
