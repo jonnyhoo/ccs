@@ -66,15 +66,14 @@ export async function execWithScenarioRouting(
   }
 
   // Build environment for Claude CLI
+  // Merge full profile env (ANTHROPIC_MODEL, etc.) then override BASE_URL for proxy
   const proxyUrl = `http://127.0.0.1:${proxyPort}`;
   const env: NodeJS.ProcessEnv = {
     ...process.env,
+    ...routing.entryProfileEnv, // Full profile env (ANTHROPIC_MODEL, etc.)
     ...envOverrides,
+    // Override BASE_URL to route through proxy
     ANTHROPIC_BASE_URL: proxyUrl,
-    // Use auth token from default profile (proxy will add correct headers per route)
-    ...(routing.defaultUpstream.headers?.['x-api-key']
-      ? { ANTHROPIC_AUTH_TOKEN: routing.defaultUpstream.headers['x-api-key'] }
-      : {}),
   };
 
   if (verbose) {

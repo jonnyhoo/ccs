@@ -46,10 +46,20 @@ export interface ScenarioRoutingProxyConfig {
  * Intercepts requests and routes them based on detected scenario.
  */
 /**
- * Load settings from a profile's settings.json file.
- * Returns the env vars including ANTHROPIC_BASE_URL and ANTHROPIC_AUTH_TOKEN.
+ * Profile settings loaded from settings.json
  */
-function loadProfileSettings(profileName: string): { baseUrl?: string; authToken?: string } | null {
+export interface ProfileSettings {
+  baseUrl?: string;
+  authToken?: string;
+  /** Full env object from settings.json (includes ANTHROPIC_MODEL, etc.) */
+  env: Record<string, string>;
+}
+
+/**
+ * Load settings from a profile's settings.json file.
+ * Returns the env vars including ANTHROPIC_BASE_URL, ANTHROPIC_AUTH_TOKEN, and all other env vars.
+ */
+export function loadProfileSettings(profileName: string): ProfileSettings | null {
   const config = loadOrCreateUnifiedConfig();
   const profileConfig = config.profiles?.[profileName];
   
@@ -72,6 +82,7 @@ function loadProfileSettings(profileName: string): { baseUrl?: string; authToken
     return {
       baseUrl: env.ANTHROPIC_BASE_URL,
       authToken: env.ANTHROPIC_AUTH_TOKEN,
+      env,
     };
   } catch {
     return null;
@@ -142,7 +153,12 @@ export function buildScenarioUpstreams(
 export function buildSettingsUpstreams(
   routerConfig: ScenarioRouterConfig,
   entryProfileName: string
-): { upstreams: Partial<Record<ScenarioType, ScenarioUpstream>>; defaultUpstream: ScenarioUpstream } | null {
+): { 
+  upstreams: Partial<Record<ScenarioType, ScenarioUpstream>>; 
+  defaultUpstream: ScenarioUpstream;
+  /** Full env from entry profile's settings.json */
+  entryProfileEnv: Record<string, string>;
+} | null {
   // Load entry profile settings for default upstream
   const entrySettings = loadProfileSettings(entryProfileName);
   if (!entrySettings?.baseUrl) {
@@ -176,7 +192,7 @@ export function buildSettingsUpstreams(
     }
   }
 
-  return { upstreams, defaultUpstream };
+  return { upstreams, defaultUpstream, entryProfileEnv: entrySettings.env };
 }
 
 export class ScenarioRoutingProxy {

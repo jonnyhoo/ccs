@@ -20,8 +20,8 @@ export { DEFAULT_ROUTER_CONFIG } from './types';
 export { ScenarioRouter, createScenarioRouter } from './scenario-router';
 
 // Proxy
-export { ScenarioRoutingProxy, buildScenarioUpstreams, buildSettingsUpstreams } from './scenario-routing-proxy';
-export type { ScenarioUpstream, ScenarioRoutingProxyConfig } from './scenario-routing-proxy';
+export { ScenarioRoutingProxy, buildScenarioUpstreams, buildSettingsUpstreams, loadProfileSettings } from './scenario-routing-proxy';
+export type { ScenarioUpstream, ScenarioRoutingProxyConfig, ProfileSettings } from './scenario-routing-proxy';
 
 // Settings-based Profile Executor
 export { execWithScenarioRouting } from './settings-routing-executor';
