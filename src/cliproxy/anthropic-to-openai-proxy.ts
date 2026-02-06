@@ -738,10 +738,15 @@ export class AnthropicToOpenAIProxy {
       // Build target base URL (without endpoint path)
       const targetBase = this.config.targetBaseUrl;
 
-      // This API only supports streaming - always use streaming handler
-      // For non-streaming requests, we stream internally and buffer the response
-      openaiReq.stream = true;
-      await this.handleStreaming(req, res, targetBase, openaiReq, model);
+      // This API only supports streaming Responses API
+      const wantStream = !!openaiReq.stream;
+      openaiReq.stream = true; // force streaming for API
+      if (wantStream) {
+        await this.handleStreaming(req, res, targetBase, openaiReq, model);
+      } else {
+        // Non-streaming: collect streaming response, return as JSON
+        await this.handleNonStreamingViaStream(req, res, targetBase, openaiReq, model);
+      }
     } catch (error) {
       const err = error as Error;
       this.log(`Error: ${err.message}`);
@@ -936,4 +941,130 @@ export class AnthropicToOpenAIProxy {
     });
   }
 
+  /** For non-streaming requests: call API with stream=true, collect text, return Anthropic JSON */
+  private async handleNonStreamingViaStream(
+    _req: http.IncomingMessage,
+    clientRes: http.ServerResponse,
+    targetBase: string,
+    openaiReqChat: OpenAIRequest,
+    model: string
+  ): Promise<void> {
+    return new Promise((resolve, reject) => {
+      const targetUrl = new URL(`${targetBase}/v1/responses`);
+      const body = translateChatToResponses(JSON.parse(JSON.stringify({ ...openaiReqChat, stream: true })) as OpenAIRequest);
+      const bodyString = JSON.stringify(body);
+      const requestFn = targetUrl.protocol === 'https:' ? https.request : http.request;
+
+      const upstreamReq = requestFn(
+        {
+          protocol: targetUrl.protocol,
+          hostname: targetUrl.hostname,
+          port: targetUrl.port,
+          path: targetUrl.pathname + targetUrl.search,
+          method: 'POST',
+          timeout: this.config.timeoutMs,
+          headers: {
+            'Content-Type': 'application/json',
+            'Content-Length': Buffer.byteLength(bodyString),
+            'Authorization': `Bearer ${this.config.apiKey}`,
+            'Accept': 'text/event-stream',
+          },
+        },
+        (upstreamRes) => {
+          const statusCode = upstreamRes.statusCode || 200;
+
+          if (statusCode >= 400) {
+            const chunks: Buffer[] = [];
+            upstreamRes.on('data', (c: Buffer) => chunks.push(c));
+            upstreamRes.on('end', () => {
+              const bodyErr = Buffer.concat(chunks).toString('utf8');
+              this.log(`Upstream non-stream error ${statusCode}: ${bodyErr.slice(0, 200)}`);
+              clientRes.writeHead(statusCode, { 'Content-Type': 'application/json' });
+              clientRes.end(JSON.stringify({ type: 'error', error: { type: 'api_error', message: bodyErr.slice(0, 500) } }));
+              resolve();
+            });
+            return;
+          }
+
+          // Collect text from streaming events
+          let buffer = '';
+          let collectedText = '';
+          const collectedToolCalls: Array<{ id: string; name: string; arguments: string }> = [];
+          let inputTokens = 0;
+          let outputTokens = 0;
+
+          upstreamRes.on('data', (chunk: Buffer) => {
+            buffer += chunk.toString('utf8');
+            const lines = buffer.split('\n');
+            buffer = lines.pop() || '';
+
+            for (const line of lines) {
+              const trimmed = line.trim();
+              if (!trimmed || trimmed.startsWith(':') || trimmed === 'data: [DONE]') continue;
+              if (!trimmed.startsWith('data: ')) continue;
+
+              try {
+                const parsed = JSON.parse(trimmed.slice(6));
+                if (!parsed?.type) continue;
+                const evtType: string = parsed.type;
+
+                if (evtType.endsWith('.output_text.delta') && typeof parsed.delta === 'string') {
+                  collectedText += parsed.delta;
+                } else if (evtType === 'response.completed' && parsed.response?.usage) {
+                  inputTokens = parsed.response.usage.input_tokens ?? 0;
+                  outputTokens = parsed.response.usage.output_tokens ?? 0;
+                }
+              } catch {
+                // ignore parse errors
+              }
+            }
+          });
+
+          upstreamRes.on('end', () => {
+            // Build Anthropic Messages API response
+            const content: unknown[] = [];
+            if (collectedText) {
+              content.push({ type: 'text', text: collectedText });
+            }
+            for (const tc of collectedToolCalls) {
+              let input: unknown = {};
+              try { input = JSON.parse(tc.arguments); } catch { input = tc.arguments; }
+              content.push({ type: 'tool_use', id: tc.id, name: tc.name, input });
+            }
+
+            const stopReason = collectedToolCalls.length > 0 ? 'tool_use' : 'end_turn';
+            const anthropicResp = {
+              id: `msg_${Date.now().toString(36)}`,
+              type: 'message',
+              role: 'assistant',
+              content,
+              model,
+              stop_reason: stopReason,
+              stop_sequence: null,
+              usage: { input_tokens: inputTokens, output_tokens: outputTokens },
+            };
+
+            clientRes.writeHead(200, { 'Content-Type': 'application/json' });
+            clientRes.end(JSON.stringify(anthropicResp));
+            resolve();
+          });
+
+          upstreamRes.on('error', reject);
+        }
+      );
+
+      upstreamReq.on('timeout', () => upstreamReq.destroy(new Error('Upstream request timeout')));
+      upstreamReq.on('error', (err) => {
+        this.log(`Non-stream request error: ${err.message}`);
+        if (!clientRes.headersSent) {
+          clientRes.writeHead(502, { 'Content-Type': 'application/json' });
+          clientRes.end(JSON.stringify({ type: 'error', error: { type: 'api_error', message: err.message } }));
+        }
+        reject(err);
+      });
+
+      upstreamReq.write(bodyString);
+      upstreamReq.end();
+    });
+  }
 }
