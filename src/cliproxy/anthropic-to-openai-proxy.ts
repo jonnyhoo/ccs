@@ -337,13 +337,57 @@ function translateRequestChat(anthropicReq: AnthropicRequest): OpenAIRequest {
 
 function toResponsesMessages(messages: OpenAIMessage[]): ResponsesMessage[] {
   const out: ResponsesMessage[] = [];
+
   for (const m of messages) {
-    // Responses API requires 'input_text' for user/system/tool and 'output_text' for assistant
-    const contentType = m.role === 'assistant' ? 'output_text' : 'input_text';
-    // Responses API doesn't support 'tool' role - convert to 'user'
-    const role = m.role === 'tool' ? 'user' : m.role;
-    out.push({ role, content: [{ type: contentType, text: m.content ?? '' }] });
+    const content: ResponsesMessageContent[] = [];
+
+    // Handle different message types
+    if (m.role === 'assistant') {
+      // Assistant messages: output_text + optional function_calls
+      if (m.content) {
+        content.push({ type: 'output_text', text: m.content });
+      }
+
+      // Convert tool_calls to function_call content blocks
+      if (m.tool_calls && m.tool_calls.length > 0) {
+        for (const tc of m.tool_calls) {
+          content.push({
+            type: 'function_call',
+            id: tc.id,
+            name: tc.function.name,
+            arguments: tc.function.arguments,
+          });
+        }
+      }
+
+      // If no content at all, add empty output_text
+      if (content.length === 0) {
+        content.push({ type: 'output_text', text: '' });
+      }
+
+      out.push({ role: 'assistant', content });
+    } else if (m.role === 'tool') {
+      // Tool messages: convert to user role with function_call_output
+      // Responses API doesn't support 'tool' role
+      content.push({
+        type: 'function_call_output',
+        call_id: m.tool_call_id ?? '',
+        output: m.content ?? '',
+      });
+
+      out.push({ role: 'user', content });
+    } else {
+      // User/system/developer messages: input_text
+      // Note: content could be string or array in OpenAI format
+      // For now, we handle string content; array content (with images) would need expansion
+      const role = m.role;
+      const textContent = m.content ?? '';
+
+      content.push({ type: 'input_text', text: textContent });
+      out.push({ role, content });
+    }
   }
+
   return out;
 }
 
@@ -576,10 +620,39 @@ class StreamingResponseTranslator {
 
 // ─── Responses API Types ────────────────────────────────────────────────────
 
-interface ResponsesMessageContent {
+interface ResponsesMessageContentText {
   type: 'input_text' | 'output_text';
   text: string;
 }
+
+interface ResponsesMessageContentImage {
+  type: 'input_image';
+  source: {
+    type: 'url' | 'base64';
+    url?: string;
+    media_type?: string;
+    data?: string;
+  };
+}
+
+interface ResponsesMessageContentFunctionCall {
+  type: 'function_call';
+  id: string;
+  name: string;
+  arguments: string;
+}
+
+interface ResponsesMessageContentFunctionCallOutput {
+  type: 'function_call_output';
+  call_id: string;
+  output: string;
+}
+
+type ResponsesMessageContent =
+  | ResponsesMessageContentText
+  | ResponsesMessageContentImage
+  | ResponsesMessageContentFunctionCall
+  | ResponsesMessageContentFunctionCallOutput;
 
 interface ResponsesMessage {
   role: string;
@@ -928,8 +1001,55 @@ export class AnthropicToOpenAIProxy {
                         const final = translator.emitFinalIfNeeded();
                         if (final) clientRes.write(final);
                       }
+                    } else if (evtType.startsWith('response.web_search.')) {
+                      // Web search events: log for debugging, treat as informational
+                      this.log(`Web search event: ${evtType}`);
+                      // Could emit as text delta if needed: "[Searching web...]"
+                      if (evtType === 'response.web_search.started') {
+                        const searchDelta = translator.translateChunk({
+                          choices: [{ delta: { content: '[Searching web...]\n' } }]
+                        } as any);
+                        if (searchDelta) clientRes.write(searchDelta);
+                      }
+                    } else if (evtType.startsWith('response.file_search.')) {
+                      // File search events: log for debugging
+                      this.log(`File search event: ${evtType}`);
+                      if (evtType === 'response.file_search.started') {
+                        const searchDelta = translator.translateChunk({
+                          choices: [{ delta: { content: '[Searching files...]\n' } }]
+                        } as any);
+                        if (searchDelta) clientRes.write(searchDelta);
+                      }
+                    } else if (evtType.startsWith('response.code_interpreter.')) {
+                      // Code interpreter events: log for debugging
+                      this.log(`Code interpreter event: ${evtType}`);
+                      if (evtType === 'response.code_interpreter.started') {
+                        const codeDelta = translator.translateChunk({
+                          choices: [{ delta: { content: '[Running code...]\n' } }]
+                        } as any);
+                        if (codeDelta) clientRes.write(codeDelta);
+                      } else if (evtType === 'response.code_interpreter.output' && parsed.output) {
+                        // Code output: emit as text
+                        const outputDelta = translator.translateChunk({
+                          choices: [{ delta: { content: `\`\`\`\n${parsed.output}\n\`\`\`\n` } }]
+                        } as any);
+                        if (outputDelta) clientRes.write(outputDelta);
+                      }
+                    } else if (evtType.startsWith('response.mcp.')) {
+                      // MCP tool events: log for debugging
+                      this.log(`MCP event: ${evtType}`);
+                      if (evtType === 'response.mcp.started') {
+                        const mcpDelta = translator.translateChunk({
+                          choices: [{ delta: { content: '[Using MCP tool...]\n' } }]
+                        } as any);
+                        if (mcpDelta) clientRes.write(mcpDelta);
+                      }
+                    } else {
+                      // Log unknown event types for debugging
+                      if (this.config.verbose) {
+                        this.log(`Unknown Responses API event type: ${evtType}`);
+                      }
                     }
-                    // ignore other event types
                   } else {
                     const chunkObj = parsed as OpenAIStreamChunk;
                     const events = translator.translateChunk(chunkObj);
