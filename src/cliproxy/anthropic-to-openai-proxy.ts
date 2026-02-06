@@ -337,6 +337,16 @@ function translateRequestChat(anthropicReq: AnthropicRequest): OpenAIRequest {
 
 function toResponsesMessages(messages: OpenAIMessage[]): ResponsesMessage[] {
   const out: ResponsesMessage[] = [];
+  const toolCallIds = new Set<string>();
+
+  // First pass: collect all tool call IDs
+  for (const m of messages) {
+    if (m.role === 'assistant' && m.tool_calls) {
+      for (const tc of m.tool_calls) {
+        if (tc.id) toolCallIds.add(tc.id);
+      }
+    }
+  }
 
   for (const m of messages) {
     if (m.role === 'assistant') {
@@ -361,11 +371,18 @@ function toResponsesMessages(messages: OpenAIMessage[]): ResponsesMessage[] {
       }
     } else if (m.role === 'tool') {
       // Tool results: use function_call_output format
-      out.push({
-        type: 'function_call_output',
-        call_id: m.tool_call_id || '',
-        output: m.content || '',
-      } as any);
+      // Only add if we have a valid call_id that matches a previous function_call
+      const callId = m.tool_call_id || '';
+      if (callId && toolCallIds.has(callId)) {
+        out.push({
+          type: 'function_call_output',
+          call_id: callId,
+          output: m.content || '',
+        } as any);
+      } else if (callId) {
+        // Log warning but don't fail
+        console.warn(`[cliproxy] Skipping tool result with unmatched call_id: ${callId}`);
+      }
     } else {
       // User/system/developer messages: use simplified format
       const textContent = m.content ?? '';
