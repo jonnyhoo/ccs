@@ -604,6 +604,21 @@ export async function execClaudeWithCLIProxy(
         ...(pasteCallback ? { pasteCallback: true } : {}),
       });
       if (!authSuccess) {
+        // If provider supports API key setup, offer it as alternative to OAuth
+        if (supportsSetup(provider) && process.stdin.isTTY) {
+          console.error('');
+          console.error(warn(`OAuth login failed for ${providerConfig.displayName}`));
+          console.error('');
+          const { InteractivePrompt } = await import('../utils/prompt');
+          const useApiKey = await InteractivePrompt.confirm(
+            'Configure a custom API endpoint instead? (--setup)',
+            { default: true }
+          );
+          if (useApiKey) {
+            await setupProviderEndpoint(provider, verbose, cfg.port);
+            process.exit(0);
+          }
+        }
         throw new Error(`Authentication required for ${providerConfig.displayName}`);
       }
       // If --auth was explicitly passed, exit after auth (don't start Claude)
