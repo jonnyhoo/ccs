@@ -857,16 +857,77 @@ export class AnthropicToOpenAIProxy {
                     if (evtType.endsWith('.output_text.delta') && typeof parsed.delta === 'string') {
                       // Start block if needed, then stream text
                       const start = translator.translateChunk({ choices: [{ delta: { content: '' } }] } as any);
-                      // translateChunk will emit start on first delta; we then send delta via a fake chunk with content
                       const textDelta = translator.translateChunk({ choices: [{ delta: { content: parsed.delta } }] } as any);
                       if (start) clientRes.write(start);
                       if (textDelta) clientRes.write(textDelta);
-                    } else if (evtType === 'response.completed') {
+                    } else if (evtType === 'response.output_text.done') {
+                      // Text block complete: close text block if open
+                      const events = translator.translateChunk({
+                        choices: [{ delta: {} }]
+                      } as any);
+                      if (events) clientRes.write(events);
+                    } else if (evtType === 'response.output_item.added' && parsed.item?.type === 'function_call') {
+                      // Tool call start: emit as Anthropic tool_use via fake chunk
+                      const tcId = parsed.item.call_id || parsed.item.id || `call_${Date.now()}`;
+                      const tcName = parsed.item.name || '';
+                      const events = translator.translateChunk({
+                        choices: [{ delta: { tool_calls: [{ index: 0, id: tcId, function: { name: tcName, arguments: '' } }] } }]
+                      } as any);
+                      if (events) clientRes.write(events);
+                    } else if (evtType === 'response.function_call_arguments.delta' && typeof parsed.delta === 'string') {
+                      // Tool call arguments delta
+                      const events = translator.translateChunk({
+                        choices: [{ delta: { tool_calls: [{ index: 0, function: { arguments: parsed.delta } }] } }]
+                      } as any);
+                      if (events) clientRes.write(events);
+                    } else if (evtType === 'response.function_call_arguments.done') {
+                      // Tool call arguments complete: mark as done (translator will handle on finish_reason)
+                      this.log('Tool call arguments completed');
+                    } else if (evtType === 'response.output_item.done' && parsed.item?.type === 'function_call') {
+                      // Tool call complete: emit finish via fake chunk
+                      const events = translator.translateChunk({
+                        choices: [{ finish_reason: 'tool_calls' }]
+                      } as any);
+                      if (events) clientRes.write(events);
                       hasFinished = true;
-                      const final = translator.emitFinalIfNeeded();
-                      if (final) clientRes.write(final);
+                    } else if (evtType === 'response.refusal.delta' && typeof parsed.delta === 'string') {
+                      // Refusal text delta: treat as text with [refusal] prefix
+                      const start = translator.translateChunk({ choices: [{ delta: { content: '' } }] } as any);
+                      const textDelta = translator.translateChunk({ choices: [{ delta: { content: `[refusal] ${parsed.delta}` } }] } as any);
+                      if (start) clientRes.write(start);
+                      if (textDelta) clientRes.write(textDelta);
+                    } else if (evtType === 'response.refusal.done') {
+                      // Refusal complete: close block and finish
+                      const events = translator.translateChunk({
+                        choices: [{ finish_reason: 'end_turn' }]
+                      } as any);
+                      if (events) clientRes.write(events);
+                      hasFinished = true;
+                    } else if (evtType === 'error') {
+                      // Stream error: return Anthropic error format and end
+                      const errorMsg = parsed.error?.message || parsed.message || 'Unknown error';
+                      if (!clientRes.headersSent) {
+                        clientRes.writeHead(500, { 'Content-Type': 'application/json' });
+                      }
+                      clientRes.end(JSON.stringify({
+                        type: 'error',
+                        error: { type: 'api_error', message: errorMsg }
+                      }));
+                      hasFinished = true;
+                      return;
+                    } else if (evtType === 'response.completed') {
+                      // Extract usage info and emit final events
+                      if (parsed.response?.usage) {
+                        translator['inputTokens'] = parsed.response.usage.input_tokens ?? 0;
+                        translator['outputTokens'] = parsed.response.usage.output_tokens ?? 0;
+                      }
+                      if (!hasFinished) {
+                        hasFinished = true;
+                        const final = translator.emitFinalIfNeeded();
+                        if (final) clientRes.write(final);
+                      }
                     }
-                    // ignore other event types for now
+                    // ignore other event types
                   } else {
                     const chunkObj = parsed as OpenAIStreamChunk;
                     const events = translator.translateChunk(chunkObj);
@@ -986,10 +1047,11 @@ export class AnthropicToOpenAIProxy {
             return;
           }
 
-          // Collect text from streaming events
+          // Collect text and tool calls from streaming events
           let buffer = '';
           let collectedText = '';
           const collectedToolCalls: Array<{ id: string; name: string; arguments: string }> = [];
+          let currentToolCall: { id: string; name: string; arguments: string } | null = null;
           let inputTokens = 0;
           let outputTokens = 0;
 
@@ -1010,6 +1072,17 @@ export class AnthropicToOpenAIProxy {
 
                 if (evtType.endsWith('.output_text.delta') && typeof parsed.delta === 'string') {
                   collectedText += parsed.delta;
+                } else if (evtType === 'response.output_item.added' && parsed.item?.type === 'function_call') {
+                  currentToolCall = {
+                    id: parsed.item.call_id || parsed.item.id || `call_${Date.now()}`,
+                    name: parsed.item.name || '',
+                    arguments: '',
+                  };
+                } else if (evtType === 'response.function_call_arguments.delta' && currentToolCall && typeof parsed.delta === 'string') {
+                  currentToolCall.arguments += parsed.delta;
+                } else if (evtType === 'response.output_item.done' && parsed.item?.type === 'function_call' && currentToolCall) {
+                  collectedToolCalls.push(currentToolCall);
+                  currentToolCall = null;
                 } else if (evtType === 'response.completed' && parsed.response?.usage) {
                   inputTokens = parsed.response.usage.input_tokens ?? 0;
                   outputTokens = parsed.response.usage.output_tokens ?? 0;
