@@ -572,71 +572,6 @@ class StreamingResponseTranslator {
   }
 }
 
-// ─── Non-Streaming Response Translation ──────────────────────────────────────
-
-interface OpenAICompletionResponse {
-  id?: string;
-  model?: string;
-  choices?: Array<{
-    message?: {
-      role?: string;
-      content?: string | null;
-      tool_calls?: OpenAIToolCall[];
-    };
-    finish_reason?: string;
-  }>;
-  usage?: {
-    prompt_tokens?: number;
-    completion_tokens?: number;
-    total_tokens?: number;
-  };
-}
-
-function translateNonStreamingResponse(openaiResp: OpenAICompletionResponse, model: string): unknown {
-  const choice = openaiResp.choices?.[0];
-  const message = choice?.message;
-  const content: unknown[] = [];
-
-  // Text content
-  if (message?.content) {
-    content.push({ type: 'text', text: message.content });
-  }
-
-  // Tool calls
-  if (message?.tool_calls) {
-    for (const tc of message.tool_calls) {
-      let input: unknown = {};
-      try {
-        input = JSON.parse(tc.function.arguments);
-      } catch {
-        input = tc.function.arguments;
-      }
-      content.push({
-        type: 'tool_use',
-        id: tc.id,
-        name: tc.function.name,
-        input,
-      });
-    }
-  }
-
-  const stopReason = choice?.finish_reason === 'tool_calls' ? 'tool_use' : 'end_turn';
-
-  return {
-    id: `msg_${Date.now().toString(36)}`,
-    type: 'message',
-    role: 'assistant',
-    content,
-    model,
-    stop_reason: stopReason,
-    stop_sequence: null,
-    usage: {
-      input_tokens: openaiResp.usage?.prompt_tokens ?? 0,
-      output_tokens: openaiResp.usage?.completion_tokens ?? 0,
-    },
-  };
-}
-
 // ─── Responses API Types ────────────────────────────────────────────────────
 
 interface ResponsesMessageContent {
@@ -753,6 +688,24 @@ export class AnthropicToOpenAIProxy {
 
     this.log(`${method} ${req.url} → path=${requestPath}`);
 
+    // Handle count_tokens endpoint - return a fake estimate since Responses API has no equivalent
+    if (method === 'POST' && requestPath.includes('/count_tokens')) {
+      this.log('count_tokens request - returning estimate');
+      try {
+        const rawBody = await this.readBody(req);
+        const body = rawBody.length ? JSON.parse(rawBody) : {};
+        // Rough estimate: ~4 chars per token
+        const textLen = JSON.stringify(body.messages || body).length;
+        const estimate = Math.ceil(textLen / 4);
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ input_tokens: estimate }));
+      } catch {
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ input_tokens: 1000 }));
+      }
+      return;
+    }
+
     // Only handle POST /v1/messages (the Anthropic Messages API endpoint)
     if (method !== 'POST' || !requestPath.startsWith('/v1/messages')) {
       // For other paths, return a simple response
@@ -785,11 +738,10 @@ export class AnthropicToOpenAIProxy {
       // Build target base URL (without endpoint path)
       const targetBase = this.config.targetBaseUrl;
 
-      if (openaiReq.stream) {
-        await this.handleStreaming(req, res, targetBase, openaiReq, model);
-      } else {
-        await this.handleNonStreaming(req, res, targetBase, openaiReq, model);
-      }
+      // This API only supports streaming - always use streaming handler
+      // For non-streaming requests, we stream internally and buffer the response
+      openaiReq.stream = true;
+      await this.handleStreaming(req, res, targetBase, openaiReq, model);
     } catch (error) {
       const err = error as Error;
       this.log(`Error: ${err.message}`);
@@ -980,126 +932,8 @@ export class AnthropicToOpenAIProxy {
       });
       };
 
-      return attempt('chat');
+      return attempt('responses');
     });
   }
 
-  private async handleNonStreaming(
-    _req: http.IncomingMessage,
-    clientRes: http.ServerResponse,
-    targetBase: string,
-    openaiReqChat: OpenAIRequest,
-    model: string
-  ): Promise<void> {
-    return new Promise((_resolve, _reject) => {
-      const doRequest = (mode: 'chat' | 'responses'): Promise<void> => {
-        return new Promise((resolveAttempt, rejectAttempt) => {
-          const targetUrl = new URL(`${targetBase}${mode === 'chat' ? '/v1/chat/completions' : '/v1/responses'}`);
-          const body = mode === 'chat' ? openaiReqChat : translateChatToResponses(openaiReqChat);
-          const bodyString = JSON.stringify(body);
-          const requestFn = targetUrl.protocol === 'https:' ? https.request : http.request;
-
-          const upstreamReq = requestFn(
-            {
-              protocol: targetUrl.protocol,
-              hostname: targetUrl.hostname,
-              port: targetUrl.port,
-              path: targetUrl.pathname + targetUrl.search,
-              method: 'POST',
-              timeout: this.config.timeoutMs,
-              headers: {
-            'Content-Type': 'application/json',
-            'Content-Length': Buffer.byteLength(bodyString),
-'Authorization': `Bearer ${this.config.apiKey}`,
-              },
-            },
-            (upstreamRes) => {
-          const chunks: Buffer[] = [];
-          upstreamRes.on('data', (c: Buffer) => chunks.push(c));
-          upstreamRes.on('end', () => {
-            const bodyTxt = Buffer.concat(chunks).toString('utf8');
-            const statusCode = upstreamRes.statusCode || 200;
-
-            if (statusCode >= 400) {
-              this.log(`Upstream ${mode} error ${statusCode}: ${bodyTxt.slice(0, 200)}`);
-              if (mode === 'chat') {
-                doRequest('responses').then(resolveAttempt).catch(rejectAttempt);
-                return;
-              }
-              clientRes.writeHead(statusCode, { 'Content-Type': 'application/json' });
-              clientRes.end(JSON.stringify({ type: 'error', error: { type: 'api_error', message: bodyTxt.slice(0, 500) } }));
-              resolveAttempt();
-              return;
-            }
-
-            try {
-              const parsed = JSON.parse(bodyTxt);
-              if (parsed && parsed.choices) {
-                const anthropicResp = translateNonStreamingResponse(parsed as OpenAICompletionResponse, model);
-                clientRes.writeHead(200, { 'Content-Type': 'application/json' });
-                clientRes.end(JSON.stringify(anthropicResp));
-              } else if (parsed && (parsed.output_text || parsed.output)) {
-                // Responses API: extract text
-                let text = '';
-                if (typeof parsed.output_text === 'string') {
-                  text = parsed.output_text;
-                } else if (Array.isArray(parsed.output)) {
-                  for (const item of parsed.output) {
-                    if (item.type === 'output_text' && typeof item.text === 'string') {
-                      text += item.text;
-                    } else if (item.type === 'message' && Array.isArray(item.content)) {
-                      for (const c of item.content) {
-                        if (c.type === 'output_text' && typeof c.text === 'string') text += c.text;
-                        if (c.type === 'text' && typeof c.text === 'string') text += c.text;
-                      }
-                    }
-                  }
-                }
-                const anthropicResp = {
-                  id: `msg_${Date.now().toString(36)}`,
-                  type: 'message',
-                  role: 'assistant',
-                  content: text ? [{ type: 'text', text }] : [],
-                  model,
-                  stop_reason: 'end_turn',
-                  stop_sequence: null,
-                  usage: { input_tokens: parsed?.usage?.prompt_tokens ?? 0, output_tokens: parsed?.usage?.completion_tokens ?? 0 },
-                };
-                clientRes.writeHead(200, { 'Content-Type': 'application/json' });
-                clientRes.end(JSON.stringify(anthropicResp));
-              } else {
-                clientRes.writeHead(502, { 'Content-Type': 'application/json' });
-                clientRes.end(JSON.stringify({ type: 'error', error: { type: 'api_error', message: 'Unrecognized upstream response format' } }));
-              }
-            } catch {
-              clientRes.writeHead(502, { 'Content-Type': 'application/json' });
-              clientRes.end(JSON.stringify({ type: 'error', error: { type: 'api_error', message: 'Failed to parse upstream response' } }));
-            }
-            resolveAttempt();
-          });
-
-          upstreamRes.on('error', rejectAttempt);
-        }
-      );
-
-      upstreamReq.on('timeout', () => upstreamReq.destroy(new Error('Upstream request timeout')));
-      upstreamReq.on('error', (err) => {
-        if (mode === 'chat') {
-          doRequest('responses').then(resolveAttempt).catch(rejectAttempt);
-          return;
-        }
-        if (!clientRes.headersSent) {
-          clientRes.writeHead(502, { 'Content-Type': 'application/json' });
-          clientRes.end(JSON.stringify({ type: 'error', error: { type: 'api_error', message: err.message } }));
-        }
-        rejectAttempt(err);
-      });
-
-      upstreamReq.write(bodyString);
-      upstreamReq.end();
-    });
-      };
-      return doRequest('chat');
-    });
-  }
 }
