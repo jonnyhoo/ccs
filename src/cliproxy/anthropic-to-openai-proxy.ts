@@ -901,6 +901,8 @@ export class AnthropicToOpenAIProxy {
           const translator = new StreamingResponseTranslator(model);
           let buffer = '';
           let hasFinished = false;
+          const activeToolCalls = new Map<number, { id: string; name: string }>();
+          let refusalStarted = false;
 
           upstreamRes.on('data', (chunk: Buffer) => {
             buffer += chunk.toString('utf8');
@@ -945,32 +947,33 @@ export class AnthropicToOpenAIProxy {
                       // Tool call start: emit as Anthropic tool_use via fake chunk
                       const tcId = parsed.item.id || parsed.item.call_id || `call_${Date.now()}`;
                       const tcName = parsed.item.name || '';
+                      const outputIndex = parsed.output_index ?? 0;
+                      activeToolCalls.set(outputIndex, { id: tcId, name: tcName });
                       const events = translator.translateChunk({
-                        choices: [{ delta: { tool_calls: [{ index: 0, id: tcId, function: { name: tcName, arguments: '' } }] } }]
+                        choices: [{ delta: { tool_calls: [{ index: outputIndex, id: tcId, function: { name: tcName, arguments: '' } }] } }]
                       } as any);
                       if (events) clientRes.write(events);
                     } else if (evtType === 'response.function_call_arguments.delta' && typeof parsed.delta === 'string') {
                       // Tool call arguments delta
+                      const outputIndex = parsed.output_index ?? 0;
                       const events = translator.translateChunk({
-                        choices: [{ delta: { tool_calls: [{ index: 0, function: { arguments: parsed.delta } }] } }]
+                        choices: [{ delta: { tool_calls: [{ index: outputIndex, function: { arguments: parsed.delta } }] } }]
                       } as any);
                       if (events) clientRes.write(events);
                     } else if (evtType === 'response.function_call_arguments.done') {
                       // Tool call arguments complete: mark as done (translator will handle on finish_reason)
                       this.log('Tool call arguments completed');
                     } else if (evtType === 'response.output_item.done' && parsed.item?.type === 'function_call') {
-                      // Tool call complete: emit finish via fake chunk
-                      const events = translator.translateChunk({
-                        choices: [{ finish_reason: 'tool_calls' }]
-                      } as any);
-                      if (events) clientRes.write(events);
-                      hasFinished = true;
+                      // Tool call item done: just log, don't finish yet (wait for response.completed)
+                      this.log('Tool call item completed');
                     } else if (evtType === 'response.refusal.delta' && typeof parsed.delta === 'string') {
-                      // Refusal text delta: treat as text with [refusal] prefix
+                      // Refusal text delta: add [refusal] prefix only on first delta
                       const start = translator.translateChunk({ choices: [{ delta: { content: '' } }] } as any);
-                      const textDelta = translator.translateChunk({ choices: [{ delta: { content: `[refusal] ${parsed.delta}` } }] } as any);
+                      const prefix = refusalStarted ? '' : '[refusal] ';
+                      const textDelta = translator.translateChunk({ choices: [{ delta: { content: `${prefix}${parsed.delta}` } }] } as any);
                       if (start) clientRes.write(start);
                       if (textDelta) clientRes.write(textDelta);
+                      refusalStarted = true;
                     } else if (evtType === 'response.refusal.done') {
                       // Refusal complete: close block and finish
                       const events = translator.translateChunk({
@@ -998,6 +1001,13 @@ export class AnthropicToOpenAIProxy {
                       }
                       if (!hasFinished) {
                         hasFinished = true;
+                        // If we have active tool calls, emit tool_calls finish_reason
+                        if (activeToolCalls.size > 0) {
+                          const finishEvent = translator.translateChunk({
+                            choices: [{ finish_reason: 'tool_calls' }]
+                          } as any);
+                          if (finishEvent) clientRes.write(finishEvent);
+                        }
                         const final = translator.emitFinalIfNeeded();
                         if (final) clientRes.write(final);
                       }
@@ -1173,7 +1183,7 @@ export class AnthropicToOpenAIProxy {
           let buffer = '';
           let collectedText = '';
           const collectedToolCalls: Array<{ id: string; name: string; arguments: string }> = [];
-          let currentToolCall: { id: string; name: string; arguments: string } | null = null;
+          const activeToolCallsMap = new Map<number, { id: string; name: string; arguments: string }>();
           let inputTokens = 0;
           let outputTokens = 0;
 
@@ -1195,16 +1205,25 @@ export class AnthropicToOpenAIProxy {
                 if (evtType.endsWith('.output_text.delta') && typeof parsed.delta === 'string') {
                   collectedText += parsed.delta;
                 } else if (evtType === 'response.output_item.added' && parsed.item?.type === 'function_call') {
-                  currentToolCall = {
-                    id: parsed.item.call_id || parsed.item.id || `call_${Date.now()}`,
+                  const outputIndex = parsed.output_index ?? 0;
+                  activeToolCallsMap.set(outputIndex, {
+                    id: parsed.item.id || parsed.item.call_id || `call_${Date.now()}`,
                     name: parsed.item.name || '',
                     arguments: '',
-                  };
-                } else if (evtType === 'response.function_call_arguments.delta' && currentToolCall && typeof parsed.delta === 'string') {
-                  currentToolCall.arguments += parsed.delta;
-                } else if (evtType === 'response.output_item.done' && parsed.item?.type === 'function_call' && currentToolCall) {
-                  collectedToolCalls.push(currentToolCall);
-                  currentToolCall = null;
+                  });
+                } else if (evtType === 'response.function_call_arguments.delta' && typeof parsed.delta === 'string') {
+                  const outputIndex = parsed.output_index ?? 0;
+                  const toolCall = activeToolCallsMap.get(outputIndex);
+                  if (toolCall) {
+                    toolCall.arguments += parsed.delta;
+                  }
+                } else if (evtType === 'response.output_item.done' && parsed.item?.type === 'function_call') {
+                  const outputIndex = parsed.output_index ?? 0;
+                  const toolCall = activeToolCallsMap.get(outputIndex);
+                  if (toolCall) {
+                    collectedToolCalls.push(toolCall);
+                    activeToolCallsMap.delete(outputIndex);
+                  }
                 } else if (evtType === 'response.completed' && parsed.response?.usage) {
                   inputTokens = parsed.response.usage.input_tokens ?? 0;
                   outputTokens = parsed.response.usage.output_tokens ?? 0;
