@@ -339,19 +339,33 @@ function toResponsesMessages(messages: OpenAIMessage[]): ResponsesMessage[] {
   const out: ResponsesMessage[] = [];
 
   for (const m of messages) {
-    // Responses API input supports simplified format: { role, content: string }
-    // This is compatible with Chat Completions format and avoids unsupported content types
-
     if (m.role === 'assistant') {
-      // Assistant messages: use simplified format with text content only
-      // Tool calls will be handled by the model's output, not in input messages
-      const textContent = m.content || '';
-      out.push({ role: 'assistant', content: textContent } as any);
+      // Assistant messages: add text content as message if present
+      if (m.content) {
+        out.push({
+          type: 'message',
+          role: 'assistant',
+          content: [{ type: 'output_text', text: m.content }],
+        } as any);
+      }
+      // Add tool calls as function_call items
+      if (m.tool_calls && m.tool_calls.length > 0) {
+        for (const tc of m.tool_calls) {
+          out.push({
+            type: 'function_call',
+            call_id: tc.id,
+            name: tc.function.name,
+            arguments: tc.function.arguments,
+          } as any);
+        }
+      }
     } else if (m.role === 'tool') {
-      // Tool result messages: convert to user messages with text content
-      // Format: "Tool result for [tool_name]: [output]"
-      const toolResult = `Tool result: ${m.content || ''}`;
-      out.push({ role: 'user', content: toolResult } as any);
+      // Tool results: use function_call_output format
+      out.push({
+        type: 'function_call_output',
+        call_id: m.tool_call_id || '',
+        output: m.content || '',
+      } as any);
     } else {
       // User/system/developer messages: use simplified format
       const textContent = m.content ?? '';
