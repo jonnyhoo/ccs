@@ -338,12 +338,9 @@ function translateRequestChat(anthropicReq: AnthropicRequest): OpenAIRequest {
 function toResponsesMessages(messages: OpenAIMessage[]): ResponsesMessage[] {
   const out: ResponsesMessage[] = [];
   for (const m of messages) {
-    if (m.role === 'tool') {
-      // Responses API accepts tool results as normal user text; we prefix lightly
-      out.push({ role: 'tool', content: [{ type: 'text', text: m.content ?? '' }] });
-      continue;
-    }
-    out.push({ role: m.role, content: [{ type: 'text', text: m.content ?? '' }] });
+    // Responses API requires 'input_text' for user/system/tool and 'output_text' for assistant
+    const contentType = m.role === 'assistant' ? 'output_text' : 'input_text';
+    out.push({ role: m.role, content: [{ type: contentType, text: m.content ?? '' }] });
   }
   return out;
 }
@@ -357,9 +354,19 @@ function translateChatToResponses(chat: OpenAIRequest): ResponsesRequest {
     temperature: chat.temperature,
     top_p: chat.top_p,
     stop: chat.stop,
-    reasoning: chat.reasoning,
+    reasoning: chat.reasoning ?? { effort: 'xhigh' },
   };
-  if (chat.tools) req.tools = chat.tools;
+  if (chat.tools) {
+    // Convert Chat Completions tool format to Responses API format
+    // Chat: {type:"function", function:{name, description, parameters}}
+    // Responses: {type:"function", name, description, parameters}
+    req.tools = chat.tools.map((t: OpenAITool) => ({
+      type: 'function' as const,
+      name: t.function.name,
+      description: t.function.description,
+      parameters: t.function.parameters,
+    }));
+  }
   if (chat.tool_choice) req.tool_choice = chat.tool_choice as any;
   return req;
 }
@@ -633,7 +640,7 @@ function translateNonStreamingResponse(openaiResp: OpenAICompletionResponse, mod
 // ─── Responses API Types ────────────────────────────────────────────────────
 
 interface ResponsesMessageContent {
-  type: 'text';
+  type: 'input_text' | 'output_text';
   text: string;
 }
 
@@ -642,11 +649,18 @@ interface ResponsesMessage {
   content: ResponsesMessageContent[];
 }
 
+interface ResponsesTool {
+  type: 'function';
+  name: string;
+  description?: string;
+  parameters?: unknown;
+}
+
 interface ResponsesRequest {
   model?: string;
   input: ResponsesMessage[] | string;
   stream?: boolean;
-  tools?: OpenAITool[];
+  tools?: ResponsesTool[];
   tool_choice?: string | { type: string; function?: { name: string } };
   temperature?: number;
   top_p?: number;
@@ -662,8 +676,12 @@ export class AnthropicToOpenAIProxy {
   private readonly config: Required<Pick<AnthropicToOpenAIProxyConfig, 'targetBaseUrl' | 'apiKey' | 'verbose' | 'timeoutMs'>>;
 
   constructor(config: AnthropicToOpenAIProxyConfig) {
+    // Normalize base URL: strip trailing slashes and /v1 suffix
+    // We append /v1/chat/completions or /v1/responses ourselves
+    let baseUrl = config.targetBaseUrl.replace(/\/+$/, '');
+    baseUrl = baseUrl.replace(/\/v1$/i, '');
     this.config = {
-      targetBaseUrl: config.targetBaseUrl.replace(/\/+$/, ''),
+      targetBaseUrl: baseUrl,
       apiKey: config.apiKey,
       verbose: config.verbose ?? false,
       timeoutMs: config.timeoutMs ?? 120000,
@@ -764,13 +782,13 @@ export class AnthropicToOpenAIProxy {
       const model = anthropicReq.model || 'unknown';
       this.log(`Translated request: model=${model}, stream=${openaiReq.stream}, messages=${openaiReq.messages.length}`);
 
-      // Build target URL
-      const targetUrl = new URL(`${this.config.targetBaseUrl}/v1/chat/completions`);
+      // Build target base URL (without endpoint path)
+      const targetBase = this.config.targetBaseUrl;
 
       if (openaiReq.stream) {
-        await this.handleStreaming(req, res, targetUrl, openaiReq, model);
+        await this.handleStreaming(req, res, targetBase, openaiReq, model);
       } else {
-        await this.handleNonStreaming(req, res, targetUrl, openaiReq, model);
+        await this.handleNonStreaming(req, res, targetBase, openaiReq, model);
       }
     } catch (error) {
       const err = error as Error;
@@ -789,14 +807,14 @@ export class AnthropicToOpenAIProxy {
   private async handleStreaming(
     _req: http.IncomingMessage,
     clientRes: http.ServerResponse,
-    targetBase: URL,
+    targetBase: string,
     openaiReqChat: OpenAIRequest,
     model: string
   ): Promise<void> {
     return new Promise((_resolve, _reject) => {
       const attempt = (mode: 'chat' | 'responses'): Promise<void> => {
         return new Promise((resolveAttempt, rejectAttempt) => {
-          const targetUrl = new URL(mode === 'chat' ? '/v1/chat/completions' : '/v1/responses', targetBase);
+          const targetUrl = new URL(`${targetBase}${mode === 'chat' ? '/v1/chat/completions' : '/v1/responses'}`);
           const body = mode === 'chat' ? openaiReqChat : translateChatToResponses(JSON.parse(JSON.stringify({ ...openaiReqChat, stream: true })) as any);
           const bodyString = JSON.stringify(body);
           const requestFn = targetUrl.protocol === 'https:' ? https.request : http.request;
@@ -969,14 +987,14 @@ export class AnthropicToOpenAIProxy {
   private async handleNonStreaming(
     _req: http.IncomingMessage,
     clientRes: http.ServerResponse,
-    targetBase: URL,
+    targetBase: string,
     openaiReqChat: OpenAIRequest,
     model: string
   ): Promise<void> {
     return new Promise((_resolve, _reject) => {
       const doRequest = (mode: 'chat' | 'responses'): Promise<void> => {
         return new Promise((resolveAttempt, rejectAttempt) => {
-          const targetUrl = new URL(mode === 'chat' ? '/v1/chat/completions' : '/v1/responses', targetBase);
+          const targetUrl = new URL(`${targetBase}${mode === 'chat' ? '/v1/chat/completions' : '/v1/responses'}`);
           const body = mode === 'chat' ? openaiReqChat : translateChatToResponses(openaiReqChat);
           const bodyString = JSON.stringify(body);
           const requestFn = targetUrl.protocol === 'https:' ? https.request : http.request;

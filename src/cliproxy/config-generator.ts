@@ -931,14 +931,27 @@ export function getEffectiveEnvVars(
  */
 export function ensureProviderSettings(provider: CLIProxyProvider): void {
   const settingsPath = getProviderSettingsPath(provider);
+  const envVars = getClaudeEnvVars(provider);
 
-  // Only create if doesn't exist (preserve user edits)
   if (fs.existsSync(settingsPath)) {
+    // File exists - check if env section is missing (e.g. created by hook injectors)
+    // If so, merge in the default env vars while preserving existing hooks/settings
+    try {
+      const content = fs.readFileSync(settingsPath, 'utf-8');
+      const settings = JSON.parse(content) as Record<string, unknown>;
+      if (!settings.env) {
+        settings.env = envVars;
+        fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2) + '\n', {
+          mode: 0o600,
+        });
+      }
+    } catch {
+      // Malformed JSON - leave as-is, getEffectiveEnvVars will fall through to defaults
+    }
     return;
   }
 
   // Generate default settings from PROVIDER_CONFIGS
-  const envVars = getClaudeEnvVars(provider);
   const settings: ProviderSettings = { env: envVars };
 
   // Ensure directory exists

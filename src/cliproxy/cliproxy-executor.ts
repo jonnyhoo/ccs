@@ -44,7 +44,7 @@ import { getWebSearchHookEnv } from '../utils/websearch-manager';
 import { getImageAnalysisHookEnv } from '../utils/hooks/get-image-analysis-hook-env';
 import { supportsModelConfig, isModelBroken, getModelIssueUrl, findModel } from './model-catalog';
 import { CodexReasoningProxy } from './codex-reasoning-proxy';
-import { supportsSetup, setupProviderEndpoint, getEndpointFromEnv, persistEnvEndpoint } from './endpoint-setup';
+import { supportsSetup, setupProviderEndpoint, getEndpointFromEnv, getProviderEndpoint, persistEnvEndpoint } from './endpoint-setup';
 import { ToolSanitizationProxy } from './tool-sanitization-proxy';
 import { AnthropicToOpenAIProxy } from './anthropic-to-openai-proxy';
 import {
@@ -613,6 +613,25 @@ export async function execClaudeWithCLIProxy(
     log(`Checking authentication for ${provider}`);
 
     if (forceAuth || !isAuthenticated(provider)) {
+      // For providers that support --setup (codex/gemini/claude), if user has never
+      // authenticated before, skip OAuth entirely and offer --setup directly.
+      // This provides a seamless first-run experience for API-key-based workflows.
+      if (!forceAuth && supportsSetup(provider) && !isAuthenticated(provider) && process.stdin.isTTY) {
+        console.log('');
+        console.log(info(`No authentication found for ${providerConfig.displayName}`));
+        console.log('');
+        const { InteractivePrompt } = await import('../utils/prompt');
+        const useApiKey = await InteractivePrompt.confirm(
+          'Configure a custom API endpoint? (--setup)',
+          { default: true }
+        );
+        if (useApiKey) {
+          await setupProviderEndpoint(provider, verbose, cfg.port);
+          process.exit(0);
+        }
+        // User declined --setup, fall through to OAuth
+      }
+
       // Pass headless only if explicitly set; otherwise let auth-handler auto-detect
       const { triggerOAuth } = await import('./auth-handler');
       const authSuccess = await triggerOAuth(provider, {
@@ -735,11 +754,11 @@ export async function execClaudeWithCLIProxy(
   let a2oPort: number | null = null;
 
   // Direct API key mode: bypass CLIProxy entirely, use protocol translation proxy
-  // ONLY when API key comes from environment variables (CCS_CODEX_API_KEY, etc.)
-  // CLIProxy config keys (codex-api-key) are meant to be used BY CLIProxy, not to bypass it
-  const envEndpoint = getEndpointFromEnv(provider);
-  const providerEndpoint = envEndpoint;
-  const useDirectApiKey = !!envEndpoint;
+  // When a provider API key is configured (env var OR --setup config), CLIProxy cannot
+  // route these models (e.g. gpt-5.3-codex). Use AnthropicToOpenAIProxy instead.
+  // Sources: env vars (CCS_{PROVIDER}_API_KEY) or CLIProxy config ({provider}-api-key)
+  const providerEndpoint = getProviderEndpoint(provider, cfg.port);
+  const useDirectApiKey = !!providerEndpoint;
 
   if (useDirectApiKey && providerEndpoint && !useRemoteProxy) {
     log(`Direct API key mode: bypassing CLIProxy, using protocol translation proxy`);
@@ -1217,10 +1236,15 @@ export async function execClaudeWithCLIProxy(
   try {
     const settingsContent = fs.readFileSync(baseSettingsPath, 'utf-8');
     const settings = JSON.parse(settingsContent);
-    if (settings.env) {
-      settings.env.ANTHROPIC_BASE_URL = effectiveEnvVars.ANTHROPIC_BASE_URL;
-      settings.env.ANTHROPIC_AUTH_TOKEN = envVars.ANTHROPIC_AUTH_TOKEN || settings.env.ANTHROPIC_AUTH_TOKEN;
-    }
+    // Always ensure env section exists with correct runtime URLs
+    // The base settings file may only have hooks (no env), but session file needs env
+    settings.env = settings.env || {};
+    settings.env.ANTHROPIC_BASE_URL = effectiveEnvVars.ANTHROPIC_BASE_URL;
+    settings.env.ANTHROPIC_AUTH_TOKEN = envVars.ANTHROPIC_AUTH_TOKEN || settings.env.ANTHROPIC_AUTH_TOKEN;
+    settings.env.ANTHROPIC_MODEL = envVars.ANTHROPIC_MODEL || settings.env.ANTHROPIC_MODEL;
+    settings.env.ANTHROPIC_DEFAULT_OPUS_MODEL = envVars.ANTHROPIC_DEFAULT_OPUS_MODEL || settings.env.ANTHROPIC_DEFAULT_OPUS_MODEL;
+    settings.env.ANTHROPIC_DEFAULT_SONNET_MODEL = envVars.ANTHROPIC_DEFAULT_SONNET_MODEL || settings.env.ANTHROPIC_DEFAULT_SONNET_MODEL;
+    settings.env.ANTHROPIC_DEFAULT_HAIKU_MODEL = envVars.ANTHROPIC_DEFAULT_HAIKU_MODEL || settings.env.ANTHROPIC_DEFAULT_HAIKU_MODEL;
     const sessionSettingsPath = baseSettingsPath.replace(/\.json$/, '.session.json');
     fs.writeFileSync(sessionSettingsPath, JSON.stringify(settings, null, 2) + '\n', { mode: 0o600 });
     settingsPath = sessionSettingsPath;
