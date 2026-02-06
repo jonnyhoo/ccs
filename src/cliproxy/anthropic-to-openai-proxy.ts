@@ -339,52 +339,23 @@ function toResponsesMessages(messages: OpenAIMessage[]): ResponsesMessage[] {
   const out: ResponsesMessage[] = [];
 
   for (const m of messages) {
-    const content: ResponsesMessageContent[] = [];
+    // Responses API input supports simplified format: { role, content: string }
+    // This is compatible with Chat Completions format and avoids unsupported content types
 
-    // Handle different message types
     if (m.role === 'assistant') {
-      // Assistant messages: output_text + optional function_calls
-      if (m.content) {
-        content.push({ type: 'output_text', text: m.content });
-      }
-
-      // Convert tool_calls to function_call content blocks
-      if (m.tool_calls && m.tool_calls.length > 0) {
-        for (const tc of m.tool_calls) {
-          content.push({
-            type: 'function_call',
-            call_id: tc.id,
-            name: tc.function.name,
-            arguments: tc.function.arguments,
-          });
-        }
-      }
-
-      // If no content at all, add empty output_text
-      if (content.length === 0) {
-        content.push({ type: 'output_text', text: '' });
-      }
-
-      out.push({ role: 'assistant', content });
+      // Assistant messages: use simplified format with text content only
+      // Tool calls will be handled by the model's output, not in input messages
+      const textContent = m.content || '';
+      out.push({ role: 'assistant', content: textContent } as any);
     } else if (m.role === 'tool') {
-      // Tool messages: convert to user role with function_call_output
-      // Responses API doesn't support 'tool' role
-      content.push({
-        type: 'function_call_output',
-        call_id: m.tool_call_id ?? '',
-        output: m.content ?? '',
-      });
-
-      out.push({ role: 'user', content });
+      // Tool result messages: convert to user messages with text content
+      // Format: "Tool result for [tool_name]: [output]"
+      const toolResult = `Tool result: ${m.content || ''}`;
+      out.push({ role: 'user', content: toolResult } as any);
     } else {
-      // User/system/developer messages: input_text
-      // Note: content could be string or array in OpenAI format
-      // For now, we handle string content; array content (with images) would need expansion
-      const role = m.role;
+      // User/system/developer messages: use simplified format
       const textContent = m.content ?? '';
-
-      content.push({ type: 'input_text', text: textContent });
-      out.push({ role, content });
+      out.push({ role: m.role, content: textContent } as any);
     }
   }
 
