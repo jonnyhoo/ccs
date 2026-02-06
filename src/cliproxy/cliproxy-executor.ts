@@ -30,7 +30,7 @@ import {
   getProviderSettingsPath,
   CLIPROXY_DEFAULT_PORT,
   getCliproxyWritablePath,
-  getCliproxyConfigPath,
+  getConfigPathForPort,
   validatePort,
   applyThinkingConfig,
 } from './config-generator';
@@ -78,7 +78,10 @@ import { ScenarioRoutingProxy, buildScenarioUpstreams } from '../router';
  * When present, OAuth authentication can be skipped (direct API key mode).
  * Supports: codex-api-key, gemini-api-key, claude-api-key
  */
-function hasProviderApiKey(provider: CLIProxyProvider): boolean {
+function hasProviderApiKey(
+  provider: CLIProxyProvider,
+  port: number = CLIPROXY_DEFAULT_PORT
+): boolean {
   const keyFieldMap: Partial<Record<CLIProxyProvider, string>> = {
     codex: 'codex-api-key',
     gemini: 'gemini-api-key',
@@ -88,7 +91,7 @@ function hasProviderApiKey(provider: CLIProxyProvider): boolean {
   if (!keyField) return false;
 
   try {
-    const configPath = getCliproxyConfigPath();
+    const configPath = getConfigPathForPort(port);
     if (!fs.existsSync(configPath)) return false;
 
     const content = fs.readFileSync(configPath, 'utf-8');
@@ -450,7 +453,7 @@ export async function execClaudeWithCLIProxy(
   // Handle --setup: configure custom API endpoint and exit
   if (forceSetup) {
     if (supportsSetup(provider)) {
-      await setupProviderEndpoint(provider, verbose);
+      await setupProviderEndpoint(provider, verbose, cfg.port);
     } else {
       console.error(fail(`--setup is not available for ${provider}`));
       console.error(`    Supported providers: codex, gemini, claude`);
@@ -576,7 +579,7 @@ export async function execClaudeWithCLIProxy(
   //   b) Provider has a direct API key in CLIProxy config (e.g. codex-api-key)
   // Note: Trim authToken to reject whitespace-only values
   const remoteAuthToken = proxyConfig.authToken?.trim();
-  const hasApiKey = hasProviderApiKey(provider);
+  const hasApiKey = hasProviderApiKey(provider, cfg.port);
   const skipLocalAuth = (useRemoteProxy && !!remoteAuthToken) || hasApiKey;
   if (skipLocalAuth) {
     if (useRemoteProxy && !!remoteAuthToken) {

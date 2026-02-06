@@ -11,7 +11,7 @@ import * as fs from 'fs';
 import * as yaml from 'js-yaml';
 import { InteractivePrompt } from '../utils/prompt';
 import { ok, fail, info, warn, dim } from '../utils/ui';
-import { getCliproxyConfigPath, generateConfig, CLIPROXY_DEFAULT_PORT } from './config-generator';
+import { getConfigPathForPort, generateConfig, CLIPROXY_DEFAULT_PORT } from './config-generator';
 import { CLIProxyProvider } from './types';
 
 /** Provider API key field mapping */
@@ -29,8 +29,8 @@ interface EndpointConfig {
 /**
  * Read CLIProxy config.yaml as a plain object.
  */
-function readCliproxyConfig(): Record<string, unknown> {
-  const configPath = getCliproxyConfigPath();
+function readCliproxyConfig(port: number = CLIPROXY_DEFAULT_PORT): Record<string, unknown> {
+  const configPath = getConfigPathForPort(port);
   if (!fs.existsSync(configPath)) {
     return {};
   }
@@ -46,17 +46,21 @@ function readCliproxyConfig(): Record<string, unknown> {
  * Write a provider API key entry to CLIProxy config.yaml.
  * Preserves all other config content using section-based replacement.
  */
-function writeProviderApiKey(provider: CLIProxyProvider, endpoint: EndpointConfig): void {
+function writeProviderApiKey(
+  provider: CLIProxyProvider,
+  endpoint: EndpointConfig,
+  port: number = CLIPROXY_DEFAULT_PORT
+): void {
   const keyField = PROVIDER_KEY_FIELD[provider];
   if (!keyField) {
     throw new Error(`Provider ${provider} does not support API key configuration`);
   }
 
-  const configPath = getCliproxyConfigPath();
+  const configPath = getConfigPathForPort(port);
 
   // Ensure config exists
   if (!fs.existsSync(configPath)) {
-    generateConfig(provider, CLIPROXY_DEFAULT_PORT);
+    generateConfig(provider, port);
   }
 
   // Read full config
@@ -131,11 +135,14 @@ function replaceSectionInYaml(content: string, sectionKey: string, newSection: s
 /**
  * Get current endpoint config for a provider (if any).
  */
-function getCurrentEndpoint(provider: CLIProxyProvider): EndpointConfig | null {
+function getCurrentEndpoint(
+  provider: CLIProxyProvider,
+  port: number = CLIPROXY_DEFAULT_PORT
+): EndpointConfig | null {
   const keyField = PROVIDER_KEY_FIELD[provider];
   if (!keyField) return null;
 
-  const config = readCliproxyConfig();
+  const config = readCliproxyConfig(port);
   const entries = config[keyField] as
     | Array<{ 'api-key'?: string; 'base-url'?: string }>
     | undefined;
@@ -166,7 +173,8 @@ export function supportsSetup(provider: CLIProxyProvider): boolean {
  */
 export async function setupProviderEndpoint(
   provider: CLIProxyProvider,
-  verbose: boolean = false
+  verbose: boolean = false,
+  port: number = CLIPROXY_DEFAULT_PORT
 ): Promise<void> {
   const keyField = PROVIDER_KEY_FIELD[provider];
   if (!keyField) {
@@ -182,7 +190,7 @@ export async function setupProviderEndpoint(
   console.log('');
 
   // Show current config if exists
-  const current = getCurrentEndpoint(provider);
+  const current = getCurrentEndpoint(provider, port);
   if (current) {
     console.log(warn('Existing endpoint detected:'));
     console.log(`    Base URL: ${current.baseUrl}`);
@@ -224,7 +232,7 @@ export async function setupProviderEndpoint(
 
   // Write to CLIProxy config
   try {
-    writeProviderApiKey(provider, { apiKey, baseUrl });
+    writeProviderApiKey(provider, { apiKey, baseUrl }, port);
   } catch (err) {
     console.error(fail(`Failed to write config: ${(err as Error).message}`));
     process.exit(1);
@@ -235,7 +243,7 @@ export async function setupProviderEndpoint(
   console.log('');
   console.log(`  Base URL: ${baseUrl}`);
   console.log(`  API Key:  ${apiKey.substring(0, 8)}...`);
-  console.log(`  Config:   ${getCliproxyConfigPath()}`);
+  console.log(`  Config:   ${getConfigPathForPort(port)}`);
   console.log('');
   console.log(info('Usage:'));
   console.log(`  ccs ${provider}               Start coding session`);
@@ -244,6 +252,6 @@ export async function setupProviderEndpoint(
   console.log('');
 
   if (verbose) {
-    console.log(dim(`[setup] Written to ${keyField} in ${getCliproxyConfigPath()}`));
+    console.log(dim(`[setup] Written to ${keyField} in ${getConfigPathForPort(port)}`));
   }
 }
