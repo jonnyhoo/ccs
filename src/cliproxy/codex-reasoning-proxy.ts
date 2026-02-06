@@ -25,6 +25,11 @@ export interface CodexReasoningProxyConfig {
    * Example: '/api/provider/codex' will transform '/api/provider/codex/v1/messages' to '/v1/messages'
    */
   stripPathPrefix?: string;
+  /**
+   * When set, translate Anthropic auth (x-api-key) to OpenAI format (Authorization: Bearer).
+   * Used in direct API key mode where the upstream is an OpenAI-compatible endpoint.
+   */
+  openaiAuthToken?: string;
 }
 
 function isNonEmptyString(value: unknown): value is string {
@@ -140,7 +145,7 @@ export class CodexReasoningProxy {
       'upstreamBaseUrl' | 'verbose' | 'timeoutMs' | 'defaultEffort' | 'traceFilePath'
     >
   > &
-    Pick<CodexReasoningProxyConfig, 'modelMap' | 'stripPathPrefix'>;
+    Pick<CodexReasoningProxyConfig, 'modelMap' | 'stripPathPrefix' | 'openaiAuthToken'>;
   private readonly modelEffort: Map<string, CodexReasoningEffort>;
   private readonly recent: Array<{
     at: string;
@@ -160,6 +165,7 @@ export class CodexReasoningProxy {
       defaultEffort: config.defaultEffort ?? 'medium',
       traceFilePath: config.traceFilePath ?? '',
       stripPathPrefix: config.stripPathPrefix,
+      openaiAuthToken: config.openaiAuthToken,
     };
     this.modelEffort = buildCodexModelEffortMap(this.config.modelMap, this.config.defaultEffort);
   }
@@ -379,6 +385,12 @@ export class CodexReasoningProxy {
     if (bodyString !== undefined) {
       headers['Content-Type'] = headers['Content-Type'] || 'application/json';
       headers['Content-Length'] = Buffer.byteLength(bodyString);
+    }
+
+    // Translate Anthropic auth to OpenAI format for direct API key mode
+    if (this.config.openaiAuthToken) {
+      delete headers['x-api-key'];
+      headers['Authorization'] = `Bearer ${this.config.openaiAuthToken}`;
     }
 
     return headers;

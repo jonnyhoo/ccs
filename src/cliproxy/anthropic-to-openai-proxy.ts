@@ -1,0 +1,1087 @@
+/**
+ * Anthropic-to-OpenAI Protocol Translation Proxy
+ *
+ * Translates Claude CLI's Anthropic Messages API requests into OpenAI Chat Completions API format.
+ * Used in direct API key mode to bypass CLIProxy entirely.
+ *
+ * Request flow:
+ *   Claude CLI (Anthropic format) → this proxy → OpenAI-compatible endpoint
+ *
+ * Response flow:
+ *   OpenAI-compatible endpoint → this proxy (translates SSE) → Claude CLI (Anthropic format)
+ *
+ * Handles:
+ *   - Path rewriting: /v1/messages → /v1/chat/completions
+ *   - Auth translation: x-api-key → Authorization: Bearer
+ *   - Request body: Anthropic messages/tools/system → OpenAI format
+ *   - Streaming response: OpenAI SSE chunks → Anthropic SSE events
+ *   - Non-streaming response: OpenAI completion → Anthropic message
+ *   - Tool calls and tool results
+ */
+
+import * as http from 'http';
+import * as https from 'https';
+import { URL } from 'url';
+
+// ─── Types ───────────────────────────────────────────────────────────────────
+
+export interface AnthropicToOpenAIProxyConfig {
+  /** The user's OpenAI-compatible endpoint base URL (e.g., http://api.drlj.cn/openai) */
+  targetBaseUrl: string;
+  /** Bearer token for the target endpoint */
+  apiKey: string;
+  /** Enable verbose logging */
+  verbose?: boolean;
+  /** Request timeout in ms */
+  timeoutMs?: number;
+}
+
+// Anthropic types (incoming from Claude CLI)
+interface AnthropicContentBlock {
+  type: string;
+  text?: string;
+  id?: string;
+  name?: string;
+  input?: unknown;
+  tool_use_id?: string;
+  content?: string | AnthropicContentBlock[];
+  source?: unknown;
+}
+
+interface AnthropicMessage {
+  role: string;
+  content: string | AnthropicContentBlock[];
+}
+
+interface AnthropicTool {
+  name: string;
+  description?: string;
+  input_schema?: unknown;
+}
+
+interface AnthropicToolChoice {
+  type: string;
+  name?: string;
+  disable_parallel_tool_use?: boolean;
+}
+
+interface AnthropicRequest {
+  model?: string;
+  max_tokens?: number;
+  system?: string | AnthropicContentBlock[];
+  messages?: AnthropicMessage[];
+  stream?: boolean;
+  tools?: AnthropicTool[];
+  tool_choice?: AnthropicToolChoice;
+  temperature?: number;
+  top_p?: number;
+  stop_sequences?: string[];
+  reasoning?: { effort?: string };
+  [key: string]: unknown;
+}
+
+// OpenAI types (outgoing to endpoint)
+interface OpenAIMessage {
+  role: string;
+  content: string | null;
+  tool_calls?: OpenAIToolCall[];
+  tool_call_id?: string;
+  name?: string;
+}
+
+interface OpenAIToolCall {
+  id: string;
+  type: 'function';
+  function: {
+    name: string;
+    arguments: string;
+  };
+}
+
+interface OpenAITool {
+  type: 'function';
+  function: {
+    name: string;
+    description?: string;
+    parameters?: unknown;
+  };
+}
+
+interface OpenAIRequest {
+  model?: string;
+  max_tokens?: number;
+  messages: OpenAIMessage[];
+  stream?: boolean;
+  tools?: OpenAITool[];
+  tool_choice?: string | { type: string; function?: { name: string } };
+  temperature?: number;
+  top_p?: number;
+  stop?: string[];
+  reasoning?: { effort?: string };
+  stream_options?: { include_usage?: boolean };
+  [key: string]: unknown;
+}
+
+// OpenAI streaming chunk
+interface OpenAIStreamChunk {
+  id?: string;
+  object?: string;
+  model?: string;
+  choices?: Array<{
+    index?: number;
+    delta?: {
+      role?: string;
+      content?: string | null;
+      tool_calls?: Array<{
+        index?: number;
+        id?: string;
+        type?: string;
+        function?: {
+          name?: string;
+          arguments?: string;
+        };
+      }>;
+    };
+    finish_reason?: string | null;
+  }>;
+  usage?: {
+    prompt_tokens?: number;
+    completion_tokens?: number;
+    total_tokens?: number;
+  };
+}
+
+// ─── Request Translation ─────────────────────────────────────────────────────
+
+function translateSystemPrompt(system: string | AnthropicContentBlock[] | undefined): string {
+  if (!system) return '';
+  if (typeof system === 'string') return system;
+  // Array of content blocks - extract text
+  return system
+    .filter((b) => b.type === 'text' && b.text)
+    .map((b) => b.text)
+    .join('\n');
+}
+
+function translateMessages(messages: AnthropicMessage[]): OpenAIMessage[] {
+  const result: OpenAIMessage[] = [];
+
+  for (const msg of messages) {
+    if (typeof msg.content === 'string') {
+      result.push({ role: msg.role, content: msg.content });
+      continue;
+    }
+
+    if (!Array.isArray(msg.content)) {
+      result.push({ role: msg.role, content: String(msg.content ?? '') });
+      continue;
+    }
+
+    // Process content blocks
+    if (msg.role === 'assistant') {
+      // Assistant message may contain text + tool_use blocks
+      const textParts: string[] = [];
+      const toolCalls: OpenAIToolCall[] = [];
+
+      for (const block of msg.content) {
+        if (block.type === 'text' && block.text) {
+          textParts.push(block.text);
+        } else if (block.type === 'tool_use') {
+          toolCalls.push({
+            id: block.id || `call_${Math.random().toString(36).slice(2, 10)}`,
+            type: 'function',
+            function: {
+              name: block.name || '',
+              arguments: typeof block.input === 'string' ? block.input : JSON.stringify(block.input ?? {}),
+            },
+          });
+        }
+      }
+
+      const openaiMsg: OpenAIMessage = {
+        role: 'assistant',
+        content: textParts.length > 0 ? textParts.join('') : null,
+      };
+      if (toolCalls.length > 0) {
+        openaiMsg.tool_calls = toolCalls;
+      }
+      result.push(openaiMsg);
+    } else if (msg.role === 'user') {
+      // User message may contain text, images, or tool_result blocks
+      // Split tool_results into separate OpenAI tool messages
+      const textParts: string[] = [];
+
+      for (const block of msg.content) {
+        if (block.type === 'text' && block.text) {
+          textParts.push(block.text);
+        } else if (block.type === 'tool_result') {
+          // Tool results become separate messages with role: "tool"
+          let toolContent = '';
+          if (typeof block.content === 'string') {
+            toolContent = block.content;
+          } else if (Array.isArray(block.content)) {
+            toolContent = block.content
+              .filter((b: AnthropicContentBlock) => b.type === 'text' && b.text)
+              .map((b: AnthropicContentBlock) => b.text)
+              .join('\n');
+          }
+          result.push({
+            role: 'tool',
+            content: toolContent,
+            tool_call_id: block.tool_use_id || '',
+          });
+        }
+        // Skip image/document blocks for now (not supported by most Chat Completions endpoints)
+      }
+
+      if (textParts.length > 0) {
+        result.push({ role: 'user', content: textParts.join('') });
+      }
+    } else {
+      // Other roles - just concatenate text
+      const text = msg.content
+        .filter((b) => b.type === 'text' && b.text)
+        .map((b) => b.text)
+        .join('');
+      result.push({ role: msg.role, content: text || '' });
+    }
+  }
+
+  return result;
+}
+
+function translateTools(tools: AnthropicTool[]): OpenAITool[] {
+  return tools.map((tool) => ({
+    type: 'function' as const,
+    function: {
+      name: tool.name,
+      description: tool.description,
+      parameters: tool.input_schema,
+    },
+  }));
+}
+
+function translateToolChoice(
+  choice: AnthropicToolChoice
+): string | { type: string; function?: { name: string } } {
+  switch (choice.type) {
+    case 'auto':
+      return 'auto';
+    case 'any':
+      return 'required';
+    case 'tool':
+      return { type: 'function', function: { name: choice.name || '' } };
+    case 'none':
+      return 'none';
+    default:
+      return 'auto';
+  }
+}
+
+function translateRequestChat(anthropicReq: AnthropicRequest): OpenAIRequest {
+  const messages: OpenAIMessage[] = [];
+
+  // Add system message if present
+  const systemText = translateSystemPrompt(anthropicReq.system);
+  if (systemText) {
+    messages.push({ role: 'system', content: systemText });
+  }
+
+  // Translate conversation messages
+  if (anthropicReq.messages) {
+    messages.push(...translateMessages(anthropicReq.messages));
+  }
+
+  const openaiReq: OpenAIRequest = {
+    model: anthropicReq.model,
+    messages,
+    stream: anthropicReq.stream,
+  };
+
+  if (anthropicReq.max_tokens !== undefined) {
+    openaiReq.max_tokens = anthropicReq.max_tokens;
+  }
+
+  if (anthropicReq.temperature !== undefined) {
+    openaiReq.temperature = anthropicReq.temperature;
+  }
+
+  if (anthropicReq.top_p !== undefined) {
+    openaiReq.top_p = anthropicReq.top_p;
+  }
+
+  if (anthropicReq.stop_sequences) {
+    openaiReq.stop = anthropicReq.stop_sequences;
+  }
+
+  if (anthropicReq.tools && anthropicReq.tools.length > 0) {
+    openaiReq.tools = translateTools(anthropicReq.tools);
+  }
+
+  if (anthropicReq.tool_choice) {
+    openaiReq.tool_choice = translateToolChoice(anthropicReq.tool_choice);
+  }
+
+  // Pass through reasoning effort (already in OpenAI format from CodexReasoningProxy)
+  if (anthropicReq.reasoning) {
+    openaiReq.reasoning = anthropicReq.reasoning;
+  }
+
+  // Request usage info in stream for token counting
+  if (openaiReq.stream) {
+    openaiReq.stream_options = { include_usage: true };
+  }
+
+  return openaiReq;
+}
+
+function toResponsesMessages(messages: OpenAIMessage[]): ResponsesMessage[] {
+  const out: ResponsesMessage[] = [];
+  for (const m of messages) {
+    if (m.role === 'tool') {
+      // Responses API accepts tool results as normal user text; we prefix lightly
+      out.push({ role: 'tool', content: [{ type: 'text', text: m.content ?? '' }] });
+      continue;
+    }
+    out.push({ role: m.role, content: [{ type: 'text', text: m.content ?? '' }] });
+  }
+  return out;
+}
+
+function translateChatToResponses(chat: OpenAIRequest): ResponsesRequest {
+  // chat is already an OpenAI Chat Completions payload; convert messages to Responses format
+  const req: ResponsesRequest = {
+    model: chat.model,
+    input: toResponsesMessages(chat.messages),
+    stream: chat.stream,
+    temperature: chat.temperature,
+    top_p: chat.top_p,
+    stop: chat.stop,
+    reasoning: chat.reasoning,
+  };
+  if (chat.tools) req.tools = chat.tools;
+  if (chat.tool_choice) req.tool_choice = chat.tool_choice as any;
+  return req;
+}
+
+// ─── Streaming Response Translation ──────────────────────────────────────────
+
+/** State tracker for translating OpenAI streaming chunks into Anthropic SSE events */
+class StreamingResponseTranslator {
+  private messageId: string;
+  private model: string;
+  private contentBlockIndex = 0;
+  private inTextBlock = false;
+  private inToolCallBlocks = new Map<number, { id: string; name: string; started: boolean }>();
+  private inputTokens = 0;
+  private outputTokens = 0;
+  private headersSent = false;
+
+  constructor(model: string) {
+    this.messageId = `msg_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
+    this.model = model;
+  }
+
+  private sse(event: string, data: unknown): string {
+    return `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
+  }
+
+  /** Produce the initial message_start event */
+  emitMessageStart(): string {
+    return this.sse('message_start', {
+      type: 'message_start',
+      message: {
+        id: this.messageId,
+        type: 'message',
+        role: 'assistant',
+        content: [],
+        model: this.model,
+        stop_reason: null,
+        stop_sequence: null,
+        usage: { input_tokens: this.inputTokens, output_tokens: 0 },
+      },
+    });
+  }
+
+  /** Translate a single OpenAI chunk to zero or more Anthropic SSE events */
+  translateChunk(chunk: OpenAIStreamChunk): string {
+    let events = '';
+
+    // Track usage
+    if (chunk.usage) {
+      if (chunk.usage.prompt_tokens) this.inputTokens = chunk.usage.prompt_tokens;
+      if (chunk.usage.completion_tokens) this.outputTokens = chunk.usage.completion_tokens;
+    }
+
+    if (!chunk.choices || chunk.choices.length === 0) return events;
+    const choice = chunk.choices[0];
+    if (!choice) return events;
+    const delta = choice.delta;
+
+    // Emit message_start on first content
+    if (!this.headersSent && delta) {
+      this.headersSent = true;
+      events += this.emitMessageStart();
+    }
+
+    // Handle text content
+    if (delta?.content !== undefined && delta.content !== null) {
+      if (!this.inTextBlock) {
+        // Start a new text content block
+        events += this.sse('content_block_start', {
+          type: 'content_block_start',
+          index: this.contentBlockIndex,
+          content_block: { type: 'text', text: '' },
+        });
+        this.inTextBlock = true;
+      }
+      if (delta.content) {
+        events += this.sse('content_block_delta', {
+          type: 'content_block_delta',
+          index: this.contentBlockIndex,
+          delta: { type: 'text_delta', text: delta.content },
+        });
+      }
+    }
+
+    // Handle tool calls
+    if (delta?.tool_calls) {
+      // Close text block if open
+      if (this.inTextBlock) {
+        events += this.sse('content_block_stop', {
+          type: 'content_block_stop',
+          index: this.contentBlockIndex,
+        });
+        this.contentBlockIndex++;
+        this.inTextBlock = false;
+      }
+
+      for (const tc of delta.tool_calls) {
+        const tcIndex = tc.index ?? 0;
+        let tracked = this.inToolCallBlocks.get(tcIndex);
+
+        // New tool call
+        if (tc.id && tc.function?.name) {
+          tracked = { id: tc.id, name: tc.function.name, started: false };
+          this.inToolCallBlocks.set(tcIndex, tracked);
+        }
+
+        if (!tracked) continue;
+
+        // Emit content_block_start for new tool call
+        if (!tracked.started) {
+          events += this.sse('content_block_start', {
+            type: 'content_block_start',
+            index: this.contentBlockIndex,
+            content_block: { type: 'tool_use', id: tracked.id, name: tracked.name, input: {} },
+          });
+          tracked.started = true;
+        }
+
+        // Emit argument deltas
+        if (tc.function?.arguments) {
+          events += this.sse('content_block_delta', {
+            type: 'content_block_delta',
+            index: this.contentBlockIndex,
+            delta: { type: 'input_json_delta', partial_json: tc.function.arguments },
+          });
+        }
+      }
+    }
+
+    // Handle finish
+    if (choice.finish_reason) {
+      // Close any open blocks
+      if (this.inTextBlock) {
+        events += this.sse('content_block_stop', {
+          type: 'content_block_stop',
+          index: this.contentBlockIndex,
+        });
+        this.contentBlockIndex++;
+        this.inTextBlock = false;
+      }
+
+      // Close open tool call blocks
+      for (const [, tracked] of this.inToolCallBlocks) {
+        if (tracked.started) {
+          events += this.sse('content_block_stop', {
+            type: 'content_block_stop',
+            index: this.contentBlockIndex,
+          });
+          this.contentBlockIndex++;
+        }
+      }
+      this.inToolCallBlocks.clear();
+
+      // Map finish reason
+      const stopReason = choice.finish_reason === 'tool_calls' ? 'tool_use' : 'end_turn';
+
+      events += this.sse('message_delta', {
+        type: 'message_delta',
+        delta: { stop_reason: stopReason, stop_sequence: null },
+        usage: { output_tokens: this.outputTokens },
+      });
+
+      events += this.sse('message_stop', { type: 'message_stop' });
+    }
+
+    return events;
+  }
+
+  /** Handle case where no chunks were received or stream ended without finish_reason */
+  emitFinalIfNeeded(): string {
+    let events = '';
+
+    if (!this.headersSent) {
+      events += this.emitMessageStart();
+    }
+
+    if (this.inTextBlock) {
+      events += this.sse('content_block_stop', {
+        type: 'content_block_stop',
+        index: this.contentBlockIndex,
+      });
+    }
+
+    for (const [, tracked] of this.inToolCallBlocks) {
+      if (tracked.started) {
+        events += this.sse('content_block_stop', {
+          type: 'content_block_stop',
+          index: this.contentBlockIndex,
+        });
+        this.contentBlockIndex++;
+      }
+    }
+
+    events += this.sse('message_delta', {
+      type: 'message_delta',
+      delta: { stop_reason: 'end_turn', stop_sequence: null },
+      usage: { output_tokens: this.outputTokens },
+    });
+
+    events += this.sse('message_stop', { type: 'message_stop' });
+
+    return events;
+  }
+}
+
+// ─── Non-Streaming Response Translation ──────────────────────────────────────
+
+interface OpenAICompletionResponse {
+  id?: string;
+  model?: string;
+  choices?: Array<{
+    message?: {
+      role?: string;
+      content?: string | null;
+      tool_calls?: OpenAIToolCall[];
+    };
+    finish_reason?: string;
+  }>;
+  usage?: {
+    prompt_tokens?: number;
+    completion_tokens?: number;
+    total_tokens?: number;
+  };
+}
+
+function translateNonStreamingResponse(openaiResp: OpenAICompletionResponse, model: string): unknown {
+  const choice = openaiResp.choices?.[0];
+  const message = choice?.message;
+  const content: unknown[] = [];
+
+  // Text content
+  if (message?.content) {
+    content.push({ type: 'text', text: message.content });
+  }
+
+  // Tool calls
+  if (message?.tool_calls) {
+    for (const tc of message.tool_calls) {
+      let input: unknown = {};
+      try {
+        input = JSON.parse(tc.function.arguments);
+      } catch {
+        input = tc.function.arguments;
+      }
+      content.push({
+        type: 'tool_use',
+        id: tc.id,
+        name: tc.function.name,
+        input,
+      });
+    }
+  }
+
+  const stopReason = choice?.finish_reason === 'tool_calls' ? 'tool_use' : 'end_turn';
+
+  return {
+    id: `msg_${Date.now().toString(36)}`,
+    type: 'message',
+    role: 'assistant',
+    content,
+    model,
+    stop_reason: stopReason,
+    stop_sequence: null,
+    usage: {
+      input_tokens: openaiResp.usage?.prompt_tokens ?? 0,
+      output_tokens: openaiResp.usage?.completion_tokens ?? 0,
+    },
+  };
+}
+
+// ─── Responses API Types ────────────────────────────────────────────────────
+
+interface ResponsesMessageContent {
+  type: 'text';
+  text: string;
+}
+
+interface ResponsesMessage {
+  role: string;
+  content: ResponsesMessageContent[];
+}
+
+interface ResponsesRequest {
+  model?: string;
+  input: ResponsesMessage[] | string;
+  stream?: boolean;
+  tools?: OpenAITool[];
+  tool_choice?: string | { type: string; function?: { name: string } };
+  temperature?: number;
+  top_p?: number;
+  stop?: string[];
+  reasoning?: { effort?: string };
+}
+
+// ─── Proxy Server ────────────────────────────────────────────────────────────
+
+export class AnthropicToOpenAIProxy {
+  private server: http.Server | null = null;
+  private port: number | null = null;
+  private readonly config: Required<Pick<AnthropicToOpenAIProxyConfig, 'targetBaseUrl' | 'apiKey' | 'verbose' | 'timeoutMs'>>;
+
+  constructor(config: AnthropicToOpenAIProxyConfig) {
+    this.config = {
+      targetBaseUrl: config.targetBaseUrl.replace(/\/+$/, ''),
+      apiKey: config.apiKey,
+      verbose: config.verbose ?? false,
+      timeoutMs: config.timeoutMs ?? 120000,
+    };
+  }
+
+  private log(msg: string): void {
+    if (this.config.verbose) {
+      console.error(`[anthropic-to-openai] ${msg}`);
+    }
+  }
+
+  async start(): Promise<number> {
+    if (this.server) return this.port ?? 0;
+
+    return new Promise((resolve, reject) => {
+      this.server = http.createServer((req, res) => {
+        void this.handleRequest(req, res);
+      });
+
+      this.server.listen(0, '127.0.0.1', () => {
+        const addr = this.server?.address();
+        this.port = typeof addr === 'object' && addr ? addr.port : 0;
+        resolve(this.port);
+      });
+
+      this.server.on('error', reject);
+    });
+  }
+
+  stop(): void {
+    if (!this.server) return;
+    this.server.close();
+    this.server = null;
+    this.port = null;
+  }
+
+  private readBody(req: http.IncomingMessage): Promise<string> {
+    return new Promise((resolve, reject) => {
+      const chunks: Buffer[] = [];
+      const maxSize = 10 * 1024 * 1024;
+      let total = 0;
+
+      req.on('data', (chunk: Buffer) => {
+        total += chunk.length;
+        if (total > maxSize) {
+          req.destroy();
+          reject(new Error('Request body too large'));
+          return;
+        }
+        chunks.push(chunk);
+      });
+
+      req.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')));
+      req.on('error', reject);
+    });
+  }
+
+  private async handleRequest(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
+    const method = req.method || 'GET';
+    let requestPath = req.url || '/';
+
+    // Strip /api/provider/{provider} prefix if present
+    // Claude CLI sends to /api/provider/codex/v1/messages, we need /v1/messages
+    const providerPrefixMatch = requestPath.match(/^\/api\/provider\/[^/]+(.*)$/);
+    if (providerPrefixMatch) {
+      requestPath = providerPrefixMatch[1] || '/';
+    }
+
+    this.log(`${method} ${req.url} → path=${requestPath}`);
+
+    // Only handle POST /v1/messages (the Anthropic Messages API endpoint)
+    if (method !== 'POST' || !requestPath.startsWith('/v1/messages')) {
+      // For other paths, return a simple response
+      if (method === 'GET' && requestPath === '/') {
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ status: 'ok', proxy: 'anthropic-to-openai' }));
+        return;
+      }
+      res.writeHead(404, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: `Unsupported: ${method} ${requestPath}` }));
+      return;
+    }
+
+    try {
+      const rawBody = await this.readBody(req);
+      let anthropicReq: AnthropicRequest;
+      try {
+        anthropicReq = rawBody.length ? JSON.parse(rawBody) : {};
+      } catch {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Invalid JSON' }));
+        return;
+      }
+
+      // Translate request
+      const openaiReq = translateRequestChat(anthropicReq);
+      const model = anthropicReq.model || 'unknown';
+      this.log(`Translated request: model=${model}, stream=${openaiReq.stream}, messages=${openaiReq.messages.length}`);
+
+      // Build target URL
+      const targetUrl = new URL(`${this.config.targetBaseUrl}/v1/chat/completions`);
+
+      if (openaiReq.stream) {
+        await this.handleStreaming(req, res, targetUrl, openaiReq, model);
+      } else {
+        await this.handleNonStreaming(req, res, targetUrl, openaiReq, model);
+      }
+    } catch (error) {
+      const err = error as Error;
+      this.log(`Error: ${err.message}`);
+      if (!res.headersSent) {
+        res.writeHead(502, { 'Content-Type': 'application/json' });
+      }
+      // Return error in Anthropic format
+      res.end(JSON.stringify({
+        type: 'error',
+        error: { type: 'api_error', message: err.message },
+      }));
+    }
+  }
+
+  private async handleStreaming(
+    _req: http.IncomingMessage,
+    clientRes: http.ServerResponse,
+    targetBase: URL,
+    openaiReqChat: OpenAIRequest,
+    model: string
+  ): Promise<void> {
+    return new Promise((_resolve, _reject) => {
+      const attempt = (mode: 'chat' | 'responses'): Promise<void> => {
+        return new Promise((resolveAttempt, rejectAttempt) => {
+          const targetUrl = new URL(mode === 'chat' ? '/v1/chat/completions' : '/v1/responses', targetBase);
+          const body = mode === 'chat' ? openaiReqChat : translateChatToResponses(JSON.parse(JSON.stringify({ ...openaiReqChat, stream: true })) as any);
+          const bodyString = JSON.stringify(body);
+          const requestFn = targetUrl.protocol === 'https:' ? https.request : http.request;
+
+          const upstreamReq = requestFn(
+            {
+              protocol: targetUrl.protocol,
+              hostname: targetUrl.hostname,
+              port: targetUrl.port,
+              path: targetUrl.pathname + targetUrl.search,
+              method: 'POST',
+              timeout: this.config.timeoutMs,
+              headers: {
+            'Content-Type': 'application/json',
+            'Content-Length': Buffer.byteLength(bodyString),
+            'Authorization': `Bearer ${this.config.apiKey}`,
+'Accept': 'text/event-stream',
+              },
+            },
+            (upstreamRes) => {
+          const statusCode = upstreamRes.statusCode || 200;
+
+          if (statusCode >= 400) {
+            const chunks: Buffer[] = [];
+            upstreamRes.on('data', (c: Buffer) => chunks.push(c));
+            upstreamRes.on('end', () => {
+              const bodyErr = Buffer.concat(chunks).toString('utf8');
+              this.log(`Upstream ${mode} error ${statusCode}: ${bodyErr.slice(0, 200)}`);
+              // Try fallback if we attempted chat first
+              if (mode === 'chat') {
+                attempt('responses').then(resolveAttempt).catch(rejectAttempt);
+                return;
+              }
+              // No fallback left: return error
+              if (!clientRes.headersSent) {
+                clientRes.writeHead(statusCode, { 'Content-Type': 'application/json' });
+              }
+              try {
+                const parsed = JSON.parse(bodyErr);
+                clientRes.end(JSON.stringify({ type: 'error', error: { type: 'api_error', message: parsed?.error?.message || bodyErr.slice(0, 500) } }));
+              } catch {
+                clientRes.end(JSON.stringify({ type: 'error', error: { type: 'api_error', message: bodyErr.slice(0, 500) } }));
+              }
+              resolveAttempt();
+            });
+            return;
+          }
+
+          // Set up Anthropic SSE response
+          clientRes.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', 'Connection': 'keep-alive' });
+
+          const translator = new StreamingResponseTranslator(model);
+          let buffer = '';
+          let hasFinished = false;
+
+          upstreamRes.on('data', (chunk: Buffer) => {
+            buffer += chunk.toString('utf8');
+
+            const lines = buffer.split('\n');
+            buffer = lines.pop() || '';
+
+            for (const line of lines) {
+              const trimmed = line.trim();
+              if (!trimmed || trimmed.startsWith(':')) continue;
+
+              if (trimmed === 'data: [DONE]') {
+                if (!hasFinished) {
+                  const final = translator.emitFinalIfNeeded();
+                  if (final) clientRes.write(final);
+                  hasFinished = true;
+                }
+                continue;
+              }
+
+              if (trimmed.startsWith('data: ')) {
+                const jsonStr = trimmed.slice(6);
+                try {
+                  // Try Chat Completions chunk first
+                  const parsed = JSON.parse(jsonStr);
+                  if (parsed && parsed.type) {
+                    // Responses API event
+                    const evtType: string = parsed.type;
+                    if (evtType.endsWith('.output_text.delta') && typeof parsed.delta === 'string') {
+                      // Start block if needed, then stream text
+                      const start = translator.translateChunk({ choices: [{ delta: { content: '' } }] } as any);
+                      // translateChunk will emit start on first delta; we then send delta via a fake chunk with content
+                      const textDelta = translator.translateChunk({ choices: [{ delta: { content: parsed.delta } }] } as any);
+                      if (start) clientRes.write(start);
+                      if (textDelta) clientRes.write(textDelta);
+                    } else if (evtType === 'response.completed') {
+                      hasFinished = true;
+                      const final = translator.emitFinalIfNeeded();
+                      if (final) clientRes.write(final);
+                    }
+                    // ignore other event types for now
+                  } else {
+                    const chunkObj = parsed as OpenAIStreamChunk;
+                    const events = translator.translateChunk(chunkObj);
+                    if (events) clientRes.write(events);
+                    if (chunkObj.choices?.[0]?.finish_reason) hasFinished = true;
+                  }
+                } catch (e) {
+                  this.log(`Failed to parse SSE chunk: ${jsonStr.slice(0, 100)} - ${(e as Error).message}`);
+                }
+              }
+            }
+          });
+
+          upstreamRes.on('end', () => {
+            if (buffer.trim()) {
+              const trimmed = buffer.trim();
+              if (trimmed.startsWith('data: ') && trimmed !== 'data: [DONE]') {
+                try {
+                  const parsed = JSON.parse(trimmed.slice(6));
+                  if (parsed && parsed.type) {
+                    if (parsed.type === 'response.completed') {
+                      hasFinished = true;
+                    }
+                  } else {
+                    const chunk = parsed as OpenAIStreamChunk;
+                    const events = translator.translateChunk(chunk);
+                    if (events) clientRes.write(events);
+                    if (chunk.choices?.[0]?.finish_reason) hasFinished = true;
+                  }
+                } catch {
+                  // ignore
+                }
+              }
+            }
+
+            if (!hasFinished) {
+              const final = translator.emitFinalIfNeeded();
+              if (final) clientRes.write(final);
+            }
+
+            clientRes.end();
+            resolveAttempt();
+          });
+
+          upstreamRes.on('error', rejectAttempt);
+        });
+
+        upstreamReq.on('timeout', () => {
+          upstreamReq.destroy(new Error('Upstream request timeout'));
+        });
+
+        upstreamReq.on('error', (err) => {
+          // On network error for chat attempt, fallback to responses
+          if (mode === 'chat') {
+            attempt('responses').then(resolveAttempt).catch(rejectAttempt);
+            return;
+          }
+          this.log(`Request error (${mode}): ${err.message}`);
+          if (!clientRes.headersSent) {
+            clientRes.writeHead(502, { 'Content-Type': 'application/json' });
+            clientRes.end(JSON.stringify({ type: 'error', error: { type: 'api_error', message: err.message } }));
+          }
+          rejectAttempt(err);
+        });
+
+        upstreamReq.write(bodyString);
+        upstreamReq.end();
+      });
+      };
+
+      return attempt('chat');
+    });
+  }
+
+  private async handleNonStreaming(
+    _req: http.IncomingMessage,
+    clientRes: http.ServerResponse,
+    targetBase: URL,
+    openaiReqChat: OpenAIRequest,
+    model: string
+  ): Promise<void> {
+    return new Promise((_resolve, _reject) => {
+      const doRequest = (mode: 'chat' | 'responses'): Promise<void> => {
+        return new Promise((resolveAttempt, rejectAttempt) => {
+          const targetUrl = new URL(mode === 'chat' ? '/v1/chat/completions' : '/v1/responses', targetBase);
+          const body = mode === 'chat' ? openaiReqChat : translateChatToResponses(openaiReqChat);
+          const bodyString = JSON.stringify(body);
+          const requestFn = targetUrl.protocol === 'https:' ? https.request : http.request;
+
+          const upstreamReq = requestFn(
+            {
+              protocol: targetUrl.protocol,
+              hostname: targetUrl.hostname,
+              port: targetUrl.port,
+              path: targetUrl.pathname + targetUrl.search,
+              method: 'POST',
+              timeout: this.config.timeoutMs,
+              headers: {
+            'Content-Type': 'application/json',
+            'Content-Length': Buffer.byteLength(bodyString),
+'Authorization': `Bearer ${this.config.apiKey}`,
+              },
+            },
+            (upstreamRes) => {
+          const chunks: Buffer[] = [];
+          upstreamRes.on('data', (c: Buffer) => chunks.push(c));
+          upstreamRes.on('end', () => {
+            const bodyTxt = Buffer.concat(chunks).toString('utf8');
+            const statusCode = upstreamRes.statusCode || 200;
+
+            if (statusCode >= 400) {
+              this.log(`Upstream ${mode} error ${statusCode}: ${bodyTxt.slice(0, 200)}`);
+              if (mode === 'chat') {
+                doRequest('responses').then(resolveAttempt).catch(rejectAttempt);
+                return;
+              }
+              clientRes.writeHead(statusCode, { 'Content-Type': 'application/json' });
+              clientRes.end(JSON.stringify({ type: 'error', error: { type: 'api_error', message: bodyTxt.slice(0, 500) } }));
+              resolveAttempt();
+              return;
+            }
+
+            try {
+              const parsed = JSON.parse(bodyTxt);
+              if (parsed && parsed.choices) {
+                const anthropicResp = translateNonStreamingResponse(parsed as OpenAICompletionResponse, model);
+                clientRes.writeHead(200, { 'Content-Type': 'application/json' });
+                clientRes.end(JSON.stringify(anthropicResp));
+              } else if (parsed && (parsed.output_text || parsed.output)) {
+                // Responses API: extract text
+                let text = '';
+                if (typeof parsed.output_text === 'string') {
+                  text = parsed.output_text;
+                } else if (Array.isArray(parsed.output)) {
+                  for (const item of parsed.output) {
+                    if (item.type === 'output_text' && typeof item.text === 'string') {
+                      text += item.text;
+                    } else if (item.type === 'message' && Array.isArray(item.content)) {
+                      for (const c of item.content) {
+                        if (c.type === 'output_text' && typeof c.text === 'string') text += c.text;
+                        if (c.type === 'text' && typeof c.text === 'string') text += c.text;
+                      }
+                    }
+                  }
+                }
+                const anthropicResp = {
+                  id: `msg_${Date.now().toString(36)}`,
+                  type: 'message',
+                  role: 'assistant',
+                  content: text ? [{ type: 'text', text }] : [],
+                  model,
+                  stop_reason: 'end_turn',
+                  stop_sequence: null,
+                  usage: { input_tokens: parsed?.usage?.prompt_tokens ?? 0, output_tokens: parsed?.usage?.completion_tokens ?? 0 },
+                };
+                clientRes.writeHead(200, { 'Content-Type': 'application/json' });
+                clientRes.end(JSON.stringify(anthropicResp));
+              } else {
+                clientRes.writeHead(502, { 'Content-Type': 'application/json' });
+                clientRes.end(JSON.stringify({ type: 'error', error: { type: 'api_error', message: 'Unrecognized upstream response format' } }));
+              }
+            } catch {
+              clientRes.writeHead(502, { 'Content-Type': 'application/json' });
+              clientRes.end(JSON.stringify({ type: 'error', error: { type: 'api_error', message: 'Failed to parse upstream response' } }));
+            }
+            resolveAttempt();
+          });
+
+          upstreamRes.on('error', rejectAttempt);
+        }
+      );
+
+      upstreamReq.on('timeout', () => upstreamReq.destroy(new Error('Upstream request timeout')));
+      upstreamReq.on('error', (err) => {
+        if (mode === 'chat') {
+          doRequest('responses').then(resolveAttempt).catch(rejectAttempt);
+          return;
+        }
+        if (!clientRes.headersSent) {
+          clientRes.writeHead(502, { 'Content-Type': 'application/json' });
+          clientRes.end(JSON.stringify({ type: 'error', error: { type: 'api_error', message: err.message } }));
+        }
+        rejectAttempt(err);
+      });
+
+      upstreamReq.write(bodyString);
+      upstreamReq.end();
+    });
+      };
+      return doRequest('chat');
+    });
+  }
+}

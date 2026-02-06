@@ -44,8 +44,9 @@ import { getWebSearchHookEnv } from '../utils/websearch-manager';
 import { getImageAnalysisHookEnv } from '../utils/hooks/get-image-analysis-hook-env';
 import { supportsModelConfig, isModelBroken, getModelIssueUrl, findModel } from './model-catalog';
 import { CodexReasoningProxy } from './codex-reasoning-proxy';
-import { supportsSetup, setupProviderEndpoint } from './endpoint-setup';
+import { supportsSetup, setupProviderEndpoint, getEndpointFromEnv, persistEnvEndpoint } from './endpoint-setup';
 import { ToolSanitizationProxy } from './tool-sanitization-proxy';
+import { AnthropicToOpenAIProxy } from './anthropic-to-openai-proxy';
 import {
   findAccountByQuery,
   getProviderAccounts,
@@ -74,14 +75,28 @@ import { HttpsTunnelProxy } from './https-tunnel-proxy';
 import { ScenarioRoutingProxy, buildScenarioUpstreams } from '../router';
 
 /**
- * Check if a provider has a direct API key configured in CLIProxy config.yaml.
+ * Check if a provider has a direct API key configured.
+ * Sources (in priority order):
+ *   1. Environment variables (CCS_{PROVIDER}_API_KEY) - portable across machines
+ *   2. CLIProxy config.yaml ({provider}-api-key) - written by --setup
+ *
+ * When env vars are found, they are auto-persisted to config for durability.
  * When present, OAuth authentication can be skipped (direct API key mode).
- * Supports: codex-api-key, gemini-api-key, claude-api-key
  */
 function hasProviderApiKey(
   provider: CLIProxyProvider,
-  port: number = CLIPROXY_DEFAULT_PORT
+  port: number = CLIPROXY_DEFAULT_PORT,
+  verbose: boolean = false
 ): boolean {
+  // 1. Check env vars first (highest priority, most portable)
+  const envEndpoint = getEndpointFromEnv(provider);
+  if (envEndpoint) {
+    // Auto-persist to config for durability (best-effort)
+    persistEnvEndpoint(provider, envEndpoint, verbose, port);
+    return true;
+  }
+
+  // 2. Check CLIProxy config.yaml
   const keyFieldMap: Partial<Record<CLIProxyProvider, string>> = {
     codex: 'codex-api-key',
     gemini: 'gemini-api-key',
@@ -576,16 +591,21 @@ export async function execClaudeWithCLIProxy(
   // 3. Ensure OAuth completed (if provider requires it)
   // Skip local OAuth check when:
   //   a) Using remote proxy with auth token, OR
-  //   b) Provider has a direct API key in CLIProxy config (e.g. codex-api-key)
+  //   b) Provider has a direct API key (env var or CLIProxy config)
   // Note: Trim authToken to reject whitespace-only values
   const remoteAuthToken = proxyConfig.authToken?.trim();
-  const hasApiKey = hasProviderApiKey(provider, cfg.port);
+  const hasApiKey = hasProviderApiKey(provider, cfg.port, verbose);
   const skipLocalAuth = (useRemoteProxy && !!remoteAuthToken) || hasApiKey;
   if (skipLocalAuth) {
     if (useRemoteProxy && !!remoteAuthToken) {
       log(`Using remote proxy authentication (skipping local OAuth)`);
     } else if (hasApiKey) {
-      log(`Using provider API key from CLIProxy config (skipping OAuth)`);
+      const envEndpoint = getEndpointFromEnv(provider);
+      if (envEndpoint) {
+        log(`Using provider API key from env var (skipping OAuth)`);
+      } else {
+        log(`Using provider API key from CLIProxy config (skipping OAuth)`);
+      }
     }
   }
 
@@ -708,9 +728,38 @@ export async function execClaudeWithCLIProxy(
   ensureProviderSettings(provider);
 
   // Local proxy mode: generate config, spawn proxy, track session
+  // When a direct API key is configured, CLIProxy is bypassed entirely.
+  // Instead, AnthropicToOpenAIProxy handles protocol translation (Anthropic→OpenAI).
   let proxy: ChildProcess | null = null;
+  let a2oProxy: AnthropicToOpenAIProxy | null = null;
+  let a2oPort: number | null = null;
 
-  if (!useRemoteProxy) {
+  // Direct API key mode: bypass CLIProxy entirely, use protocol translation proxy
+  // ONLY when API key comes from environment variables (CCS_CODEX_API_KEY, etc.)
+  // CLIProxy config keys (codex-api-key) are meant to be used BY CLIProxy, not to bypass it
+  const envEndpoint = getEndpointFromEnv(provider);
+  const providerEndpoint = envEndpoint;
+  const useDirectApiKey = !!envEndpoint;
+
+  if (useDirectApiKey && providerEndpoint && !useRemoteProxy) {
+    log(`Direct API key mode: bypassing CLIProxy, using protocol translation proxy`);
+    log(`Target endpoint: ${providerEndpoint.baseUrl}`);
+
+    try {
+      a2oProxy = new AnthropicToOpenAIProxy({
+        targetBaseUrl: providerEndpoint.baseUrl,
+        apiKey: providerEndpoint.apiKey,
+        verbose,
+        timeoutMs: 120000,
+      });
+      a2oPort = await a2oProxy.start();
+      log(`Anthropic→OpenAI translation proxy active on port ${a2oPort}`);
+    } catch (error) {
+      const err = error as Error;
+      console.error(fail(`Failed to start protocol translation proxy: ${err.message}`));
+      throw error;
+    }
+  } else if (!useRemoteProxy) {
     // 6. Generate config file
     log(`Generating config for ${provider}`);
     const configPath = generateConfig(provider, cfg.port);
@@ -908,9 +957,10 @@ export async function execClaudeWithCLIProxy(
     }
   }
 
-  // Build env vars - use tunnel port for HTTPS remote, direct URL otherwise
-  const envVars = useRemoteProxy
-    ? httpsTunnel && tunnelPort
+  // Build env vars - use tunnel port for HTTPS remote, or local proxy
+  let envVars: NodeJS.ProcessEnv;
+  if (useRemoteProxy) {
+    envVars = httpsTunnel && tunnelPort
       ? // HTTPS remote via local tunnel - use HTTP to tunnel
         getRemoteEnvVars(
           provider,
@@ -932,8 +982,17 @@ export async function execClaudeWithCLIProxy(
             authToken: proxyConfig.authToken,
           },
           cfg.customSettingsPath
-        )
-    : getEffectiveEnvVars(provider, cfg.port, cfg.customSettingsPath, remoteRewriteConfig);
+        );
+  } else {
+    envVars = getEffectiveEnvVars(provider, cfg.port, cfg.customSettingsPath, remoteRewriteConfig);
+  }
+
+  // Direct API key mode: override ANTHROPIC_BASE_URL to point to translation proxy
+  // The A2O proxy replaces CLIProxy at the bottom of the proxy chain
+  if (useDirectApiKey && a2oPort) {
+    envVars.ANTHROPIC_BASE_URL = `http://127.0.0.1:${a2oPort}/api/provider/${provider}`;
+    log(`Direct API key: ANTHROPIC_BASE_URL overridden to translation proxy`);
+  }
 
   // Apply thinking configuration to model (auto tier-based or manual override)
   // This adds thinking suffix like model(high) or model(8192) for CLIProxyAPIPlus
@@ -988,9 +1047,9 @@ export async function execClaudeWithCLIProxy(
         const traceEnabled =
           process.env.CCS_CODEX_REASONING_TRACE === '1' ||
           process.env.CCS_CODEX_REASONING_TRACE === 'true';
-        // For remote proxy mode, strip /api/provider/codex prefix from paths
-        // because remote CLIProxyAPI uses root paths (/v1/messages), not provider-prefixed
-        const stripPathPrefix = useRemoteProxy ? '/api/provider/codex' : undefined;
+        // For remote proxy mode or direct API key mode, strip /api/provider/codex prefix
+        // because the upstream (remote CLIProxyAPI or AnthropicToOpenAIProxy) uses root paths
+        const stripPathPrefix = (useRemoteProxy || useDirectApiKey) ? '/api/provider/codex' : undefined;
         codexReasoningProxy = new CodexReasoningProxy({
           upstreamBaseUrl: postSanitizationBaseUrl,
           verbose,
@@ -1020,15 +1079,15 @@ export async function execClaudeWithCLIProxy(
   }
 
   // Determine the final ANTHROPIC_BASE_URL based on active proxies
-  // Chain order: Claude CLI → [ScenarioRoutingProxy] → [CodexReasoningProxy] → [ToolSanitizationProxy] → CLIProxy
+  // Chain order: Claude CLI → [ScenarioRoutingProxy] → [CodexReasoningProxy] → [ToolSanitizationProxy] → CLIProxy/DirectEndpoint
   // The outermost active proxy becomes the effective base URL
   let finalBaseUrl = envVars.ANTHROPIC_BASE_URL;
   if (toolSanitizationPort) {
-    finalBaseUrl = `http://*********:${toolSanitizationPort}`;
+    finalBaseUrl = `http://127.0.0.1:${toolSanitizationPort}`;
   }
   if (codexReasoningPort) {
     // Codex reasoning proxy is the outermost layer for codex provider
-    finalBaseUrl = `http://*********:${codexReasoningPort}/api/provider/codex`;
+    finalBaseUrl = `http://127.0.0.1:${codexReasoningPort}/api/provider/codex`;
   }
 
   // Scenario Routing Proxy - routes sub-agent requests to different profiles
@@ -1147,9 +1206,28 @@ export async function execClaudeWithCLIProxy(
 
   // Get profile settings path for hooks (WebSearch, etc.)
   // Use custom settings path for CLIProxy variants, otherwise use default provider path
-  const settingsPath = cfg.customSettingsPath
+  const baseSettingsPath = cfg.customSettingsPath
     ? cfg.customSettingsPath.replace(/^~/, os.homedir())
     : getProviderSettingsPath(provider);
+
+  // Generate session-specific settings file with dynamic ANTHROPIC_BASE_URL.
+  // Claude CLI's --settings env values override process env vars, so we must
+  // write the correct runtime URL into the settings file itself.
+  let settingsPath = baseSettingsPath;
+  try {
+    const settingsContent = fs.readFileSync(baseSettingsPath, 'utf-8');
+    const settings = JSON.parse(settingsContent);
+    if (settings.env) {
+      settings.env.ANTHROPIC_BASE_URL = effectiveEnvVars.ANTHROPIC_BASE_URL;
+      settings.env.ANTHROPIC_AUTH_TOKEN = envVars.ANTHROPIC_AUTH_TOKEN || settings.env.ANTHROPIC_AUTH_TOKEN;
+    }
+    const sessionSettingsPath = baseSettingsPath.replace(/\.json$/, '.session.json');
+    fs.writeFileSync(sessionSettingsPath, JSON.stringify(settings, null, 2) + '\n', { mode: 0o600 });
+    settingsPath = sessionSettingsPath;
+    log(`Session settings written: ${sessionSettingsPath}`);
+  } catch (err) {
+    log(`Failed to create session settings, using original: ${(err as Error).message}`);
+  }
 
   let claude: ChildProcess;
   if (needsShell) {
@@ -1193,6 +1271,10 @@ export async function execClaudeWithCLIProxy(
       httpsTunnel.stop();
     }
 
+    if (a2oProxy) {
+      a2oProxy.stop();
+    }
+
     // Unregister this session (proxy keeps running for persistence) - only for local mode
     if (sessionId) {
       unregisterSession(sessionId, sessionPort);
@@ -1225,6 +1307,10 @@ export async function execClaudeWithCLIProxy(
       httpsTunnel.stop();
     }
 
+    if (a2oProxy) {
+      a2oProxy.stop();
+    }
+
     // Unregister session, proxy keeps running (local mode only)
     if (sessionId) {
       unregisterSession(sessionId, sessionPort);
@@ -1250,6 +1336,10 @@ export async function execClaudeWithCLIProxy(
 
     if (httpsTunnel) {
       httpsTunnel.stop();
+    }
+
+    if (a2oProxy) {
+      a2oProxy.stop();
     }
 
     // Unregister session, proxy keeps running (local mode only)

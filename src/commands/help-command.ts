@@ -182,6 +182,7 @@ Run ${color('ccs config', 'command')} for web dashboard`.trim();
         'ccs <provider> --thinking <value>',
         'Set thinking budget (low/medium/high/xhigh/auto/off or number)',
       ],
+      ['ccs <provider> --setup', 'Configure custom API endpoint (skip OAuth)'],
       ['ccs <provider> --logout', 'Clear authentication'],
       ['ccs <provider> --headless', 'Headless auth (for SSH)'],
       ['ccs kiro --import', 'Import token from Kiro IDE'],
@@ -319,6 +320,19 @@ Run ${color('ccs config', 'command')} for web dashboard`.trim();
     ['Note:', 'When enabled, images/PDFs are analyzed via vision models'],
     ['', 'instead of passing raw data to Claude. Works with CLIProxy'],
     ['', 'providers (agy, gemini, codex, kiro, ghcp).'],
+  ]);
+
+  // Provider API key env vars (portable cross-machine config)
+  printSubSection('Provider API Key Environment Variables', [
+    ['CCS_CODEX_API_KEY', 'Codex API key (skips OAuth)'],
+    ['CCS_CODEX_BASE_URL', 'Codex custom base URL'],
+    ['CCS_GEMINI_API_KEY', 'Gemini API key (skips OAuth)'],
+    ['CCS_GEMINI_BASE_URL', 'Gemini custom base URL'],
+    ['CCS_CLAUDE_API_KEY', 'Claude API key (skips OAuth)'],
+    ['CCS_CLAUDE_BASE_URL', 'Claude custom base URL'],
+    ['', ''],
+    ['Note:', 'Set these in your shell profile for portable config.'],
+    ['', 'Auto-persists to CLIProxy config on first run.'],
   ]);
 
   // CLI Proxy env vars

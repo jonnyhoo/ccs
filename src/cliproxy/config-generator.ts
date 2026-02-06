@@ -528,6 +528,57 @@ export function generateConfig(
 }
 
 /**
+ * Provider API key field names written by --setup (codex-api-key, gemini-api-key, claude-api-key).
+ * These are custom endpoint configs that must be preserved during config regeneration.
+ */
+const PROVIDER_API_KEY_FIELDS = ['codex-api-key', 'gemini-api-key', 'claude-api-key'] as const;
+
+/**
+ * Parse provider API key sections from existing config content.
+ * These are sections like codex-api-key, gemini-api-key, claude-api-key
+ * written by `ccs <provider> --setup` for custom endpoint configuration.
+ *
+ * @param content - Existing config.yaml content
+ * @returns Raw YAML text of provider API key sections (empty string if none)
+ */
+export function parseProviderApiKeySections(content: string): string {
+  const normalizedContent = content.replace(/\r\n/g, '\n');
+  const lines = normalizedContent.split('\n');
+  const preservedSections: string[] = [];
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    // Check if this line starts a provider API key section
+    const isProviderKeySection = PROVIDER_API_KEY_FIELDS.some(
+      (field) => line.trimStart().startsWith(`${field}:`)
+    );
+
+    if (isProviderKeySection) {
+      const sectionLines: string[] = [line];
+      // Collect all indented lines that follow (the section body)
+      for (let j = i + 1; j < lines.length; j++) {
+        const nextLine = lines[j];
+        // Stop at the next top-level key or end of file
+        if (
+          nextLine.length > 0 &&
+          !nextLine.startsWith(' ') &&
+          !nextLine.startsWith('\t') &&
+          !nextLine.startsWith('#') &&
+          /^[a-zA-Z_][a-zA-Z0-9_-]*\s*:/.test(nextLine)
+        ) {
+          break;
+        }
+        sectionLines.push(nextLine);
+        i = j; // Skip these lines in outer loop
+      }
+      preservedSections.push(sectionLines.join('\n'));
+    }
+  }
+
+  return preservedSections.join('\n\n');
+}
+
+/**
  * Parse user-added API keys from existing config content.
  * Extracts all keys except the internal CCS key for preservation.
  *
@@ -575,7 +626,7 @@ export function parseUserApiKeys(content: string): string[] {
 
 /**
  * Force regenerate config.yaml with latest settings.
- * Preserves user-added API keys and port settings.
+ * Preserves user-added API keys, port settings, and provider API key sections.
  *
  * @param port - Default port to use if not found in existing config
  * @returns Path to new config file
@@ -586,6 +637,7 @@ export function regenerateConfig(port: number = CLIPROXY_DEFAULT_PORT): string {
   // Preserve user settings from existing config
   let effectivePort = port;
   let userApiKeys: string[] = [];
+  let providerApiKeySections = '';
 
   if (fs.existsSync(configPath)) {
     try {
@@ -599,6 +651,10 @@ export function regenerateConfig(port: number = CLIPROXY_DEFAULT_PORT): string {
 
       // Preserve user-added API keys (fix for issue #200)
       userApiKeys = parseUserApiKeys(content);
+
+      // Preserve provider API key sections (codex-api-key, gemini-api-key, claude-api-key)
+      // These are written by `ccs <provider> --setup` and must survive config regeneration
+      providerApiKeySections = parseProviderApiKeySections(content);
     } catch {
       // Use defaults if reading fails
     }
@@ -611,7 +667,18 @@ export function regenerateConfig(port: number = CLIPROXY_DEFAULT_PORT): string {
   fs.mkdirSync(getAuthDir(), { recursive: true, mode: 0o700 });
 
   // Generate fresh config with preserved user API keys
-  const configContent = generateUnifiedConfigContent(effectivePort, userApiKeys);
+  let configContent = generateUnifiedConfigContent(effectivePort, userApiKeys);
+
+  // Re-append provider API key sections (--setup endpoint configs)
+  if (providerApiKeySections.trim()) {
+    configContent +=
+      '\n# =============================================================================\n' +
+      '# Provider API Keys (configured via --setup)\n' +
+      '# =============================================================================\n\n' +
+      providerApiKeySections.trim() +
+      '\n';
+  }
+
   fs.writeFileSync(configPath, configContent, { mode: 0o600 });
 
   return configPath;

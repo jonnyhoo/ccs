@@ -158,10 +158,81 @@ function getCurrentEndpoint(
 }
 
 /**
+ * Environment variable names for provider API keys.
+ * Users can set these in their shell profile for portable cross-machine config.
+ * Format: CCS_{PROVIDER}_API_KEY, CCS_{PROVIDER}_BASE_URL
+ */
+const PROVIDER_ENV_VARS: Partial<Record<CLIProxyProvider, { apiKey: string; baseUrl: string }>> = {
+  codex: { apiKey: 'CCS_CODEX_API_KEY', baseUrl: 'CCS_CODEX_BASE_URL' },
+  gemini: { apiKey: 'CCS_GEMINI_API_KEY', baseUrl: 'CCS_GEMINI_BASE_URL' },
+  claude: { apiKey: 'CCS_CLAUDE_API_KEY', baseUrl: 'CCS_CLAUDE_BASE_URL' },
+};
+
+/**
  * Check if a provider supports --setup (API key configuration).
  */
 export function supportsSetup(provider: CLIProxyProvider): boolean {
   return provider in PROVIDER_KEY_FIELD;
+}
+
+/**
+ * Get provider endpoint from environment variables.
+ * Checks CCS_{PROVIDER}_API_KEY and CCS_{PROVIDER}_BASE_URL.
+ * Returns null if env vars are not set.
+ */
+export function getEndpointFromEnv(provider: CLIProxyProvider): EndpointConfig | null {
+  const envVars = PROVIDER_ENV_VARS[provider];
+  if (!envVars) return null;
+
+  const apiKey = process.env[envVars.apiKey]?.trim();
+  if (!apiKey) return null;
+
+  const baseUrl = process.env[envVars.baseUrl]?.trim() || '';
+  return { apiKey, baseUrl };
+}
+
+/**
+ * Get the resolved endpoint for a provider (env vars > config file).
+ * Returns null if no endpoint is configured.
+ */
+export function getProviderEndpoint(
+  provider: CLIProxyProvider,
+  port: number = CLIPROXY_DEFAULT_PORT
+): EndpointConfig | null {
+  // 1. Check env vars first (highest priority)
+  const envEndpoint = getEndpointFromEnv(provider);
+  if (envEndpoint) return envEndpoint;
+
+  // 2. Check config file
+  return getCurrentEndpoint(provider, port);
+}
+
+/**
+ * Auto-persist environment variable endpoint config to CLIProxy config.yaml.
+ * Called when env vars are detected but not yet written to config.
+ * This ensures the config is portable even if the env vars are removed later.
+ */
+export function persistEnvEndpoint(
+  provider: CLIProxyProvider,
+  endpoint: EndpointConfig,
+  verbose: boolean = false,
+  port: number = CLIPROXY_DEFAULT_PORT
+): void {
+  // Check if already in config (avoid unnecessary writes)
+  const current = getCurrentEndpoint(provider, port);
+  if (current && current.apiKey === endpoint.apiKey && current.baseUrl === endpoint.baseUrl) {
+    return; // Already persisted
+  }
+
+  try {
+    writeProviderApiKey(provider, endpoint, port);
+    if (verbose) {
+      const envVars = PROVIDER_ENV_VARS[provider];
+      console.error(`[cliproxy] Auto-persisted ${envVars?.apiKey} to CLIProxy config`);
+    }
+  } catch {
+    // Best-effort - don't block execution if persistence fails
+  }
 }
 
 /**
