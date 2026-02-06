@@ -13,8 +13,10 @@
  */
 
 import { spawn, ChildProcess } from 'child_process';
+import * as fs from 'fs';
 import * as net from 'net';
 import * as os from 'os';
+import * as yaml from 'js-yaml';
 import { ProgressIndicator } from '../utils/progress-indicator';
 import { ok, fail, info, warn } from '../utils/ui';
 import { escapeShellArg } from '../utils/shell-executor';
@@ -28,6 +30,7 @@ import {
   getProviderSettingsPath,
   CLIPROXY_DEFAULT_PORT,
   getCliproxyWritablePath,
+  getCliproxyConfigPath,
   validatePort,
   applyThinkingConfig,
 } from './config-generator';
@@ -41,6 +44,7 @@ import { getWebSearchHookEnv } from '../utils/websearch-manager';
 import { getImageAnalysisHookEnv } from '../utils/hooks/get-image-analysis-hook-env';
 import { supportsModelConfig, isModelBroken, getModelIssueUrl, findModel } from './model-catalog';
 import { CodexReasoningProxy } from './codex-reasoning-proxy';
+import { supportsSetup, setupProviderEndpoint } from './endpoint-setup';
 import { ToolSanitizationProxy } from './tool-sanitization-proxy';
 import {
   findAccountByQuery,
@@ -68,6 +72,33 @@ import { loadOrCreateUnifiedConfig } from '../config/unified-config-loader';
 import { preflightCheck } from './quota-manager';
 import { HttpsTunnelProxy } from './https-tunnel-proxy';
 import { ScenarioRoutingProxy, buildScenarioUpstreams } from '../router';
+
+/**
+ * Check if a provider has a direct API key configured in CLIProxy config.yaml.
+ * When present, OAuth authentication can be skipped (direct API key mode).
+ * Supports: codex-api-key, gemini-api-key, claude-api-key
+ */
+function hasProviderApiKey(provider: CLIProxyProvider): boolean {
+  const keyFieldMap: Partial<Record<CLIProxyProvider, string>> = {
+    codex: 'codex-api-key',
+    gemini: 'gemini-api-key',
+    claude: 'claude-api-key',
+  };
+  const keyField = keyFieldMap[provider];
+  if (!keyField) return false;
+
+  try {
+    const configPath = getCliproxyConfigPath();
+    if (!fs.existsSync(configPath)) return false;
+
+    const content = fs.readFileSync(configPath, 'utf-8');
+    const config = yaml.load(content) as Record<string, unknown>;
+    const entries = config[keyField] as Array<{ 'api-key'?: string }> | undefined;
+    return Array.isArray(entries) && entries.some((e) => !!e['api-key']?.trim());
+  } catch {
+    return false;
+  }
+}
 
 /** Default executor configuration */
 const DEFAULT_CONFIG: ExecutorConfig = {
@@ -316,6 +347,7 @@ export async function execClaudeWithCLIProxy(
 
   // 2. Handle special flags (use argsWithoutProxy - proxy flags already stripped)
   const forceAuth = argsWithoutProxy.includes('--auth');
+  const forceSetup = argsWithoutProxy.includes('--setup');
   const pasteCallback = argsWithoutProxy.includes('--paste-callback');
   const forceHeadless = argsWithoutProxy.includes('--headless');
   const forceLogout = argsWithoutProxy.includes('--logout');
@@ -413,6 +445,18 @@ export async function execClaudeWithCLIProxy(
         );
       }
     }
+  }
+
+  // Handle --setup: configure custom API endpoint and exit
+  if (forceSetup) {
+    if (supportsSetup(provider)) {
+      await setupProviderEndpoint(provider, verbose);
+    } else {
+      console.error(fail(`--setup is not available for ${provider}`));
+      console.error(`    Supported providers: codex, gemini, claude`);
+      process.exit(1);
+    }
+    process.exit(0);
   }
 
   // Handle --accounts: list accounts and exit
@@ -527,13 +571,19 @@ export async function execClaudeWithCLIProxy(
   }
 
   // 3. Ensure OAuth completed (if provider requires it)
-  // Skip local OAuth check when using remote proxy with auth token
-  // The remote proxy has its own OAuth sessions and handles authentication
+  // Skip local OAuth check when:
+  //   a) Using remote proxy with auth token, OR
+  //   b) Provider has a direct API key in CLIProxy config (e.g. codex-api-key)
   // Note: Trim authToken to reject whitespace-only values
   const remoteAuthToken = proxyConfig.authToken?.trim();
-  const skipLocalAuth = useRemoteProxy && !!remoteAuthToken;
+  const hasApiKey = hasProviderApiKey(provider);
+  const skipLocalAuth = (useRemoteProxy && !!remoteAuthToken) || hasApiKey;
   if (skipLocalAuth) {
-    log(`Using remote proxy authentication (skipping local OAuth)`);
+    if (useRemoteProxy && !!remoteAuthToken) {
+      log(`Using remote proxy authentication (skipping local OAuth)`);
+    } else if (hasApiKey) {
+      log(`Using provider API key from CLIProxy config (skipping OAuth)`);
+    }
   }
 
   if (providerConfig.requiresOAuth && !skipLocalAuth) {
@@ -1042,6 +1092,7 @@ export async function execClaudeWithCLIProxy(
   // Note: Proxy flags (--proxy-host, etc.) already stripped by resolveProxyConfig()
   const ccsFlags = [
     '--auth',
+    '--setup',
     '--paste-callback',
     '--headless',
     '--logout',

@@ -1,0 +1,249 @@
+/**
+ * Endpoint Setup for CLIProxy Providers
+ *
+ * Interactive setup for custom API endpoints (codex-api-key, gemini-api-key, claude-api-key).
+ * Allows users to configure third-party OpenAI-format endpoints without OAuth.
+ *
+ * Usage: ccs codex --setup
+ */
+
+import * as fs from 'fs';
+import * as yaml from 'js-yaml';
+import { InteractivePrompt } from '../utils/prompt';
+import { ok, fail, info, warn, dim } from '../utils/ui';
+import { getCliproxyConfigPath, generateConfig, CLIPROXY_DEFAULT_PORT } from './config-generator';
+import { CLIProxyProvider } from './types';
+
+/** Provider API key field mapping */
+const PROVIDER_KEY_FIELD: Partial<Record<CLIProxyProvider, string>> = {
+  codex: 'codex-api-key',
+  gemini: 'gemini-api-key',
+  claude: 'claude-api-key',
+};
+
+interface EndpointConfig {
+  apiKey: string;
+  baseUrl: string;
+}
+
+/**
+ * Read CLIProxy config.yaml as a plain object.
+ */
+function readCliproxyConfig(): Record<string, unknown> {
+  const configPath = getCliproxyConfigPath();
+  if (!fs.existsSync(configPath)) {
+    return {};
+  }
+  try {
+    const content = fs.readFileSync(configPath, 'utf-8');
+    return (yaml.load(content) as Record<string, unknown>) || {};
+  } catch {
+    return {};
+  }
+}
+
+/**
+ * Write a provider API key entry to CLIProxy config.yaml.
+ * Preserves all other config content using section-based replacement.
+ */
+function writeProviderApiKey(provider: CLIProxyProvider, endpoint: EndpointConfig): void {
+  const keyField = PROVIDER_KEY_FIELD[provider];
+  if (!keyField) {
+    throw new Error(`Provider ${provider} does not support API key configuration`);
+  }
+
+  const configPath = getCliproxyConfigPath();
+
+  // Ensure config exists
+  if (!fs.existsSync(configPath)) {
+    generateConfig(provider, CLIPROXY_DEFAULT_PORT);
+  }
+
+  // Read full config
+  const content = fs.readFileSync(configPath, 'utf-8');
+  const config = (yaml.load(content) as Record<string, unknown>) || {};
+
+  // Set the provider API key entry
+  config[keyField] = [
+    {
+      'api-key': endpoint.apiKey,
+      'base-url': endpoint.baseUrl,
+    },
+  ];
+
+  // Write back with YAML dump, preserving structure
+  // Use section-based replacement to keep comments
+  const newSection = yaml.dump(
+    { [keyField]: config[keyField] },
+    { indent: 2, lineWidth: -1, quotingType: "'", forceQuotes: false }
+  );
+
+  const newContent = replaceSectionInYaml(content, keyField, newSection);
+  fs.writeFileSync(configPath, newContent, { mode: 0o600 });
+}
+
+/**
+ * Replace a top-level section in YAML content while preserving rest of file.
+ */
+function replaceSectionInYaml(content: string, sectionKey: string, newSection: string): string {
+  const lines = content.split('\n');
+  const result: string[] = [];
+  let inSection = false;
+  let sectionFound = false;
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const trimmed = line.trimStart();
+
+    if (trimmed.startsWith(`${sectionKey}:`)) {
+      inSection = true;
+      sectionFound = true;
+      result.push(newSection.trimEnd());
+      continue;
+    }
+
+    if (inSection) {
+      const isTopLevelKey =
+        line.length > 0 &&
+        !line.startsWith(' ') &&
+        !line.startsWith('\t') &&
+        !line.startsWith('#') &&
+        /^[a-zA-Z_][a-zA-Z0-9_-]*\s*:/.test(line);
+
+      if (isTopLevelKey) {
+        inSection = false;
+        result.push(line);
+      }
+      continue;
+    }
+
+    result.push(line);
+  }
+
+  if (!sectionFound) {
+    result.push('');
+    result.push(newSection.trimEnd());
+  }
+
+  return result.join('\n');
+}
+
+/**
+ * Get current endpoint config for a provider (if any).
+ */
+function getCurrentEndpoint(provider: CLIProxyProvider): EndpointConfig | null {
+  const keyField = PROVIDER_KEY_FIELD[provider];
+  if (!keyField) return null;
+
+  const config = readCliproxyConfig();
+  const entries = config[keyField] as
+    | Array<{ 'api-key'?: string; 'base-url'?: string }>
+    | undefined;
+  if (!Array.isArray(entries) || entries.length === 0) return null;
+
+  const first = entries[0];
+  if (!first['api-key']?.trim()) return null;
+
+  return {
+    apiKey: first['api-key'],
+    baseUrl: first['base-url'] || '',
+  };
+}
+
+/**
+ * Check if a provider supports --setup (API key configuration).
+ */
+export function supportsSetup(provider: CLIProxyProvider): boolean {
+  return provider in PROVIDER_KEY_FIELD;
+}
+
+/**
+ * Interactive setup for a provider's custom API endpoint.
+ * Prompts for base URL and API key, writes to CLIProxy config.
+ *
+ * @param provider - CLIProxy provider (codex, gemini, claude)
+ * @param verbose - Enable verbose logging
+ */
+export async function setupProviderEndpoint(
+  provider: CLIProxyProvider,
+  verbose: boolean = false
+): Promise<void> {
+  const keyField = PROVIDER_KEY_FIELD[provider];
+  if (!keyField) {
+    console.error(fail(`Provider ${provider} does not support API key setup`));
+    console.error(`    Supported: ${Object.keys(PROVIDER_KEY_FIELD).join(', ')}`);
+    process.exit(1);
+  }
+
+  console.log('');
+  console.log(info(`Setup custom API endpoint for ${provider}`));
+  console.log(dim(`  This configures ${keyField} in CLIProxy config.`));
+  console.log(dim('  OAuth authentication will be skipped when an API key is configured.'));
+  console.log('');
+
+  // Show current config if exists
+  const current = getCurrentEndpoint(provider);
+  if (current) {
+    console.log(warn('Existing endpoint detected:'));
+    console.log(`    Base URL: ${current.baseUrl}`);
+    console.log(`    API Key:  ${current.apiKey.substring(0, 8)}...`);
+    console.log('');
+
+    const overwrite = await InteractivePrompt.confirm('Overwrite existing endpoint?', {
+      default: true,
+    });
+    if (!overwrite) {
+      console.log(info('Setup cancelled'));
+      process.exit(0);
+    }
+    console.log('');
+  }
+
+  // Prompt for base URL
+  const defaultUrl =
+    current?.baseUrl || (provider === 'codex' ? 'http://api.example.com/openai' : '');
+  const baseUrl = await InteractivePrompt.input('API Base URL (OpenAI Responses API)', {
+    default: defaultUrl,
+    validate: (val) => {
+      if (!val) return 'Base URL is required';
+      try {
+        new URL(val);
+        return null;
+      } catch {
+        return 'Invalid URL format';
+      }
+    },
+  });
+
+  // Prompt for API key
+  const apiKey = await InteractivePrompt.password('API Key');
+  if (!apiKey) {
+    console.error(fail('API key is required'));
+    process.exit(1);
+  }
+
+  // Write to CLIProxy config
+  try {
+    writeProviderApiKey(provider, { apiKey, baseUrl });
+  } catch (err) {
+    console.error(fail(`Failed to write config: ${(err as Error).message}`));
+    process.exit(1);
+  }
+
+  console.log('');
+  console.log(ok(`Endpoint configured for ${provider}`));
+  console.log('');
+  console.log(`  Base URL: ${baseUrl}`);
+  console.log(`  API Key:  ${apiKey.substring(0, 8)}...`);
+  console.log(`  Config:   ${getCliproxyConfigPath()}`);
+  console.log('');
+  console.log(info('Usage:'));
+  console.log(`  ccs ${provider}               Start coding session`);
+  console.log(`  ccs ${provider} --verbose      Start with debug logging`);
+  console.log(`  ccs ${provider} --setup        Reconfigure endpoint`);
+  console.log('');
+
+  if (verbose) {
+    console.log(dim(`[setup] Written to ${keyField} in ${getCliproxyConfigPath()}`));
+  }
+}
