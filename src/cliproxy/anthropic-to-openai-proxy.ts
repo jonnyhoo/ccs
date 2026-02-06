@@ -340,7 +340,9 @@ function toResponsesMessages(messages: OpenAIMessage[]): ResponsesMessage[] {
   for (const m of messages) {
     // Responses API requires 'input_text' for user/system/tool and 'output_text' for assistant
     const contentType = m.role === 'assistant' ? 'output_text' : 'input_text';
-    out.push({ role: m.role, content: [{ type: contentType, text: m.content ?? '' }] });
+    // Responses API doesn't support 'tool' role - convert to 'user'
+    const role = m.role === 'tool' ? 'user' : m.role;
+    out.push({ role, content: [{ type: contentType, text: m.content ?? '' }] });
   }
   return out;
 }
