@@ -18,7 +18,6 @@ import {
   resetAuthToDefaults,
 } from '../../cliproxy';
 import { regenerateConfig } from '../../cliproxy/config-generator';
-import { deduplicateCcsHooks } from '../../utils/websearch/hook-utils';
 import type { Settings } from '../../types/config';
 
 const router = Router();
@@ -136,10 +135,6 @@ router.put('/:profile', (req: Request, res: Response): void => {
       res.status(400).json({ error: 'settings object is required in request body' });
       return;
     }
-
-    // Deduplicate CCS hooks to prevent accumulation (fixes #450)
-    // This handles cases where duplicate hooks were added by previous versions
-    deduplicateCcsHooks(settings as Record<string, unknown>);
 
     const ccsDir = getCcsDir();
 

@@ -33,7 +33,6 @@ import {
   checkOAuthProviders,
   checkCliproxyPort,
   checkOAuthPortsForDashboard,
-  checkWebSearchClis,
 } from './health';
 
 // Re-export types for external consumers
@@ -109,11 +108,6 @@ export async function runHealthChecks(): Promise<HealthReport> {
     icon: 'Key',
     checks: oauthReadinessChecks,
   });
-
-  // Group 8: WebSearch CLI Providers
-  const websearchChecks: HealthCheck[] = [];
-  websearchChecks.push(...checkWebSearchClis());
-  groups.push({ id: 'websearch', name: 'WebSearch', icon: 'Search', checks: websearchChecks });
 
   // Flatten all checks for backward compatibility
   const allChecks = groups.flatMap((g) => g.checks);

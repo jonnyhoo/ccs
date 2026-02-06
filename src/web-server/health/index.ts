@@ -30,6 +30,3 @@ export {
 
 // OAuth checks
 export { checkOAuthPortsForDashboard } from './oauth-checks';
-
-// WebSearch checks
-export { checkWebSearchClis } from './websearch-checks';

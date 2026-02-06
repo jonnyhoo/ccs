@@ -6,7 +6,6 @@
 
 import { spawn, ChildProcess } from 'child_process';
 import { ErrorManager } from './error-manager';
-import { getWebSearchHookEnv } from './websearch-manager';
 
 /**
  * Escape arguments for shell execution (Windows cmd.exe / Unix sh)
@@ -37,13 +36,10 @@ export function execClaude(
   const isWindows = process.platform === 'win32';
   const needsShell = isWindows && /\.(cmd|bat|ps1)$/i.test(claudeCli);
 
-  // Get WebSearch hook config env vars
-  const webSearchEnv = getWebSearchHookEnv();
-
   // Prepare environment (merge with process.env if envVars provided)
   const env = envVars
-    ? { ...process.env, ...envVars, ...webSearchEnv }
-    : { ...process.env, ...webSearchEnv };
+    ? { ...process.env, ...envVars }
+    : { ...process.env };
 
   let child: ChildProcess;
   if (needsShell) {

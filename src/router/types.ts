@@ -10,7 +10,7 @@
  * Scenario types that can be detected from Claude CLI requests.
  * Based on claude-code-router's detection logic.
  */
-export type ScenarioType = 'default' | 'background' | 'think' | 'longContext' | 'webSearch';
+export type ScenarioType = 'default' | 'background' | 'think' | 'longContext';
 
 /**
  * Maps scenario types to CCS profile names.

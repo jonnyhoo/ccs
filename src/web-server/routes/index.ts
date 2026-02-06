@@ -15,7 +15,6 @@ import healthRoutes from './health-routes';
 import providerRoutes from './provider-routes';
 import variantRoutes from './variant-routes';
 import settingsRoutes from './settings-routes';
-import websearchRoutes from './websearch-routes';
 import cliproxyAuthRoutes from './cliproxy-auth-routes';
 import cliproxyStatsRoutes from './cliproxy-stats-routes';
 import cliproxySyncRoutes from './cliproxy-sync-routes';
@@ -54,9 +53,6 @@ apiRoutes.use('/cliproxy/auth', cliproxyAuthRoutes);
 apiRoutes.use('/cliproxy', cliproxyStatsRoutes);
 apiRoutes.use('/cliproxy/sync', cliproxySyncRoutes);
 apiRoutes.use('/cliproxy/openai-compat', providerRoutes);
-
-// ==================== WebSearch ====================
-apiRoutes.use('/websearch', websearchRoutes);
 
 // ==================== Copilot ====================
 apiRoutes.use('/copilot', copilotRoutes);

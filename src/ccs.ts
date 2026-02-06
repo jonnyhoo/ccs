@@ -6,12 +6,6 @@ import { getSettingsPath, loadSettings } from './utils/config-manager';
 import { validateGlmKey, validateMiniMaxKey } from './utils/api-key-validator';
 import { ErrorManager } from './utils/error-manager';
 import { execClaudeWithCLIProxy, CLIProxyProvider } from './cliproxy';
-import {
-  ensureMcpWebSearch,
-  displayWebSearchStatus,
-  getWebSearchHookEnv,
-  ensureProfileHooks,
-} from './utils/websearch-manager';
 import { getGlobalEnvConfig, loadOrCreateUnifiedConfig } from './config/unified-config-loader';
 import { ensureProfileHooks as ensureImageAnalyzerHooks } from './utils/hooks/image-analyzer-profile-hook-injector';
 import { fail, info } from './utils/ui';
@@ -165,12 +159,10 @@ async function execClaudeWithProxy(
 
   const isWindows = process.platform === 'win32';
   const needsShell = isWindows && /\.(cmd|bat|ps1)$/i.test(claudeCli);
-  const webSearchEnv = getWebSearchHookEnv();
   const env = {
     ...process.env,
     ...envVars,
-    ...webSearchEnv,
-    CCS_PROFILE_TYPE: 'settings', // Signal to WebSearch hook this is a third-party provider
+    CCS_PROFILE_TYPE: 'settings', // Signal to hooks this is a third-party provider
   };
 
   let claude: ChildProcess;
@@ -527,8 +519,6 @@ async function main(): Promise<void> {
 
     if (profileInfo.type === 'cliproxy') {
       // CLIPROXY FLOW: OAuth-based profiles (gemini, codex, agy, qwen) or user-defined variants
-      // Inject WebSearch hook into profile settings before launch
-      ensureProfileHooks(profileInfo.name);
       // Inject Image Analyzer hook into profile settings before launch
       ensureImageAnalyzerHooks(profileInfo.name);
 
@@ -541,8 +531,6 @@ async function main(): Promise<void> {
       });
     } else if (profileInfo.type === 'copilot') {
       // COPILOT FLOW: GitHub Copilot subscription via copilot-api proxy
-      // Inject WebSearch hook into profile settings before launch
-      ensureProfileHooks(profileInfo.name);
       // Inject Image Analyzer hook into profile settings before launch
       ensureImageAnalyzerHooks(profileInfo.name);
 
@@ -556,16 +544,8 @@ async function main(): Promise<void> {
       process.exit(exitCode);
     } else if (profileInfo.type === 'settings') {
       // Settings-based profiles (glm, glmt, kimi) are third-party providers
-      // WebSearch is server-side tool - third-party providers have no access
-      // Inject WebSearch hook into profile settings before launch
-      ensureProfileHooks(profileInfo.name);
       // Inject Image Analyzer hook into profile settings before launch
       ensureImageAnalyzerHooks(profileInfo.name);
-
-      ensureMcpWebSearch();
-
-      // Display WebSearch status (single line, equilibrium UX)
-      displayWebSearchStatus();
 
       // Pre-flight validation for GLM/GLMT/MiniMax profiles
       if (profileInfo.name === 'glm' || profileInfo.name === 'glmt') {
@@ -629,13 +609,11 @@ async function main(): Promise<void> {
 
         if (routerEnabled) {
           // SCENARIO ROUTING FLOW: Route sub-agents to different profiles
-          const webSearchEnv = getWebSearchHookEnv();
           const globalEnvConfig = getGlobalEnvConfig();
           const globalEnv = globalEnvConfig.enabled ? globalEnvConfig.env : {};
 
           const envOverrides: NodeJS.ProcessEnv = {
             ...globalEnv,
-            ...webSearchEnv,
             CCS_PROFILE_TYPE: 'settings',
           };
 
@@ -650,7 +628,6 @@ async function main(): Promise<void> {
           // EXISTING FLOW: Settings-based profile (glm, kimi)
           // Use --settings flag (backward compatible)
           const expandedSettingsPath = getSettingsPath(profileInfo.name);
-          const webSearchEnv = getWebSearchHookEnv();
           // Get global env vars (DISABLE_TELEMETRY, etc.) for third-party profiles
           const globalEnvConfig = getGlobalEnvConfig();
           const globalEnv = globalEnvConfig.enabled ? globalEnvConfig.env : {};
@@ -671,8 +648,7 @@ async function main(): Promise<void> {
           const envVars: NodeJS.ProcessEnv = {
             ...globalEnv,
             ...settingsEnv, // Explicitly inject all settings env vars
-            ...webSearchEnv,
-            CCS_PROFILE_TYPE: 'settings', // Signal to WebSearch hook this is a third-party provider
+            CCS_PROFILE_TYPE: 'settings', // Signal to hooks this is a third-party provider
           };
           execClaude(claudeCli, ['--settings', expandedSettingsPath, ...remainingArgs], envVars);
         }
@@ -694,22 +670,18 @@ async function main(): Promise<void> {
       }
 
       // Execute Claude with instance isolation
-      // Skip WebSearch hook - account profiles use native server-side WebSearch
       // Skip Image Analyzer hook - account profiles have native vision support
       const envVars: NodeJS.ProcessEnv = {
         CLAUDE_CONFIG_DIR: instancePath,
         CCS_PROFILE_TYPE: 'account',
-        CCS_WEBSEARCH_SKIP: '1',
         CCS_IMAGE_ANALYSIS_SKIP: '1',
       };
       execClaude(claudeCli, remainingArgs, envVars);
     } else {
       // DEFAULT: No profile configured, use Claude's own defaults
-      // Skip WebSearch hook - native Claude has server-side WebSearch
       // Skip Image Analyzer hook - native Claude has native vision support
       const envVars: NodeJS.ProcessEnv = {
         CCS_PROFILE_TYPE: 'default',
-        CCS_WEBSEARCH_SKIP: '1',
         CCS_IMAGE_ANALYSIS_SKIP: '1',
       };
       execClaude(claudeCli, remainingArgs, envVars);

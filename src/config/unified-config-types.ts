@@ -12,7 +12,6 @@
 /**
  * Unified config version.
  * Version 2 = YAML unified format
- * Version 3 = WebSearch config with model configuration for Gemini/OpenCode
  * Version 4 = Copilot API integration (GitHub Copilot proxy)
  * Version 5 = Remote proxy configuration (connect to remote CLIProxyAPI)
  * Version 6 = Customizable auth tokens (API key and management secret)
@@ -149,53 +148,6 @@ export interface PreferencesConfig {
 }
 
 /**
- * Gemini CLI WebSearch configuration.
- */
-export interface GeminiWebSearchConfig {
-  /** Enable Gemini CLI for WebSearch (default: true) */
-  enabled?: boolean;
-  /** Model to use (default: gemini-2.5-flash) */
-  model?: string;
-  /** Timeout in seconds (default: 55) */
-  timeout?: number;
-}
-
-/**
- * Grok CLI WebSearch configuration.
- */
-export interface GrokWebSearchConfig {
-  /** Enable Grok CLI for WebSearch (default: false - requires GROK_API_KEY) */
-  enabled?: boolean;
-  /** Timeout in seconds (default: 55) */
-  timeout?: number;
-}
-
-/**
- * OpenCode CLI WebSearch configuration.
- */
-export interface OpenCodeWebSearchConfig {
-  /** Enable OpenCode CLI for WebSearch (default: false) */
-  enabled?: boolean;
-  /** Model to use (default: opencode/grok-code) */
-  model?: string;
-  /** Timeout in seconds (default: 60) */
-  timeout?: number;
-}
-
-/**
- * WebSearch providers configuration.
- * Supports Gemini CLI, Grok CLI, and OpenCode.
- */
-export interface WebSearchProvidersConfig {
-  /** Gemini CLI - uses google_web_search tool (FREE tier: 1000 req/day) */
-  gemini?: GeminiWebSearchConfig;
-  /** Grok CLI - xAI web search (requires GROK_API_KEY) */
-  grok?: GrokWebSearchConfig;
-  /** OpenCode - built-in web search (FREE via OpenCode Zen) */
-  opencode?: OpenCodeWebSearchConfig;
-}
-
-/**
  * Copilot API account type.
  */
 export type CopilotAccountType = 'individual' | 'business' | 'enterprise';
@@ -319,36 +271,6 @@ export const DEFAULT_GLOBAL_ENV: Record<string, string> = {
   DISABLE_ERROR_REPORTING: '1',
   DISABLE_TELEMETRY: '1',
 };
-
-/**
- * WebSearch configuration.
- * Uses CLI tools (Gemini CLI, Grok CLI, OpenCode) for third-party profiles.
- * Third-party providers don't have server-side WebSearch access.
- */
-export interface WebSearchConfig {
-  /** Master switch - enable/disable WebSearch (default: true) */
-  enabled?: boolean;
-  /** Individual provider configurations */
-  providers?: WebSearchProvidersConfig;
-  // Legacy fields (deprecated, kept for backwards compatibility)
-  /** @deprecated Use providers.gemini instead */
-  gemini?: {
-    enabled?: boolean;
-    timeout?: number;
-  };
-  /** @deprecated Unused */
-  mode?: 'sequential' | 'parallel';
-  /** @deprecated Unused */
-  provider?: 'auto' | 'web-search-prime' | 'brave' | 'tavily';
-  /** @deprecated Unused */
-  fallback?: boolean;
-  /** @deprecated Unused */
-  webSearchPrimeUrl?: string;
-  /** @deprecated Unused */
-  selectedProviders?: string[];
-  /** @deprecated Unused */
-  customMcp?: unknown[];
-}
 
 // ============================================================================
 // QUOTA MANAGEMENT CONFIGURATION (v7+)
@@ -525,7 +447,7 @@ export const DEFAULT_DASHBOARD_AUTH_CONFIG: DashboardAuthConfig = {
 /**
  * Scenario types that can be detected from Claude CLI requests.
  */
-export type ScenarioType = 'default' | 'background' | 'think' | 'longContext' | 'webSearch';
+export type ScenarioType = 'default' | 'background' | 'think' | 'longContext';
 
 /**
  * Scenario router configuration.
@@ -606,8 +528,6 @@ export interface UnifiedConfig {
   cliproxy: CLIProxyConfig;
   /** User preferences */
   preferences: PreferencesConfig;
-  /** WebSearch configuration */
-  websearch?: WebSearchConfig;
   /** Global environment variables for all non-Claude subscription profiles */
   global_env?: GlobalEnvConfig;
   /** Copilot API configuration (GitHub Copilot proxy) */
@@ -688,25 +608,6 @@ export function createEmptyUnifiedConfig(): UnifiedConfig {
       theme: 'system',
       telemetry: false,
       auto_update: true,
-    },
-    websearch: {
-      enabled: true,
-      providers: {
-        gemini: {
-          enabled: true,
-          model: 'gemini-2.5-flash',
-          timeout: 55,
-        },
-        opencode: {
-          enabled: false,
-          model: 'opencode/grok-code',
-          timeout: 90,
-        },
-        grok: {
-          enabled: false,
-          timeout: 55,
-        },
-      },
     },
     global_env: {
       enabled: true,

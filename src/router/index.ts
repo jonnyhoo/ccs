@@ -2,7 +2,7 @@
  * Scenario Router Module
  *
  * Routes Claude CLI sub-agent requests to different CCS profiles
- * based on request characteristics (background, think, webSearch, etc.).
+ * based on request characteristics (background, think, longContext, etc.).
  */
 
 // Types

@@ -13,7 +13,6 @@ import { getCcsDir } from '../../utils/config-manager';
 import { expandPath } from '../../utils/helpers';
 import { getClaudeEnvVars, CLIPROXY_DEFAULT_PORT } from '../config-generator';
 import { CLIProxyProvider } from '../types';
-import { ensureProfileHooks } from '../../utils/websearch/profile-hook-injector';
 import { ensureProfileHooks as ensureImageAnalyzerHooks } from '../../utils/hooks/image-analyzer-profile-hook-injector';
 
 /** Environment settings structure */
@@ -107,9 +106,6 @@ export function createSettingsFile(
   ensureDir(ccsDir);
   writeSettings(settingsPath, settings);
 
-  // Inject WebSearch hooks into variant settings
-  ensureProfileHooks(`${provider}-${name}`);
-
   // Inject Image Analyzer hooks into variant settings
   ensureImageAnalyzerHooks(`${provider}-${name}`);
 
@@ -134,9 +130,6 @@ export function createSettingsFileUnified(
 
   ensureDir(ccsDir);
   writeSettings(settingsPath, settings);
-
-  // Inject WebSearch hooks into variant settings
-  ensureProfileHooks(`${provider}-${name}`);
 
   // Inject Image Analyzer hooks into variant settings
   ensureImageAnalyzerHooks(`${provider}-${name}`);

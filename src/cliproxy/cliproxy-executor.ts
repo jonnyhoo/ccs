@@ -40,7 +40,6 @@ import { CLIProxyProvider, CLIProxyBackend, PLUS_ONLY_PROVIDERS, ExecutorConfig 
 import { DEFAULT_BACKEND } from './platform-detector';
 import { configureProviderModel, getCurrentModel } from './model-config';
 import { resolveProxyConfig, PROXY_CLI_FLAGS } from './proxy-config-resolver';
-import { getWebSearchHookEnv } from '../utils/websearch-manager';
 import { getImageAnalysisHookEnv } from '../utils/hooks/get-image-analysis-hook-env';
 import { supportsModelConfig, isModelBroken, getModelIssueUrl, findModel } from './model-catalog';
 import { CodexReasoningProxy } from './codex-reasoning-proxy';
@@ -56,11 +55,6 @@ import {
   getDefaultAccount,
 } from './account-manager';
 import { getPortCheckCommand, getCatCommand, killProcessOnPort } from '../utils/platform-commands';
-import {
-  ensureMcpWebSearch,
-  installWebSearchHook,
-  displayWebSearchStatus,
-} from '../utils/websearch-manager';
 import {
   registerSession,
   unregisterSession,
@@ -255,18 +249,6 @@ export async function execClaudeWithCLIProxy(
   }
 
   // Note: proxyConfig is available for Phase 4 (remote mode integration)
-
-  // Ensure MCP web-search is configured for third-party profiles
-  // WebSearch is a server-side tool executed by Anthropic's API
-  // Third-party providers don't have access, so we use MCP fallback
-  ensureMcpWebSearch();
-
-  // Install WebSearch hook for Gemini CLI + MCP fallback
-  // Hook intercepts WebSearch, tries Gemini CLI first, falls back to MCP
-  installWebSearchHook();
-
-  // Display WebSearch status (single line, equilibrium UX)
-  displayWebSearchStatus();
 
   // Validate provider
   const providerConfig = getProviderConfig(provider);
@@ -1164,21 +1146,16 @@ export async function execClaudeWithCLIProxy(
     ...envVars,
     ANTHROPIC_BASE_URL: finalBaseUrl,
   };
-  const webSearchEnv = getWebSearchHookEnv();
   const imageAnalysisEnv = getImageAnalysisHookEnv(provider);
   const env = {
     ...process.env,
     ...effectiveEnvVars,
-    ...webSearchEnv,
     ...imageAnalysisEnv,
-    CCS_PROFILE_TYPE: 'cliproxy', // Signal to WebSearch hook this is a third-party provider
+    CCS_PROFILE_TYPE: 'cliproxy',
   };
 
   log(`Claude env: ANTHROPIC_BASE_URL=${effectiveEnvVars.ANTHROPIC_BASE_URL}`);
   log(`Claude env: ANTHROPIC_MODEL=${envVars.ANTHROPIC_MODEL}`);
-  if (Object.keys(webSearchEnv).length > 0) {
-    log(`Claude env: WebSearch config=${JSON.stringify(webSearchEnv)}`);
-  }
   // Log global env vars for visibility
   if (envVars.DISABLE_TELEMETRY || envVars.DISABLE_ERROR_REPORTING || envVars.DISABLE_BUG_COMMAND) {
     log(`Claude env: Global env applied (telemetry/reporting disabled)`);
@@ -1223,7 +1200,7 @@ export async function execClaudeWithCLIProxy(
   const isWindows = process.platform === 'win32';
   const needsShell = isWindows && /\.(cmd|bat|ps1)$/i.test(claudeCli);
 
-  // Get profile settings path for hooks (WebSearch, etc.)
+  // Get profile settings path for hooks
   // Use custom settings path for CLIProxy variants, otherwise use default provider path
   const baseSettingsPath = cfg.customSettingsPath
     ? cfg.customSettingsPath.replace(/^~/, os.homedir())

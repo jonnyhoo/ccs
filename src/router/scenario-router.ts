@@ -7,7 +7,6 @@
  * Detection rules:
  * - background: model contains 'claude' + 'haiku'
  * - think: thinking.type === 'enabled'
- * - webSearch: tools array contains web_search
  * - longContext: token count > threshold (optional)
  * - default: everything else
  */
@@ -55,9 +54,8 @@ export class ScenarioRouter {
    * Detection order (first match wins):
    * 1. background - Haiku models (Claude uses Haiku for background tasks)
    * 2. think - Thinking mode enabled
-   * 3. webSearch - Web search tools present
-   * 4. longContext - Token count exceeds threshold (if implemented)
-   * 5. default - Everything else
+   * 3. longContext - Token count exceeds threshold (if implemented)
+   * 4. default - Everything else
    */
   detectScenario(body: AnthropicRequestBody): ScenarioType {
     // 1. Check for background task (Haiku model)
@@ -73,13 +71,7 @@ export class ScenarioRouter {
       return 'think';
     }
 
-    // 3. Check for web search
-    if (this.isWebSearchRequest(body)) {
-      this.log('Detected webSearch scenario (web_search tool present)');
-      return 'webSearch';
-    }
-
-    // 4. Long context detection (TODO: implement token counting)
+    // 3. Long context detection (TODO: implement token counting)
     // For now, skip this as it requires token calculation
     // if (this.isLongContextRequest(body)) {
     //   return 'longContext';
@@ -102,19 +94,6 @@ export class ScenarioRouter {
    */
   private isThinkingRequest(body: AnthropicRequestBody): boolean {
     return body.thinking?.type === 'enabled';
-  }
-
-  /**
-   * Check if request contains web search tools.
-   */
-  private isWebSearchRequest(body: AnthropicRequestBody): boolean {
-    if (!Array.isArray(body.tools)) {
-      return false;
-    }
-    return body.tools.some((tool) => {
-      const name = tool.name?.toLowerCase() ?? '';
-      return name.includes('web_search') || name.includes('websearch') || name.includes('search_web');
-    });
   }
 
   /**

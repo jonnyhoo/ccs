@@ -15,7 +15,7 @@ import { loadOrCreateUnifiedConfig, saveUnifiedConfig } from '../config/unified-
 import { ScenarioType } from '../router';
 import { ok, fail, info, warn, bold, color, dim } from '../utils/ui';
 
-const VALID_SCENARIOS: ScenarioType[] = ['default', 'background', 'think', 'longContext', 'webSearch'];
+const VALID_SCENARIOS: ScenarioType[] = ['default', 'background', 'think', 'longContext'];
 
 /**
  * Show current router configuration.

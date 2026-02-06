@@ -5,7 +5,6 @@
  */
 
 import { info, ok, color, box, initUI } from '../utils/ui';
-import { uninstallWebSearchHook } from '../utils/websearch';
 import { ClaudeSymlinkManager } from '../utils/claude-symlink-manager';
 
 /**
@@ -35,19 +34,12 @@ export async function handleUninstallCommand(): Promise<void> {
 
   let removed = 0;
 
-  // 1. Remove WebSearch hook file + migration marker (does NOT touch global settings.json)
-  const hookRemoved = uninstallWebSearchHook();
-  if (hookRemoved) {
-    console.log(ok('Removed WebSearch hook'));
-    removed += 1; // Count as 1 item (the hook file)
-  }
-
-  // 2. Remove symlinks from ~/.claude/
+  // Remove symlinks from ~/.claude/
   const symlinkManager = new ClaudeSymlinkManager();
   const symlinksRemoved = symlinkManager.uninstall();
   removed += symlinksRemoved; // Add actual count of symlinks removed
 
-  // 3. Summary
+  // Summary
   console.log('');
   if (removed > 0) {
     console.log(ok('Uninstall complete!'));
