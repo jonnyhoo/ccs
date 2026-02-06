@@ -353,7 +353,7 @@ function toResponsesMessages(messages: OpenAIMessage[]): ResponsesMessage[] {
         for (const tc of m.tool_calls) {
           content.push({
             type: 'function_call',
-            id: tc.id,
+            call_id: tc.id,
             name: tc.function.name,
             arguments: tc.function.arguments,
           });
@@ -637,7 +637,7 @@ interface ResponsesMessageContentImage {
 
 interface ResponsesMessageContentFunctionCall {
   type: 'function_call';
-  id: string;
+  call_id: string;
   name: string;
   arguments: string;
 }
@@ -943,7 +943,7 @@ export class AnthropicToOpenAIProxy {
                       if (events) clientRes.write(events);
                     } else if (evtType === 'response.output_item.added' && parsed.item?.type === 'function_call') {
                       // Tool call start: emit as Anthropic tool_use via fake chunk
-                      const tcId = parsed.item.call_id || parsed.item.id || `call_${Date.now()}`;
+                      const tcId = parsed.item.id || parsed.item.call_id || `call_${Date.now()}`;
                       const tcName = parsed.item.name || '';
                       const events = translator.translateChunk({
                         choices: [{ delta: { tool_calls: [{ index: 0, id: tcId, function: { name: tcName, arguments: '' } }] } }]
