@@ -945,7 +945,7 @@ export class AnthropicToOpenAIProxy {
                       if (events) clientRes.write(events);
                     } else if (evtType === 'response.output_item.added' && parsed.item?.type === 'function_call') {
                       // Tool call start: emit as Anthropic tool_use via fake chunk
-                      const tcId = parsed.item.id || parsed.item.call_id || `call_${Date.now()}`;
+                      const tcId = parsed.item.call_id || parsed.item.id || `call_${Date.now()}`;
                       const tcName = parsed.item.name || '';
                       const outputIndex = parsed.output_index ?? 0;
                       activeToolCalls.set(outputIndex, { id: tcId, name: tcName });
@@ -1007,9 +1007,11 @@ export class AnthropicToOpenAIProxy {
                             choices: [{ finish_reason: 'tool_calls' }]
                           } as any);
                           if (finishEvent) clientRes.write(finishEvent);
+                        } else {
+                          // Only emit final if no tool calls (translateChunk already emitted terminal events)
+                          const final = translator.emitFinalIfNeeded();
+                          if (final) clientRes.write(final);
                         }
-                        const final = translator.emitFinalIfNeeded();
-                        if (final) clientRes.write(final);
                       }
                     } else if (evtType.startsWith('response.web_search.')) {
                       // Web search events: log for debugging, treat as informational
@@ -1207,7 +1209,7 @@ export class AnthropicToOpenAIProxy {
                 } else if (evtType === 'response.output_item.added' && parsed.item?.type === 'function_call') {
                   const outputIndex = parsed.output_index ?? 0;
                   activeToolCallsMap.set(outputIndex, {
-                    id: parsed.item.id || parsed.item.call_id || `call_${Date.now()}`,
+                    id: parsed.item.call_id || parsed.item.id || `call_${Date.now()}`,
                     name: parsed.item.name || '',
                     arguments: '',
                   });
