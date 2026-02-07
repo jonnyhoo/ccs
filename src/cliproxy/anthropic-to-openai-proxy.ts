@@ -933,7 +933,12 @@ export class AnthropicToOpenAIProxy {
                   if (parsed && parsed.type) {
                     // Responses API event
                     const evtType: string = parsed.type;
-                    if (evtType.endsWith('.output_text.delta') && typeof parsed.delta === 'string') {
+                    if (evtType === 'keepalive') {
+                      // Keepalive event: silently ignore (connection heartbeat)
+                    } else if (evtType === 'response.created' || evtType === 'response.in_progress') {
+                      // Response lifecycle events: silently ignore (informational only)
+                      // These indicate the response has started/is processing
+                    } else if (evtType.endsWith('.output_text.delta') && typeof parsed.delta === 'string') {
                       // Start block if needed, then stream text
                       const start = translator.translateChunk({ choices: [{ delta: { content: '' } }] } as any);
                       const textDelta = translator.translateChunk({ choices: [{ delta: { content: parsed.delta } }] } as any);
@@ -945,16 +950,23 @@ export class AnthropicToOpenAIProxy {
                         choices: [{ delta: {} }]
                       } as any);
                       if (events) clientRes.write(events);
-                    } else if (evtType === 'response.output_item.added' && parsed.item?.type === 'function_call') {
-                      // Tool call start: emit as Anthropic tool_use via fake chunk
-                      const tcId = parsed.item.call_id || parsed.item.id || `call_${Date.now()}`;
-                      const tcName = parsed.item.name || '';
-                      const outputIndex = parsed.output_index ?? 0;
-                      activeToolCalls.set(outputIndex, { id: tcId, name: tcName });
-                      const events = translator.translateChunk({
-                        choices: [{ delta: { tool_calls: [{ index: outputIndex, id: tcId, function: { name: tcName, arguments: '' } }] } }]
-                      } as any);
-                      if (events) clientRes.write(events);
+                    } else if (evtType === 'response.output_item.added') {
+                      // Output item added: handle function_call, ignore message type (content comes via output_text.delta)
+                      if (parsed.item?.type === 'function_call') {
+                        // Tool call start: emit as Anthropic tool_use via fake chunk
+                        const tcId = parsed.item.call_id || parsed.item.id || `call_${Date.now()}`;
+                        const tcName = parsed.item.name || '';
+                        const outputIndex = parsed.output_index ?? 0;
+                        activeToolCalls.set(outputIndex, { id: tcId, name: tcName });
+                        const events = translator.translateChunk({
+                          choices: [{ delta: { tool_calls: [{ index: outputIndex, id: tcId, function: { name: tcName, arguments: '' } }] } }]
+                        } as any);
+                        if (events) clientRes.write(events);
+                      }
+                      // Silently ignore message type - content is handled by output_text.delta
+                    } else if (evtType === 'response.content_part.added' || evtType === 'response.content_part.done') {
+                      // Content part events: silently ignore (content is handled by output_text.delta)
+                      // These events indicate text/refusal content blocks but actual content comes via delta events
                     } else if (evtType === 'response.function_call_arguments.delta' && typeof parsed.delta === 'string') {
                       // Tool call arguments delta
                       const outputIndex = parsed.output_index ?? 0;
@@ -965,9 +977,13 @@ export class AnthropicToOpenAIProxy {
                     } else if (evtType === 'response.function_call_arguments.done') {
                       // Tool call arguments complete: mark as done (translator will handle on finish_reason)
                       this.log('Tool call arguments completed');
-                    } else if (evtType === 'response.output_item.done' && parsed.item?.type === 'function_call') {
-                      // Tool call item done: just log, don't finish yet (wait for response.completed)
-                      this.log('Tool call item completed');
+                    } else if (evtType === 'response.output_item.done') {
+                      // Output item done: handle function_call, ignore message type
+                      if (parsed.item?.type === 'function_call') {
+                        // Tool call item done: just log, don't finish yet (wait for response.completed)
+                        this.log('Tool call item completed');
+                      }
+                      // Silently ignore message type
                     } else if (evtType === 'response.refusal.delta' && typeof parsed.delta === 'string') {
                       // Refusal text delta: add [refusal] prefix only on first delta
                       const start = translator.translateChunk({ choices: [{ delta: { content: '' } }] } as any);
