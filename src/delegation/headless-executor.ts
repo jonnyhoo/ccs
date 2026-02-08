@@ -9,6 +9,8 @@ import { spawn } from 'child_process';
 import * as path from 'path';
 import * as fs from 'fs';
 import * as os from 'os';
+import * as net from 'net';
+import * as tls from 'tls';
 import { SessionManager } from './session-manager';
 import { SettingsParser } from './settings-parser';
 import { ui, warn, info } from '../utils/ui';
@@ -78,7 +80,7 @@ export class HeadlessExecutor {
     const processedPrompt = this._processSlashCommand(enhancedPrompt);
 
     // Prepare arguments
-    const args: string[] = ['-p', processedPrompt, '--settings', settingsPath];
+    const args: string[] = [processedPrompt, '--settings', settingsPath];
 
     // Always use stream-json for real-time progress visibility
     args.push('--output-format', 'stream-json', '--verbose');
@@ -184,7 +186,7 @@ export class HeadlessExecutor {
    * Spawn Claude CLI in background mode
    * Returns immediately with task ID and output file path
    */
-  private static _spawnBackground(
+  private static async _spawnBackground(
     claudeCli: string,
     args: string[],
     ctx: { cwd: string; profile: string }
@@ -192,7 +194,6 @@ export class HeadlessExecutor {
     const { cwd, profile } = ctx;
     const taskId = `ccs-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`;
     const outputDir = path.join(os.tmpdir(), 'ccs-tasks');
-    const outputFile = path.join(outputDir, `${taskId}.output`);
 
     // Ensure output directory exists
     if (!fs.existsSync(outputDir)) {
@@ -202,19 +203,31 @@ export class HeadlessExecutor {
     const modelName = getModelDisplayName(profile);
     console.error(ui.info(`Background task started: ${taskId}`));
     console.error(ui.info(`Delegating to ${modelName} in background...`));
+
+    const redisUrl = await this._resolveRedisBackgroundUrl();
+    if (redisUrl) {
+      return this._spawnBackgroundRedis(claudeCli, args, { cwd, profile, taskId, redisUrl });
+    }
+
+    const outputFile = path.join(outputDir, `${taskId}.output`);
     console.error(ui.info(`Output file: ${outputFile}`));
 
     const isWindows = process.platform === 'win32';
 
     if (isWindows) {
-      // Windows: create temp .ps1 script for reliable background execution with Unicode support
+      // Windows: create temp .ps1 script for reliable background execution with Unicode support.
+      // Use PowerShell native argument array to avoid quote mangling for values containing " and $.
       const scriptFile = path.join(outputDir, `${taskId}.ps1`);
-      // Escape args for cmd: wrap in quotes, escape internal quotes
-      const cmdArgs = args.map((a) => `"${a.replace(/"/g, '\\"')}"`).join(' ');
+      const escapePsSingle = (s: string) => s.replace(/'/g, "''");
+      const psArgs = args.map((a) => `  '${escapePsSingle(a)}'`).join(',\n');
       const psContent = `
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
-Set-Location -LiteralPath '${cwd.replace(/'/g, "''")}'
-cmd /c ""${claudeCli}" ${cmdArgs}" 2>&1 | Out-File -FilePath '${outputFile.replace(/'/g, "''")}' -Encoding UTF8
+Set-Location -LiteralPath '${escapePsSingle(cwd)}'
+$claudeCli = '${escapePsSingle(claudeCli)}'
+$claudeArgs = @(
+${psArgs}
+)
+& $claudeCli @claudeArgs 2>&1 | Out-File -FilePath '${escapePsSingle(outputFile)}' -Encoding UTF8
 `;
       // Write with UTF-8 BOM so PowerShell reads Unicode correctly
       const bom = Buffer.from([0xef, 0xbb, 0xbf]);
@@ -263,7 +276,142 @@ WshShell.Run """${ps}"" -NoProfile -ExecutionPolicy Bypass -File ""${scriptFile}
       isBackground: true,
       taskId,
       outputFile,
+      monitorCommand: monitorCmd,
       content: `Background task started.\nTask ID: ${taskId}\nOutput: ${outputFile}\n\nUse '${monitorCmd}' to monitor progress.`,
+    });
+  }
+
+  private static async _resolveRedisBackgroundUrl(): Promise<string | undefined> {
+    const backend = (process.env.CCS_BG_BACKEND || '').trim().toLowerCase();
+    if (backend === 'file') {
+      return undefined;
+    }
+
+    const explicitUrl = process.env.CCS_REDIS_URL?.trim();
+    if (explicitUrl) {
+      if (await this._canConnectRedis(explicitUrl)) {
+        return explicitUrl;
+      }
+      if (backend === 'redis') {
+        throw new Error(`Redis is configured but unreachable: ${explicitUrl}`);
+      }
+      return undefined;
+    }
+
+    const candidates = ['redis://127.0.0.1:6379/0', 'redis://localhost:6379/0'];
+    for (const candidate of candidates) {
+      if (await this._canConnectRedis(candidate)) {
+        return candidate;
+      }
+    }
+
+    if (backend === 'redis') {
+      throw new Error('CCS_BG_BACKEND=redis but no reachable Redis found on localhost:6379');
+    }
+
+    return undefined;
+  }
+
+  private static _canConnectRedis(redisUrl: string): Promise<boolean> {
+    return new Promise((resolve) => {
+      let socket: net.Socket | tls.TLSSocket;
+      let settled = false;
+
+      const done = (ok: boolean) => {
+        if (settled) return;
+        settled = true;
+        try {
+          socket.end();
+          socket.destroy();
+        } catch {
+          // ignore
+        }
+        resolve(ok);
+      };
+
+      try {
+        const parsed = new URL(redisUrl);
+        const host = parsed.hostname || '127.0.0.1';
+        const port = parsed.port ? parseInt(parsed.port, 10) : 6379;
+        const secure = parsed.protocol === 'rediss:';
+
+        const onConnect = () => {
+          socket.write('*1\r\n$4\r\nPING\r\n');
+        };
+
+        socket = secure
+          ? tls.connect({ host, port, servername: host }, onConnect)
+          : net.createConnection({ host, port }, onConnect);
+
+        socket.setTimeout(400);
+        socket.once('timeout', () => done(false));
+        socket.once('error', () => done(false));
+        socket.once('data', (chunk: Buffer | string) => {
+          const txt = chunk.toString();
+          done(txt.startsWith('+PONG') || txt.startsWith('-NOAUTH') || txt.startsWith('-ERR'));
+        });
+      } catch {
+        done(false);
+      }
+    });
+  }
+
+  private static _spawnBackgroundRedis(
+    claudeCli: string,
+    args: string[],
+    ctx: { cwd: string; profile: string; taskId: string; redisUrl: string }
+  ): Promise<ExecutionResult> {
+    const { cwd, profile, taskId, redisUrl } = ctx;
+
+    if (!redisUrl) {
+      throw new Error('Redis URL is required for Redis background mode');
+    }
+
+    const streamKey = `ccs:task:${taskId}:events`;
+    const runnerScript = path.resolve(__dirname, '..', '..', 'scripts', 'background-redis-bridge.js');
+
+    if (!fs.existsSync(runnerScript)) {
+      throw new Error(`Redis bridge script not found: ${runnerScript}`);
+    }
+
+    const child = spawn(process.execPath, [runnerScript], {
+      cwd,
+      detached: true,
+      stdio: 'ignore',
+      windowsHide: true,
+      env: {
+        ...process.env,
+        CCS_BG_TASK_ID: taskId,
+        CCS_BG_REDIS_URL: redisUrl,
+        CCS_BG_STREAM_KEY: streamKey,
+        CCS_BG_CWD: cwd,
+        CCS_BG_CLAUDE_CLI: claudeCli,
+        CCS_BG_CLAUDE_ARGS_B64: Buffer.from(JSON.stringify(args), 'utf8').toString('base64'),
+      },
+    });
+    child.unref();
+
+    const monitorCmd = `redis-cli XREAD BLOCK 0 STREAMS ${streamKey} $`;
+
+    return Promise.resolve({
+      exitCode: 0,
+      stdout: '',
+      stderr: '',
+      cwd,
+      profile,
+      duration: 0,
+      timedOut: false,
+      success: true,
+      messages: [],
+      isBackground: true,
+      taskId,
+      streamKey,
+      monitorCommand: monitorCmd,
+      content:
+        `Background task started (Redis).\n` +
+        `Task ID: ${taskId}\n` +
+        `Stream: ${streamKey}\n\n` +
+        `Use '${monitorCmd}' to monitor progress.`,
     });
   }
 
@@ -294,12 +442,37 @@ WshShell.Run """${ps}"" -NoProfile -ExecutionPolicy Bypass -File ""${scriptFile}
         console.error(ui.info(`Delegating to ${modelName}...`));
       }
 
-      const proc = spawn(claudeCli, args, {
-        cwd,
-        stdio: ['ignore', 'pipe', 'pipe'],
-        timeout,
-        shell: process.platform === 'win32', // Windows needs shell for .cmd files
-      });
+      const isWindows = process.platform === 'win32';
+      let launchCmd = claudeCli;
+
+      // where claude may return path without extension on Windows; prefer .cmd/.exe if present.
+      if (isWindows && !/\.(cmd|bat|ps1|exe)$/i.test(launchCmd)) {
+        if (fs.existsSync(`${launchCmd}.cmd`)) {
+          launchCmd = `${launchCmd}.cmd`;
+        } else if (fs.existsSync(`${launchCmd}.exe`)) {
+          launchCmd = `${launchCmd}.exe`;
+        }
+      }
+
+      const needsShell = isWindows && /\.(cmd|bat|ps1)$/i.test(launchCmd);
+
+      const proc = needsShell
+        ? spawn([launchCmd, ...args].map((a) => `"${a.replace(/"/g, '\\"')}"`).join(' '), {
+            cwd,
+            stdio: ['ignore', 'pipe', 'pipe'],
+            timeout,
+            shell: true,
+            windowsHide: true,
+          })
+        : spawn(launchCmd, args, {
+            cwd,
+            stdio: ['ignore', 'pipe', 'pipe'],
+            timeout,
+            windowsHide: true,
+          });
+
+      // Avoid cmd.exe argument mangling for values like "-like" on Windows.
+      // Only use shell mode when launching a script wrapper (.cmd/.bat/.ps1). and keep direct spawn for .exe.
 
       let stdout = '';
       let stderr = '';

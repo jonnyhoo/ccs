@@ -92,6 +92,8 @@ export interface ExecutionResult {
   isBackground?: boolean;
   taskId?: string;
   outputFile?: string;
+  streamKey?: string;
+  monitorCommand?: string;
 }
 
 /**

@@ -28,8 +28,8 @@ const defaultSnippets: CommandSnippet[] = [
   },
   {
     label: 'Delegate Task',
-    command: 'ccs glm -p "your task"',
-    description: 'Delegate to GLM profile',
+    command: 'ccs zhipu "your task"',
+    description: 'Delegate to Zhipu profile',
   },
 ];
 

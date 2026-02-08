@@ -17,14 +17,14 @@ AI-oriented error resolution guide for CCS delegation issues.
 - E-004: JSON parse error (settings) → Validate with `jq . ~/.ccs/{profile}.settings.json`
 
 **Delegation Issues:**
-- D-001: "No previous session" → Run `ccs {profile} -p "task"` first
-- D-002: "Missing prompt" → Syntax: `ccs {profile} -p "prompt"`
-- D-003: "No profile specified" → Syntax: `ccs <profile> -p "task"`
+- D-001: "No previous session" → Run `ccs {profile} "task"` first
+- D-002: "Missing prompt" → Syntax: `ccs {profile} "prompt"`
+- D-003: "No profile specified" → Syntax: `ccs <profile> "task"`
 - D-005: File not found → Verify CWD (delegation runs in current directory)
 
 **Session Issues:**
 - S-001: Session corrupted → `rm ~/.ccs/delegation-sessions.json`
-- S-002: Session expired → Start new: `ccs {profile} -p "task"`
+- S-002: Session expired → Start new: `ccs {profile} "task"`
 
 **Network Issues:**
 - N-001: Connection timeout → Check internet/endpoint → Retry
@@ -49,25 +49,25 @@ AI-oriented error resolution guide for CCS delegation issues.
 
 **Examples:**
 ```bash
-[X] ccs glm -p "task"  # E-001: Profile not configured
-[OK] ccs doctor        # Shows: glm.settings.json missing
+[X] ccs zhipu "task"  # E-001: Profile not configured
+[OK] ccs doctor        # Shows: zhipu.settings.json missing
 ```
 
 ### Delegation Execution Errors
 
 | Code | Pattern | Root Cause | Resolution |
 |------|---------|------------|------------|
-| D-001 | No previous session | Using :continue without init | Run `ccs {profile} -p "init"` first |
-| D-002 | Missing prompt after -p | No argument provided | Quote prompt: `ccs {profile} -p "text"` |
-| D-003 | No profile specified | Missing profile name | Syntax: `ccs <profile> -p "task"` |
+| D-001 | No previous session | Using :continue without init | Run `ccs {profile} "init"` first |
+| D-002 | Missing prompt | No argument provided | Quote prompt: `ccs {profile} "text"` |
+| D-003 | No profile specified | Missing profile name | Syntax: `ccs <profile> "task"` |
 | D-004 | Invalid profile name | Profile doesn't exist | Check: `ccs doctor` for available profiles |
 | D-005 | File not found | CWD mismatch | Verify: delegation runs in current directory |
 
 **Examples:**
 ```bash
-[X] ccs glm:continue -p "task"     # D-001: No session
-[OK] ccs glm -p "task"             # Creates session
-[OK] ccs glm:continue -p "more"    # Uses session
+[X] ccs zhipu:continue "task"     # D-001: No session
+[OK] ccs zhipu "task"             # Creates session
+[OK] ccs zhipu:continue "more"    # Uses session
 ```
 
 ### Session Management Errors
@@ -75,7 +75,7 @@ AI-oriented error resolution guide for CCS delegation issues.
 | Code | Pattern | Root Cause | Resolution |
 |------|---------|------------|------------|
 | S-001 | Session file corrupted | Malformed JSON | `rm ~/.ccs/delegation-sessions.json` → fresh start |
-| S-002 | Session expired | >30 days old | Start new: `ccs {profile} -p "task"` |
+| S-002 | Session expired | >30 days old | Start new: `ccs {profile} "task"` |
 | S-003 | Session ID mismatch | ID not found | Check: `jq '.{profile}' ~/.ccs/delegation-sessions.json` |
 | S-004 | Cost aggregation error | Calculation failure | Reset session or ignore (doesn't affect execution) |
 
@@ -100,7 +100,7 @@ AI-oriented error resolution guide for CCS delegation issues.
 **Example:**
 ```bash
 # Delegation runs in CWD where command executed
-ccs glm -p "refactor src/auth.js"
+ccs zhipu "refactor src/auth.js"
 # Verify: ls src/auth.js  # Must exist in current directory
 ```
 
@@ -154,7 +154,7 @@ rm ~/.ccs/delegation-sessions.json                # Reset (loses all sessions)
 **Debug Mode:**
 ```bash
 export CCS_DEBUG=1
-ccs {profile} -p "task" 2>&1 | tee debug.log  # Capture full output
+ccs {profile} "task" 2>&1 | tee debug.log  # Capture full output
 ```
 
 ## Diagnostic Toolkit
@@ -176,16 +176,16 @@ jq '.glm.totalCost' ~/.ccs/delegation-sessions.json     # Total cost
 **Test delegation flow:**
 ```bash
 # 1. Simple task
-ccs glm -p "create test.txt with 'hello'"
+ccs zhipu "create test.txt with 'hello'"
 
 # 2. Verify session
-jq '.glm.sessionId' ~/.ccs/delegation-sessions.json
+jq '.zhipu.sessionId' ~/.ccs/delegation-sessions.json
 
 # 3. Continue
-ccs glm:continue -p "append 'world' to test.txt"
+ccs zhipu:continue "append 'world' to test.txt"
 
 # 4. Check aggregation
-jq '.glm.turns' ~/.ccs/delegation-sessions.json
+jq '.zhipu.turns' ~/.ccs/delegation-sessions.json
 ```
 
 ## Emergency Recovery
@@ -195,7 +195,7 @@ jq '.glm.turns' ~/.ccs/delegation-sessions.json
 rm ~/.ccs/delegation-sessions.json  # Fresh start (loses all sessions)
 ```
 
-**Interactive mode (no -p flag):**
+**Interactive mode (no prompt argument):**
 ```bash
 ccs {profile}  # Opens interactive session
 ```

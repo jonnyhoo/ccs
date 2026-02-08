@@ -3,7 +3,7 @@ name: ccs-delegation
 description: >-
   Auto-activate CCS CLI delegation for deterministic tasks. Parses user input,
   auto-selects optimal profile (glm/kimi/custom) from ~/.ccs/config.json,
-  enhances prompts with context, executes via `ccs {profile} -p "task"` or
+  enhances prompts with context, executes via `ccs {profile} "task"` or
   `ccs {profile}:continue`, and reports results. Triggers on "use ccs [task]"
   patterns, typo/test/refactor keywords. Excludes complex architecture,
   security-critical code, performance optimization, breaking changes.
@@ -17,8 +17,8 @@ Delegate deterministic tasks to cost-optimized models via CCS CLI.
 ## Core Concept
 
 Execute tasks via alternative models using:
-- **Initial delegation**: `ccs {profile} -p "task"`
-- **Session continuation**: `ccs {profile}:continue -p "follow-up"`
+- **Initial delegation**: `ccs {profile} "task"`
+- **Session continuation**: `ccs {profile}:continue "follow-up"`
 
 **Profile Selection:**
 - Auto-select from `~/.ccs/config.json` via task analysis
@@ -75,7 +75,7 @@ Users trigger delegation naturally:
    - Preserve slash commands at task start (e.g., `/cook`, `/commit`)
 
 6. **Execute delegation**
-   - Run: `ccs {selectedProfile} -p "$enhancedPrompt"` via Bash tool
+   - Run: `ccs {selectedProfile} "$enhancedPrompt"` via Bash tool
 
 7. **Report results**
    - Log: "Selected {profile} (reason: {reasoning/long-context/cost-optimized})"
@@ -100,7 +100,7 @@ Users trigger delegation naturally:
    - Preserve slash commands at start
 
 4. **Execute continuation**
-   - Run: `ccs {profile}:continue -p "$enhancedPrompt"` via Bash tool
+   - Run: `ccs {profile}:continue "$enhancedPrompt"` via Bash tool
 
 5. **Report results**
    - Report: Profile, Session #, Incremental cost, Total cost, Duration, Exit code
@@ -186,8 +186,8 @@ log("Selected {selected} (reason: {reasoning|long-context|cost-optimized})")
 - `/ccs:continue --{profile} "follow-up"` - Continue with profile switch
 
 **Agent via Bash:**
-- Auto: `ccs {auto-selected} -p "task"`
-- Continue: `ccs {detected}:continue -p "follow-up"`
+- Auto: `ccs {auto-selected} "task"`
+- Continue: `ccs {detected}:continue "follow-up"`
 
 ## References
 

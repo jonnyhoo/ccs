@@ -475,14 +475,6 @@ async function main(): Promise<void> {
     process.exit(exitCode);
   }
 
-  // Special case: headless delegation (-p flag)
-  if (args.includes('-p') || args.includes('--prompt')) {
-    const { DelegationHandler } = await import('./delegation/delegation-handler');
-    const handler = new DelegationHandler();
-    await handler.route(args);
-    return;
-  }
-
   // First-time install: offer setup wizard for interactive users
   // Check independently of recovery status (user may have empty config.yaml)
   // Skip if headless, CI, or non-TTY environment
@@ -496,6 +488,17 @@ async function main(): Promise<void> {
 
   // Detect profile
   const { profile, remainingArgs } = detectProfile(args);
+
+  // Auto-delegation: 当 profile 后跟非 flag 文本时，自动作为后台委派任务执行
+  // 例: ccs zhipu "写一个排序函数" → 后台委派给 zhipu
+  // 加 --wait/-w 可前台阻塞执行
+  if (remainingArgs.length > 0 && !remainingArgs[0].startsWith('-') && profile !== 'default') {
+    const { DelegationHandler } = await import('./delegation/delegation-handler');
+    const handler = new DelegationHandler();
+    const delegationArgs = [profile, remainingArgs[0], ...remainingArgs.slice(1)];
+    await handler.route(delegationArgs);
+    return;
+  }
 
   // Detect Claude CLI first (needed for all paths)
   const claudeCli = detectClaudeCli();

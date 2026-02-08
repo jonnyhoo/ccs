@@ -5,6 +5,7 @@ import { SessionManager } from './session-manager';
 import { ResultFormatter } from './result-formatter';
 import { DelegationValidator } from '../utils/delegation-validator';
 import { SettingsParser } from './settings-parser';
+import { startBackgroundMonitor } from './background-monitor';
 import { fail, warn } from '../utils/ui';
 
 /**
@@ -54,6 +55,7 @@ interface ParsedArgs {
     extraArgs?: string[]; // Catch-all for new/unknown flags
     // Background execution
     runInBackground?: boolean;
+    enableMonitor?: boolean; // Enable background task monitoring
   };
 }
 
@@ -82,11 +84,32 @@ export class DelegationHandler {
       // 4. Execute via HeadlessExecutor
       const result = await HeadlessExecutor.execute(parsed.profile, parsed.prompt, parsed.options);
 
-      // 5. Format and display results
+      // 5. If background task, start monitor and exit immediately
+      if (result.isBackground && result.taskId && result.outputFile) {
+        // Start background monitor if enabled (non-blocking)
+        if (parsed.options.enableMonitor) {
+          startBackgroundMonitor(result.taskId, result.outputFile, {
+            silent: false,
+            onComplete: () => {
+              // Monitor will log completion info
+            },
+            onError: () => {
+              // Monitor will log error info
+            },
+          });
+        }
+
+        // Display task info and exit immediately
+        const formatted = await ResultFormatter.format(result);
+        console.log(formatted);
+        process.exit(0);
+      }
+
+      // 6. Format and display results (foreground execution)
       const formatted = await ResultFormatter.format(result);
       console.log(formatted);
 
-      // 6. Exit with proper code
+      // 7. Exit with proper code
       process.exit(result.exitCode || 0);
     } catch (error) {
       console.error(fail(`Delegation error: ${(error as Error).message}`));
@@ -110,7 +133,7 @@ export class DelegationHandler {
 
     if (!lastSession) {
       console.error(fail(`No previous session found for ${baseProfile}`));
-      console.error(`    Start a new session first with: ccs ${baseProfile} -p "task"`);
+      console.error(`    Start a new session first with: ccs ${baseProfile} "task"`);
       process.exit(1);
     }
 
@@ -136,7 +159,7 @@ export class DelegationHandler {
     // Extract profile (first non-flag arg or 'default')
     const profile = this._extractProfile(args);
 
-    // Extract prompt from -p or --prompt
+    // Extract prompt (first non-flag arg after profile)
     const prompt = this._extractPrompt(args);
 
     // Extract options (--timeout, --permission-mode, etc.)
@@ -151,19 +174,8 @@ export class DelegationHandler {
    * @returns profile name
    */
   _extractProfile(args: string[]): string {
-    // Find first arg that doesn't start with '-' and isn't -p value
-    let skipNext = false;
+    // Find first arg that doesn't start with '-'
     for (let i = 0; i < args.length; i++) {
-      if (skipNext) {
-        skipNext = false;
-        continue;
-      }
-
-      if (args[i] === '-p' || args[i] === '--prompt') {
-        skipNext = true;
-        continue;
-      }
-
       if (!args[i].startsWith('-')) {
         return args[i];
       }
@@ -174,23 +186,26 @@ export class DelegationHandler {
   }
 
   /**
-   * Extract prompt from -p flag
+   * Extract prompt (second non-flag arg after profile)
    * @param args - Args array
    * @returns prompt text
    */
   _extractPrompt(args: string[]): string {
-    const pIndex = args.indexOf('-p');
-    const promptIndex = args.indexOf('--prompt');
-
-    const index = pIndex !== -1 ? pIndex : promptIndex;
-
-    if (index === -1 || index === args.length - 1) {
-      console.error(fail('Missing prompt after -p flag'));
-      console.error('    Usage: ccs glm -p "task description"');
-      process.exit(1);
+    // Find second non-flag arg (first is profile, second is prompt)
+    let nonFlagCount = 0;
+    for (let i = 0; i < args.length; i++) {
+      if (!args[i].startsWith('-')) {
+        nonFlagCount++;
+        if (nonFlagCount === 2) {
+          return args[i];
+        }
+      }
     }
 
-    return args[index + 1];
+    console.error(fail('Missing prompt'));
+    console.error('    Usage: ccs <profile> "task description"');
+    console.error('    Examples: ccs zhipu "写一个排序函数", ccs kimi "解释这段代码"');
+    process.exit(1);
   }
 
   /**
@@ -272,11 +287,13 @@ export class DelegationHandler {
     // Use --wait / -w to run in foreground (blocking)
     options.runInBackground = !(args.includes('--wait') || args.includes('-w'));
 
+    // Enable background monitoring (default: true for background tasks)
+    // Use --no-monitor to disable monitoring
+    options.enableMonitor = !args.includes('--no-monitor');
+
     // Collect extra args to pass through to Claude CLI
     // CCS-handled flags with values (skip these and their values):
     const ccsFlagsWithValue = new Set([
-      '-p',
-      '--prompt',
       '--timeout',
       '--permission-mode',
       '--max-turns',
@@ -285,15 +302,16 @@ export class DelegationHandler {
       '--betas',
     ]);
     // CCS-handled flags without values (skip these):
-    const ccsFlagsNoValue = new Set(['--wait', '-w']);
+    const ccsFlagsNoValue = new Set(['--wait', '-w', '--no-monitor']);
     const extraArgs: string[] = [];
     const profile = this._extractProfile(args);
+    const prompt = this._extractPrompt(args);
 
     for (let i = 0; i < args.length; i++) {
       const arg = args[i];
 
-      // Skip profile name (non-flag first arg)
-      if (arg === profile && !arg.startsWith('-')) continue;
+      // Skip profile name and prompt (first two non-flag args)
+      if (arg === profile || arg === prompt) continue;
 
       // Skip CCS-handled flags and their values
       if (ccsFlagsWithValue.has(arg)) {
@@ -331,8 +349,8 @@ export class DelegationHandler {
   _validateProfile(profile: string): void {
     if (!profile) {
       console.error(fail('No profile specified'));
-      console.error('    Usage: ccs <profile> -p "task"');
-      console.error('    Examples: ccs glm -p "task", ccs kimi -p "task"');
+      console.error('    Usage: ccs <profile> "task"');
+      console.error('    Examples: ccs zhipu "写一个排序函数", ccs kimi "解释这段代码"');
       process.exit(1);
     }
 

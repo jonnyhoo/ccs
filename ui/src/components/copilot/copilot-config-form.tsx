@@ -3,7 +3,7 @@
  * @deprecated Import from '@/components/copilot/config-form' directly
  */
 
-/* eslint-disable react-refresh/only-export-components */
+ 
 export {
   CopilotConfigForm,
   FlexibleModelSelector,
