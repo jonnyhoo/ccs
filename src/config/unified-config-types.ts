@@ -43,6 +43,8 @@ export interface ProfileConfig {
   type: 'api';
   /** Path to settings file (e.g., "~/.ccs/glm.settings.json") */
   settings: string;
+  /** Endpoint protocol: 'anthropic' (default) or 'openai' (Chat Completions) */
+  protocol?: 'anthropic' | 'openai';
 }
 
 /**

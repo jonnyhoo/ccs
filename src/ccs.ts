@@ -207,6 +207,115 @@ async function execClaudeWithProxy(
   });
 }
 
+// ========== OpenAI Translation Proxy Execution ==========
+
+/**
+ * Execute Claude CLI with AnthropicToOpenAIProxy for OpenAI-compatible endpoints.
+ * Used for settings profiles with protocol: 'openai' (created via `ccs api create --openai`).
+ */
+async function execClaudeWithOpenAIProxy(
+  claudeCli: string,
+  profileName: string,
+  args: string[]
+): Promise<void> {
+  // 1. Read settings to get endpoint info
+  const settingsPath = getSettingsPath(profileName);
+  const settings = JSON.parse(fs.readFileSync(settingsPath, 'utf8'));
+  const envData = settings.env || {};
+  const baseUrl = envData['ANTHROPIC_BASE_URL'];
+  const apiKey = envData['ANTHROPIC_AUTH_TOKEN'] || '';
+  const model = envData['ANTHROPIC_MODEL'] || 'default';
+
+  if (!baseUrl) {
+    console.error(fail(`Profile '${profileName}' has no ANTHROPIC_BASE_URL configured`));
+    process.exit(1);
+  }
+
+  const verbose = args.includes('--verbose') || args.includes('-v');
+
+  // 2. Start AnthropicToOpenAIProxy in Chat Completions mode
+  const { AnthropicToOpenAIProxy } = await import('./cliproxy/anthropic-to-openai-proxy');
+  const proxy = new AnthropicToOpenAIProxy({
+    targetBaseUrl: baseUrl,
+    apiKey,
+    verbose,
+    timeoutMs: 120000,
+    useResponsesApi: false, // Generic OpenAI: Chat Completions only
+  });
+
+  let proxyPort: number;
+  try {
+    proxyPort = await proxy.start();
+    if (verbose) {
+      console.error(`[openai-proxy] Translation proxy active on port ${proxyPort}`);
+      console.error(`[openai-proxy] Target: ${baseUrl} (Chat Completions mode)`);
+    }
+  } catch (error) {
+    const err = error as Error;
+    console.error(fail(`Failed to start OpenAI translation proxy: ${err.message}`));
+    process.exit(1);
+  }
+
+  // 3. Spawn Claude CLI pointing to local proxy
+  const globalEnvConfig = getGlobalEnvConfig();
+  const globalEnv = globalEnvConfig.enabled ? globalEnvConfig.env : {};
+
+  const envVars: NodeJS.ProcessEnv = {
+    ...globalEnv,
+    ANTHROPIC_BASE_URL: `http://127.0.0.1:${proxyPort}`,
+    ANTHROPIC_AUTH_TOKEN: apiKey,
+    ANTHROPIC_MODEL: model,
+    ANTHROPIC_DEFAULT_OPUS_MODEL: envData['ANTHROPIC_DEFAULT_OPUS_MODEL'] || model,
+    ANTHROPIC_DEFAULT_SONNET_MODEL: envData['ANTHROPIC_DEFAULT_SONNET_MODEL'] || model,
+    ANTHROPIC_DEFAULT_HAIKU_MODEL: envData['ANTHROPIC_DEFAULT_HAIKU_MODEL'] || model,
+    CCS_PROFILE_TYPE: 'settings',
+  };
+
+  const isWindows = process.platform === 'win32';
+  const needsShell = isWindows && /\.(cmd|bat|ps1)$/i.test(claudeCli);
+  const env = { ...process.env, ...envVars };
+
+  let claude: ChildProcess;
+  if (needsShell) {
+    const cmdString = [claudeCli, '--settings', settingsPath, ...args].map(escapeShellArg).join(' ');
+    claude = spawn(cmdString, {
+      stdio: 'inherit',
+      windowsHide: true,
+      shell: true,
+      env,
+    });
+  } else {
+    claude = spawn(claudeCli, ['--settings', settingsPath, ...args], {
+      stdio: 'inherit',
+      windowsHide: true,
+      env,
+    });
+  }
+
+  // 4. Cleanup: stop proxy when Claude exits
+  claude.on('exit', (code, signal) => {
+    proxy.stop();
+    if (signal) process.kill(process.pid, signal as NodeJS.Signals);
+    else process.exit(code || 0);
+  });
+
+  claude.on('error', (error) => {
+    console.error(fail(`Claude CLI error: ${error}`));
+    proxy.stop();
+    process.exit(1);
+  });
+
+  process.once('SIGTERM', () => {
+    proxy.stop();
+    claude.kill('SIGTERM');
+  });
+
+  process.once('SIGINT', () => {
+    proxy.stop();
+    claude.kill('SIGTERM');
+  });
+}
+
 // ========== Main Execution ==========
 
 interface ProfileError extends Error {
@@ -605,6 +714,10 @@ async function main(): Promise<void> {
       if (profileInfo.name === 'glmt') {
         // GLMT FLOW: Settings-based with embedded proxy for thinking support
         await execClaudeWithProxy(claudeCli, profileInfo.name, remainingArgs);
+      } else if (profileInfo.protocol === 'openai') {
+        // OPENAI FLOW: Settings-based profile targeting an OpenAI Chat Completions endpoint
+        // Spawn AnthropicToOpenAIProxy in Chat Completions mode (no Responses API)
+        await execClaudeWithOpenAIProxy(claudeCli, profileInfo.name, remainingArgs);
       } else {
         // Check if scenario router is enabled
         const unifiedConfig = loadOrCreateUnifiedConfig();

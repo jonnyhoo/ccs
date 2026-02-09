@@ -46,6 +46,8 @@ export interface ProfileDetectionResult {
   env?: Record<string, string>;
   /** For copilot profile: the copilot config */
   copilotConfig?: CopilotConfig;
+  /** For API profiles: endpoint protocol ('anthropic' default, 'openai' for Chat Completions) */
+  protocol?: 'anthropic' | 'openai';
 }
 
 export interface AllProfiles {
@@ -128,6 +130,7 @@ class ProfileDetector {
         type: 'settings',
         name: profileName,
         env: settingsEnv,
+        protocol: profile.protocol,
       };
     }
 

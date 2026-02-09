@@ -49,6 +49,7 @@ interface ApiCommandArgs {
   preset?: string;
   force?: boolean;
   yes?: boolean;
+  openai?: boolean;
 }
 
 /** Parse command line arguments for api commands */
@@ -68,6 +69,8 @@ function parseArgs(args: string[]): ApiCommandArgs {
       result.preset = args[++i];
     } else if (arg === '--force') {
       result.force = true;
+    } else if (arg === '--openai') {
+      result.openai = true;
     } else if (arg === '--yes' || arg === '-y') {
       result.yes = true;
     } else if (!arg.startsWith('-') && !result.name) {
@@ -266,11 +269,29 @@ async function handleCreate(args: string[]): Promise<void> {
     haiku: haikuModel,
   };
 
+  // Step 6: Endpoint protocol detection
+  // OpenAI endpoints need a translation proxy; Anthropic endpoints connect directly
+  let protocol: 'anthropic' | 'openai' | undefined;
+  if (parsedArgs.openai) {
+    protocol = 'openai';
+  } else if (!parsedArgs.yes && !preset) {
+    // Auto-suggest OpenAI if URL looks like it (contains /v1, doesn't contain anthropic/coding)
+    const looksLikeOpenAI = /\/v1(\/|$)/i.test(baseUrl) && !/anthropic|coding/i.test(baseUrl);
+    console.log('');
+    const isOpenAI = await InteractivePrompt.confirm(
+      'Is this an OpenAI-compatible endpoint (Chat Completions)?',
+      { default: looksLikeOpenAI }
+    );
+    if (isOpenAI) {
+      protocol = 'openai';
+    }
+  }
+
   // Create profile
   console.log('');
   console.log(info('Creating API profile...'));
 
-  const result = createApiProfile(name, baseUrl, apiKey, models);
+  const result = createApiProfile(name, baseUrl, apiKey, models, protocol);
 
   if (!result.success) {
     console.log(fail(`Failed to create API profile: ${result.error}`));
@@ -293,6 +314,7 @@ async function handleCreate(args: string[]): Promise<void> {
     `Config:   ${isUsingUnifiedConfig() ? '~/.ccs/config.yaml' : '~/.ccs/config.json'}\n` +
     `Settings: ${result.settingsFile}\n` +
     `Base URL: ${baseUrl}\n` +
+    `Protocol: ${protocol === 'openai' ? 'OpenAI Chat Completions' : 'Anthropic Messages'}\n` +
     `Model:    ${model}`;
 
   if (hasCustomMapping) {
@@ -453,6 +475,7 @@ async function showHelp(): Promise<void> {
   console.log(`  ${color('--api-key <key>', 'command')}      API key (create)`);
   console.log(`  ${color('--model <model>', 'command')}      Default model (create)`);
   console.log(`  ${color('--force', 'command')}              Overwrite existing (create)`);
+  console.log(`  ${color('--openai', 'command')}             Mark as OpenAI-compatible endpoint (create)`);
   console.log(`  ${color('--yes, -y', 'command')}            Skip confirmation prompts`);
   console.log('');
   console.log(subheader('Provider Presets'));

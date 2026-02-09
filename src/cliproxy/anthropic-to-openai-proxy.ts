@@ -36,6 +36,12 @@ export interface AnthropicToOpenAIProxyConfig {
   verbose?: boolean;
   /** Request timeout in ms */
   timeoutMs?: number;
+  /**
+   * Use OpenAI Responses API (default: true).
+   * When true: uses /v1/responses with codex-specific params (prompt_cache_key, reasoning.summary, session headers).
+   * When false: uses /v1/chat/completions only (generic OpenAI-compatible endpoints).
+   */
+  useResponsesApi?: boolean;
 }
 
 // Anthropic types (incoming from Claude CLI)
@@ -775,7 +781,7 @@ export class AnthropicToOpenAIProxy {
   private server: http.Server | null = null;
   private port: number | null = null;
   private readonly config: Required<
-    Pick<AnthropicToOpenAIProxyConfig, 'targetBaseUrl' | 'apiKey' | 'verbose' | 'timeoutMs'>
+    Pick<AnthropicToOpenAIProxyConfig, 'targetBaseUrl' | 'apiKey' | 'verbose' | 'timeoutMs' | 'useResponsesApi'>
   >;
 
   constructor(config: AnthropicToOpenAIProxyConfig) {
@@ -788,6 +794,7 @@ export class AnthropicToOpenAIProxy {
       apiKey: config.apiKey,
       verbose: config.verbose ?? false,
       timeoutMs: config.timeoutMs ?? 120000,
+      useResponsesApi: config.useResponsesApi ?? true,
     };
   }
 
@@ -908,9 +915,9 @@ export class AnthropicToOpenAIProxy {
       // Build target base URL (without endpoint path)
       const targetBase = this.config.targetBaseUrl;
 
-      // This API only supports streaming Responses API
+      // Force streaming for upstream API (both Responses and Chat Completions)
       const wantStream = !!openaiReq.stream;
-      openaiReq.stream = true; // force streaming for API
+      openaiReq.stream = true;
       if (wantStream) {
         await this.handleStreaming(req, res, targetBase, openaiReq, model);
       } else {
@@ -956,6 +963,19 @@ export class AnthropicToOpenAIProxy {
           const bodyString = JSON.stringify(body);
           const requestFn = targetUrl.protocol === 'https:' ? https.request : http.request;
 
+          // Build headers: include codex session headers only when using Responses API
+          const upstreamHeaders: Record<string, string | number> = {
+            'Content-Type': 'application/json',
+            'Content-Length': Buffer.byteLength(bodyString),
+            Authorization: `Bearer ${this.config.apiKey}`,
+            Accept: 'text/event-stream',
+          };
+          if (this.config.useResponsesApi) {
+            upstreamHeaders['x-session-id'] = 'ccs-codex-stable';
+            upstreamHeaders['conversation_id'] = 'ccs-codex-stable';
+            upstreamHeaders['session_id'] = 'ccs-codex-stable';
+          }
+
           const upstreamReq = requestFn(
             {
               protocol: targetUrl.protocol,
@@ -964,15 +984,7 @@ export class AnthropicToOpenAIProxy {
               path: targetUrl.pathname + targetUrl.search,
               method: 'POST',
               timeout: this.config.timeoutMs,
-              headers: {
-                'Content-Type': 'application/json',
-                'Content-Length': Buffer.byteLength(bodyString),
-                Authorization: `Bearer ${this.config.apiKey}`,
-                Accept: 'text/event-stream',
-                'x-session-id': 'ccs-codex-stable',
-                conversation_id: 'ccs-codex-stable',
-                session_id: 'ccs-codex-stable',
-              },
+              headers: upstreamHeaders,
             },
             (upstreamRes) => {
               const statusCode = upstreamRes.statusCode || 200;
@@ -983,8 +995,8 @@ export class AnthropicToOpenAIProxy {
                 upstreamRes.on('end', () => {
                   const bodyErr = Buffer.concat(chunks).toString('utf8');
                   this.log(`Upstream ${mode} error ${statusCode}: ${bodyErr.slice(0, 200)}`);
-                  // Try fallback if we attempted chat first
-                  if (mode === 'chat') {
+                  // Try fallback: chat→responses (only if Responses API is enabled)
+                  if (mode === 'chat' && this.config.useResponsesApi) {
                     attempt('responses').then(resolveAttempt).catch(rejectAttempt);
                     return;
                   }
@@ -1339,8 +1351,8 @@ export class AnthropicToOpenAIProxy {
           });
 
           upstreamReq.on('error', (err) => {
-            // On network error for chat attempt, fallback to responses
-            if (mode === 'chat') {
+            // On network error for chat attempt, fallback to responses (only if Responses API enabled)
+            if (mode === 'chat' && this.config.useResponsesApi) {
               attempt('responses').then(resolveAttempt).catch(rejectAttempt);
               return;
             }
@@ -1362,7 +1374,8 @@ export class AnthropicToOpenAIProxy {
         });
       };
 
-      return attempt('responses');
+      // Start with Responses API for codex, Chat Completions for generic OpenAI endpoints
+      return attempt(this.config.useResponsesApi ? 'responses' : 'chat');
     });
   }
 
@@ -1378,12 +1391,29 @@ export class AnthropicToOpenAIProxy {
       let retried = false;
 
       const doRequest = (): void => {
-      const targetUrl = new URL(`${targetBase}/v1/responses`);
-      const body = translateChatToResponses(
-        JSON.parse(JSON.stringify({ ...openaiReqChat, stream: true })) as OpenAIRequest
-      );
+      // Use Responses API for codex, Chat Completions for generic OpenAI endpoints
+      const useResponses = this.config.useResponsesApi;
+      const targetUrl = new URL(`${targetBase}${useResponses ? '/v1/responses' : '/v1/chat/completions'}`);
+      const body = useResponses
+        ? translateChatToResponses(
+            JSON.parse(JSON.stringify({ ...openaiReqChat, stream: true })) as OpenAIRequest
+          )
+        : { ...openaiReqChat, stream: true };
       const bodyString = JSON.stringify(body);
       const requestFn = targetUrl.protocol === 'https:' ? https.request : http.request;
+
+      // Build headers: include codex session headers only when using Responses API
+      const nonStreamHeaders: Record<string, string | number> = {
+        'Content-Type': 'application/json',
+        'Content-Length': Buffer.byteLength(bodyString),
+        Authorization: `Bearer ${this.config.apiKey}`,
+        Accept: 'text/event-stream',
+      };
+      if (useResponses) {
+        nonStreamHeaders['x-session-id'] = 'ccs-codex-stable';
+        nonStreamHeaders['conversation_id'] = 'ccs-codex-stable';
+        nonStreamHeaders['session_id'] = 'ccs-codex-stable';
+      }
 
       const upstreamReq = requestFn(
         {
@@ -1393,15 +1423,7 @@ export class AnthropicToOpenAIProxy {
           path: targetUrl.pathname + targetUrl.search,
           method: 'POST',
           timeout: this.config.timeoutMs,
-          headers: {
-            'Content-Type': 'application/json',
-            'Content-Length': Buffer.byteLength(bodyString),
-            Authorization: `Bearer ${this.config.apiKey}`,
-            Accept: 'text/event-stream',
-            'x-session-id': 'ccs-codex-stable',
-            conversation_id: 'ccs-codex-stable',
-            session_id: 'ccs-codex-stable',
-          },
+          headers: nonStreamHeaders,
         },
         (upstreamRes) => {
           const statusCode = upstreamRes.statusCode || 200;
@@ -1455,6 +1477,39 @@ export class AnthropicToOpenAIProxy {
 
               try {
                 const parsed = JSON.parse(trimmed.slice(6));
+
+                // Chat Completions format (no .type field, has .choices)
+                if (!parsed?.type && parsed?.choices) {
+                  const choice = parsed.choices[0];
+                  if (choice?.delta?.content) collectedText += choice.delta.content;
+                  if (choice?.delta?.reasoning_content) collectedThinking += choice.delta.reasoning_content;
+                  if (choice?.delta?.tool_calls) {
+                    for (const tc of choice.delta.tool_calls) {
+                      const idx = tc.index ?? 0;
+                      if (tc.id) {
+                        activeToolCallsMap.set(idx, { id: tc.id, name: tc.function?.name || '', arguments: '' });
+                      }
+                      if (tc.function?.arguments) {
+                        const existing = activeToolCallsMap.get(idx);
+                        if (existing) existing.arguments += tc.function.arguments;
+                      }
+                    }
+                  }
+                  if (choice?.finish_reason && choice.finish_reason !== 'stop') {
+                    // Tool calls finished
+                    for (const [idx, tc] of activeToolCallsMap) {
+                      collectedToolCalls.push(tc);
+                      activeToolCallsMap.delete(idx);
+                    }
+                  }
+                  if (parsed.usage) {
+                    inputTokens = parsed.usage.prompt_tokens ?? inputTokens;
+                    outputTokens = parsed.usage.completion_tokens ?? outputTokens;
+                  }
+                  continue;
+                }
+
+                // Responses API format (has .type field)
                 if (!parsed?.type) continue;
                 const evtType: string = parsed.type;
 
