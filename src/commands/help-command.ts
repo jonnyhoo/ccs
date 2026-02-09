@@ -171,7 +171,7 @@ Run ${color('ccs config', 'command')} for web dashboard`.trim();
     [
       'Use your GitHub Copilot subscription with Claude Code via copilot-api',
       'Requires: npm install -g copilot-api',
-      'Note: For OAuth-based access, use ccs ghcp instead',
+      'Note: CLIProxy OAuth providers are removed in this lite build',
     ],
     [
       ['ccs copilot', 'Use Copilot via copilot-api daemon'],
