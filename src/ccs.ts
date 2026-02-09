@@ -1,11 +1,11 @@
 import { spawn, ChildProcess } from 'child_process';
 import * as path from 'path';
 import * as fs from 'fs';
+import * as os from 'os';
 import { detectClaudeCli } from './utils/claude-detector';
 import { getSettingsPath, loadSettings } from './utils/config-manager';
 import { validateGlmKey, validateMiniMaxKey } from './utils/api-key-validator';
 import { ErrorManager } from './utils/error-manager';
-import { execClaudeWithCLIProxy, CLIProxyProvider } from './cliproxy';
 import { getGlobalEnvConfig, loadOrCreateUnifiedConfig } from './config/unified-config-loader';
 import { ensureProfileHooks as ensureImageAnalyzerHooks } from './utils/hooks/image-analyzer-profile-hook-injector';
 import { fail, info } from './utils/ui';
@@ -55,6 +55,26 @@ function detectProfile(args: string[]): DetectedProfile {
     return { profile: args[0], remainingArgs: args.slice(1) };
   }
 }
+
+function showCliproxyOauthRemoved(): void {
+  console.error(fail('CLIProxy OAuth flow has been removed from this build.'));
+  console.error('');
+  console.error(info('Use one of these instead:'));
+  console.error('  1) ccs api create --openai   (OpenAI-compatible endpoint)');
+  console.error('  2) ccs glmt                  (GLMT thinking proxy)');
+  console.error('');
+}
+
+const REMOVED_CLIPROXY_PROFILES = new Set([
+  'gemini',
+  'codex',
+  'agy',
+  'qwen',
+  'iflow',
+  'kiro',
+  'ghcp',
+  'claude',
+]);
 
 // ========== GLMT Proxy Execution ==========
 
@@ -256,19 +276,54 @@ async function execClaudeWithOpenAIProxy(
     process.exit(1);
   }
 
-  // 3. Spawn Claude CLI pointing to local proxy
+  // 3. Create session settings pointing to local proxy
   const globalEnvConfig = getGlobalEnvConfig();
   const globalEnv = globalEnvConfig.enabled ? globalEnvConfig.env : {};
 
+  const effectiveBaseUrl = `http://127.0.0.1:${proxyPort}`;
+  const effectiveOpusModel = envData['ANTHROPIC_DEFAULT_OPUS_MODEL'] || model;
+  const effectiveSonnetModel = envData['ANTHROPIC_DEFAULT_SONNET_MODEL'] || model;
+  const effectiveHaikuModel = envData['ANTHROPIC_DEFAULT_HAIKU_MODEL'] || model;
+
+  const sessionSettingsPath = path.join(
+    os.tmpdir(),
+    `ccs-openai-${profileName}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.settings.json`
+  );
+
+  const sessionSettings = {
+    ...settings,
+    env: {
+      ...(settings.env || {}),
+      ANTHROPIC_BASE_URL: effectiveBaseUrl,
+      ANTHROPIC_AUTH_TOKEN: apiKey,
+      ANTHROPIC_MODEL: model,
+      ANTHROPIC_DEFAULT_OPUS_MODEL: effectiveOpusModel,
+      ANTHROPIC_DEFAULT_SONNET_MODEL: effectiveSonnetModel,
+      ANTHROPIC_DEFAULT_HAIKU_MODEL: effectiveHaikuModel,
+    },
+  };
+
+  fs.writeFileSync(sessionSettingsPath, JSON.stringify(sessionSettings, null, 2) + '\n', 'utf8');
+
   const envVars: NodeJS.ProcessEnv = {
     ...globalEnv,
-    ANTHROPIC_BASE_URL: `http://127.0.0.1:${proxyPort}`,
+    ANTHROPIC_BASE_URL: effectiveBaseUrl,
     ANTHROPIC_AUTH_TOKEN: apiKey,
     ANTHROPIC_MODEL: model,
-    ANTHROPIC_DEFAULT_OPUS_MODEL: envData['ANTHROPIC_DEFAULT_OPUS_MODEL'] || model,
-    ANTHROPIC_DEFAULT_SONNET_MODEL: envData['ANTHROPIC_DEFAULT_SONNET_MODEL'] || model,
-    ANTHROPIC_DEFAULT_HAIKU_MODEL: envData['ANTHROPIC_DEFAULT_HAIKU_MODEL'] || model,
+    ANTHROPIC_DEFAULT_OPUS_MODEL: effectiveOpusModel,
+    ANTHROPIC_DEFAULT_SONNET_MODEL: effectiveSonnetModel,
+    ANTHROPIC_DEFAULT_HAIKU_MODEL: effectiveHaikuModel,
     CCS_PROFILE_TYPE: 'settings',
+  };
+
+  const cleanupSessionSettings = (): void => {
+    try {
+      if (fs.existsSync(sessionSettingsPath)) {
+        fs.unlinkSync(sessionSettingsPath);
+      }
+    } catch {
+      // Ignore cleanup errors
+    }
   };
 
   const isWindows = process.platform === 'win32';
@@ -277,7 +332,7 @@ async function execClaudeWithOpenAIProxy(
 
   let claude: ChildProcess;
   if (needsShell) {
-    const cmdString = [claudeCli, '--settings', settingsPath, ...args]
+    const cmdString = [claudeCli, '--settings', sessionSettingsPath, ...args]
       .map(escapeShellArg)
       .join(' ');
     claude = spawn(cmdString, {
@@ -287,16 +342,17 @@ async function execClaudeWithOpenAIProxy(
       env,
     });
   } else {
-    claude = spawn(claudeCli, ['--settings', settingsPath, ...args], {
+    claude = spawn(claudeCli, ['--settings', sessionSettingsPath, ...args], {
       stdio: 'inherit',
       windowsHide: true,
       env,
     });
   }
 
-  // 4. Cleanup: stop proxy when Claude exits
+  // 4. Cleanup: stop proxy and remove session settings when Claude exits
   claude.on('exit', (code, signal) => {
     proxy.stop();
+    cleanupSessionSettings();
     if (signal) process.kill(process.pid, signal as NodeJS.Signals);
     else process.exit(code || 0);
   });
@@ -304,16 +360,19 @@ async function execClaudeWithOpenAIProxy(
   claude.on('error', (error) => {
     console.error(fail(`Claude CLI error: ${error}`));
     proxy.stop();
+    cleanupSessionSettings();
     process.exit(1);
   });
 
   process.once('SIGTERM', () => {
     proxy.stop();
+    cleanupSessionSettings();
     claude.kill('SIGTERM');
   });
 
   process.once('SIGINT', () => {
     proxy.stop();
+    cleanupSessionSettings();
     claude.kill('SIGTERM');
   });
 }
@@ -530,11 +589,10 @@ async function main(): Promise<void> {
     return;
   }
 
-  // Special case: cliproxy command (manages CLIProxyAPI binary)
+  // Special case: cliproxy command (removed in lite mode)
   if (firstArg === 'cliproxy') {
-    const { handleCliproxyCommand } = await import('./commands/cliproxy-command');
-    await handleCliproxyCommand(args.slice(1));
-    return;
+    showCliproxyOauthRemoved();
+    process.exit(1);
   }
 
   // Special case: config command (web dashboard)
@@ -603,6 +661,11 @@ async function main(): Promise<void> {
   // Auto-delegation: 当 profile 后跟非 flag 文本时，自动作为后台委派任务执行
   // 例: ccs zhipu "写一个排序函数" → 后台委派给 zhipu
   // 加 --wait/-w 可前台阻塞执行
+  if (REMOVED_CLIPROXY_PROFILES.has(profile)) {
+    showCliproxyOauthRemoved();
+    process.exit(1);
+  }
+
   if (remainingArgs.length > 0 && !remainingArgs[0].startsWith('-') && profile !== 'default') {
     const { DelegationHandler } = await import('./delegation/delegation-handler');
     const handler = new DelegationHandler();
@@ -632,17 +695,8 @@ async function main(): Promise<void> {
     const profileInfo = detector.detectProfileType(profile);
 
     if (profileInfo.type === 'cliproxy') {
-      // CLIPROXY FLOW: OAuth-based profiles (gemini, codex, agy, qwen) or user-defined variants
-      // Inject Image Analyzer hook into profile settings before launch
-      ensureImageAnalyzerHooks(profileInfo.name);
-
-      const provider = profileInfo.provider || (profileInfo.name as CLIProxyProvider);
-      const customSettingsPath = profileInfo.settingsPath; // undefined for hardcoded profiles
-      const variantPort = profileInfo.port; // variant-specific port for isolation
-      await execClaudeWithCLIProxy(claudeCli, provider, remainingArgs, {
-        customSettingsPath,
-        port: variantPort,
-      });
+      showCliproxyOauthRemoved();
+      process.exit(1);
     } else if (profileInfo.type === 'copilot') {
       // COPILOT FLOW: GitHub Copilot subscription via copilot-api proxy
       // Inject Image Analyzer hook into profile settings before launch

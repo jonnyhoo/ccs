@@ -19,7 +19,7 @@ import { getCcsDir } from '../utils/config-manager';
 
 export type ProfileType = 'settings' | 'account' | 'cliproxy' | 'copilot' | 'default';
 
-/** CLIProxy profile names (OAuth-based, zero config) */
+/** Legacy CLIProxy profile names (kept for backward-compatible error handling) */
 export const CLIPROXY_PROFILES = [
   'gemini',
   'codex',
@@ -202,7 +202,7 @@ class ProfileDetector {
       return this.resolveDefaultProfile();
     }
 
-    // Priority 0: Check CLIProxy profiles (gemini, codex, agy, qwen) - OAuth-based, zero config
+    // Priority 0: Detect legacy CLIProxy profile names and route to disabled flow
     if (CLIPROXY_PROFILES.includes(profileName as CLIProxyProfileName)) {
       return {
         type: 'cliproxy',
@@ -358,11 +358,10 @@ class ProfileDetector {
   private listAvailableProfiles(): string {
     const lines: string[] = [];
 
-    // CLIProxy profiles (OAuth-based, always available)
-    lines.push('CLIProxy profiles (OAuth, zero config):');
-    CLIPROXY_PROFILES.forEach((name) => {
-      lines.push(`  - ${name}`);
-    });
+    // CLIProxy OAuth profiles have been removed from lite mode.
+    lines.push(
+      'Removed feature: CLIProxy OAuth profiles (gemini/codex/agy/qwen/iflow/kiro/ghcp/claude)'
+    );
 
     // Check unified config first
     const unifiedConfig = this.readUnifiedConfig();
@@ -373,13 +372,13 @@ class ProfileDetector {
         lines.push(`  - copilot (model: ${unifiedConfig.copilot.model})`);
       }
 
-      // CLIProxy variants from unified config
+      // CLIProxy variants are kept in config for backward compatibility, but not executable.
       const variants = Object.keys(unifiedConfig.cliproxy?.variants || {});
       if (variants.length > 0) {
-        lines.push('CLIProxy variants (unified config):');
+        lines.push('Disabled CLIProxy variants (unified config):');
         variants.forEach((name) => {
           const variant = unifiedConfig.cliproxy?.variants[name];
-          lines.push(`  - ${name} (${variant?.provider || 'unknown'})`);
+          lines.push(`  - ${name} (${variant?.provider || 'unknown'}) [DISABLED]`);
         });
       }
 
@@ -407,16 +406,16 @@ class ProfileDetector {
     }
 
     // Fall back to legacy config display
-    // CLIProxy variants (user-defined)
+    // Disabled CLIProxy variants (user-defined)
     const config = this.readConfig();
     const cliproxyVariants = Object.keys(config.cliproxy || {});
 
     const cliproxyConfig = config.cliproxy;
     if (cliproxyVariants.length > 0 && cliproxyConfig) {
-      lines.push('CLIProxy variants (user-defined):');
+      lines.push('Disabled CLIProxy variants (user-defined):');
       cliproxyVariants.forEach((name) => {
         const variant = cliproxyConfig[name];
-        lines.push(`  - ${name} (${variant.provider})`);
+        lines.push(`  - ${name} (${variant.provider}) [DISABLED]`);
       });
     }
 
@@ -467,8 +466,8 @@ class ProfileDetector {
       return {
         settings: Object.keys(unifiedConfig.profiles || {}),
         accounts: Object.keys(unifiedConfig.accounts || {}),
-        cliproxy: [...CLIPROXY_PROFILES],
-        cliproxyVariants: Object.keys(unifiedConfig.cliproxy?.variants || {}),
+        cliproxy: [],
+        cliproxyVariants: [],
         default: unifiedConfig.default,
       };
     }
@@ -480,8 +479,8 @@ class ProfileDetector {
     return {
       settings: Object.keys(config.profiles || {}),
       accounts: Object.keys(profiles.profiles || {}),
-      cliproxy: [...CLIPROXY_PROFILES],
-      cliproxyVariants: Object.keys(config.cliproxy || {}),
+      cliproxy: [],
+      cliproxyVariants: [],
       default: profiles.default,
     };
   }

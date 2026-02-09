@@ -152,42 +152,14 @@ Run ${color('ccs config', 'command')} for web dashboard`.trim();
   );
 
   // ═══════════════════════════════════════════════════════════════════════════
-  // MAJOR SECTION 3: CLI Proxy (OAuth Providers)
+  // MAJOR SECTION 3: CLI Proxy OAuth (Removed)
   // ═══════════════════════════════════════════════════════════════════════════
   printMajorSection(
-    'CLI Proxy Plus (OAuth Providers)',
+    'CLI Proxy OAuth (Removed)',
+    ['gemini/codex/agy/qwen/iflow/kiro/ghcp/claude are disabled in this build'],
     [
-      'Zero-config OAuth authentication via CLIProxy Plus',
-      'First run: Browser opens for authentication, then model selection',
-      'Settings: ~/.ccs/{provider}.settings.json (created after auth)',
-    ],
-    [
-      ['ccs gemini', 'Google Gemini (gemini-2.5-pro or 3-pro)'],
-      ['ccs codex', 'OpenAI Codex (gpt-5.1-codex-max)'],
-      ['ccs agy', 'Antigravity (Claude/Gemini models)'],
-      ['ccs qwen', 'Qwen Code (qwen3-coder)'],
-      ['ccs kiro', 'Kiro (AWS CodeWhisperer Claude models)'],
-      ['ccs ghcp', 'GitHub Copilot (OAuth via CLIProxy Plus)'],
-      ['', ''], // Spacer
-      ['ccs <provider> --auth', 'Authenticate only'],
-      ['ccs <provider> --auth --add', 'Add another account'],
-      [
-        'ccs <provider> --paste-callback',
-        'Show auth URL and prompt for callback paste (cross-browser)',
-      ],
-      ['ccs <provider> --accounts', 'List all accounts'],
-      ['ccs <provider> --use <name>', 'Switch to account'],
-      ['ccs <provider> --config', 'Change model (agy, gemini)'],
-      [
-        'ccs <provider> --thinking <value>',
-        'Set thinking budget (low/medium/high/xhigh/auto/off or number)',
-      ],
-      ['ccs <provider> --setup', 'Configure custom API endpoint (skip OAuth)'],
-      ['ccs <provider> --logout', 'Clear authentication'],
-      ['ccs <provider> --headless', 'Headless auth (for SSH)'],
-      ['ccs kiro --import', 'Import token from Kiro IDE'],
-      ['ccs kiro --incognito', 'Use incognito browser (default: normal)'],
-      ['ccs codex "explain code"', 'Use with prompt'],
+      ['ccs api create --openai', 'Use OpenAI-compatible endpoint profiles'],
+      ['ccs glmt', 'Use GLMT thinking proxy'],
     ]
   );
 
@@ -239,7 +211,7 @@ Run ${color('ccs config', 'command')} for web dashboard`.trim();
   printSubSection('Diagnostics', [
     ['ccs setup', 'First-time setup wizard'],
     ['ccs doctor', 'Run health check and diagnostics'],
-    ['ccs cleanup', 'Remove old CLIProxy logs'],
+    ['ccs cleanup', 'Remove old CCS temp/log files'],
     ['ccs config', 'Open web configuration dashboard'],
     ['ccs config auth setup', 'Configure dashboard login'],
     ['ccs config auth show', 'Show dashboard auth status'],
@@ -270,31 +242,6 @@ Run ${color('ccs config', 'command')} for web dashboard`.trim();
     ['Settings:', '~/.ccs/*.settings.json'],
   ]);
 
-  // CLI Proxy management
-  printSubSection('CLI Proxy Plus Management', [
-    ['ccs cliproxy', 'Show CLIProxy Plus status and version'],
-    ['ccs cliproxy --help', 'Full CLIProxy Plus management help'],
-    ['ccs cliproxy doctor', 'Quota diagnostics (Antigravity)'],
-    ['ccs cliproxy --install <ver>', 'Install specific version (e.g., 6.6.6)'],
-    ['ccs cliproxy --latest', 'Update to latest version'],
-    ['', ''], // Spacer
-    ['ccs cliproxy pause <p> <a>', 'Pause account from rotation'],
-    ['ccs cliproxy resume <p> <a>', 'Resume paused account'],
-    ['ccs cliproxy status [provider]', 'Show quota/tier/pause status'],
-  ]);
-
-  // CLI Proxy configuration flags (new)
-  printSubSection('CLI Proxy Configuration', [
-    ['--proxy-host <host>', 'Remote proxy hostname/IP'],
-    ['--proxy-port <port>', 'Proxy port (default: 8317)'],
-    ['--proxy-protocol <proto>', 'Protocol: http or https (default: http)'],
-    ['--proxy-auth-token <token>', 'Auth token for remote proxy'],
-    ['--proxy-timeout <ms>', 'Connection timeout in ms (default: 2000)'],
-    ['--local-proxy', 'Force local mode, ignore remote config'],
-    ['--remote-only', 'Fail if remote unreachable (no fallback)'],
-    ['--allow-self-signed', 'Allow self-signed certs (for dev proxies)'],
-  ]);
-
   // W3: Thinking Budget explanation
   printSubSection('Extended Thinking (--thinking)', [
     ['--thinking off', 'Disable extended thinking'],
@@ -306,53 +253,8 @@ Run ${color('ccs config', 'command')} for web dashboard`.trim();
     ['--thinking <number>', 'Custom token budget (512-100000)'],
     ['', ''],
     ['Note:', 'Extended thinking allocates compute for step-by-step reasoning'],
-    ['', 'before responding. Supported: agy, gemini (thinking models).'],
+    ['', 'before responding. Supported when the active profile enables thinking.'],
   ]);
-
-  // Image Analysis
-  printSubSection('Image Analysis (CLIProxy vision)', [
-    ['ccs config image-analysis', 'Show current settings'],
-    ['ccs config image-analysis --enable', 'Enable for CLIProxy providers'],
-    ['ccs config image-analysis --disable', 'Disable (use native Read)'],
-    ['ccs config image-analysis --timeout 120', 'Set analysis timeout'],
-    ['ccs config image-analysis --set-model <p> <m>', 'Set provider model'],
-    ['', ''],
-    ['Note:', 'When enabled, images/PDFs are analyzed via vision models'],
-    ['', 'instead of passing raw data to Claude. Works with CLIProxy'],
-    ['', 'providers (agy, gemini, codex, kiro, ghcp).'],
-  ]);
-
-  // Provider API key env vars (portable cross-machine config)
-  printSubSection('Provider API Key Environment Variables', [
-    ['CCS_CODEX_API_KEY', 'Codex API key (skips OAuth)'],
-    ['CCS_CODEX_BASE_URL', 'Codex custom base URL'],
-    ['CCS_GEMINI_API_KEY', 'Gemini API key (skips OAuth)'],
-    ['CCS_GEMINI_BASE_URL', 'Gemini custom base URL'],
-    ['CCS_CLAUDE_API_KEY', 'Claude API key (skips OAuth)'],
-    ['CCS_CLAUDE_BASE_URL', 'Claude custom base URL'],
-    ['', ''],
-    ['Note:', 'Set these in your shell profile for portable config.'],
-    ['', 'Auto-persists to CLIProxy config on first run.'],
-  ]);
-
-  // CLI Proxy env vars
-  printSubSection('CLI Proxy Environment Variables', [
-    ['CCS_PROXY_HOST', 'Remote proxy hostname'],
-    ['CCS_PROXY_PORT', 'Proxy port'],
-    ['CCS_PROXY_PROTOCOL', 'Protocol (http/https)'],
-    ['CCS_PROXY_AUTH_TOKEN', 'Auth token'],
-    ['CCS_PROXY_TIMEOUT', 'Connection timeout in ms'],
-    ['CCS_PROXY_FALLBACK_ENABLED', 'Enable local fallback (1/0)'],
-    ['CCS_ALLOW_SELF_SIGNED', 'Allow self-signed certs (1/0)'],
-  ]);
-
-  // CLI Proxy paths
-  console.log(subheader('CLI Proxy:'));
-  console.log(`  Binary:      ${color('~/.ccs/cliproxy/bin/cli-proxy-api-plus', 'path')}`);
-  console.log(`  Config:      ${color('~/.ccs/cliproxy/config.yaml', 'path')}`);
-  console.log(`  Auth:        ${color('~/.ccs/cliproxy/auth/', 'path')}`);
-  console.log(`  ${dim('Port: 8317 (default)')}`);
-  console.log('');
 
   // Shared Data
   console.log(subheader('Shared Data:'));
@@ -366,7 +268,7 @@ Run ${color('ccs config', 'command')} for web dashboard`.trim();
   console.log(subheader('Examples:'));
   console.log(`  $ ${color('ccs', 'command')}                     ${dim('# Use default account')}`);
   console.log(
-    `  $ ${color('ccs gemini', 'command')}              ${dim('# OAuth (browser opens first time)')}`
+    `  $ ${color('ccs api create --openai', 'command')} ${dim('# Create OpenAI-compatible profile')}`
   );
   console.log(`  $ ${color('ccs glm "implement API"', 'command')} ${dim('# API key model')}`);
   console.log(`  $ ${color('ccs config', 'command')}              ${dim('# Open web dashboard')}`);

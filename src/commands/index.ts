@@ -4,7 +4,6 @@
 
 export { handleApiCommand } from './api-command';
 export { handleCleanupCommand } from './cleanup-command';
-export { handleCliproxyCommand } from './cliproxy-command';
 export { handleConfigCommand } from './config-command';
 export { handleConfigImageAnalysisCommand } from './config-image-analysis-command';
 export { handleCopilotCommand } from './copilot-command';

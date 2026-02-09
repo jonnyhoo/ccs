@@ -813,6 +813,78 @@ interface ResponsesRequest {
   reasoning?: { effort?: string };
 }
 
+function normalizeModelCreatedAt(created: unknown): string {
+  if (typeof created === 'number' && Number.isFinite(created) && created > 0) {
+    return new Date(created * 1000).toISOString();
+  }
+  return new Date().toISOString();
+}
+
+function normalizeModelsPayloadForAnthropic(rawPayload: string): string {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(rawPayload);
+  } catch {
+    return rawPayload;
+  }
+
+  if (!parsed || typeof parsed !== 'object') {
+    return rawPayload;
+  }
+
+  const record = parsed as Record<string, unknown>;
+  const data = record.data;
+
+  if (Array.isArray(data)) {
+    const alreadyAnthropic = data.every((item) => {
+      if (!item || typeof item !== 'object') return false;
+      const m = item as Record<string, unknown>;
+      return typeof m.id === 'string' && typeof m.created_at === 'string';
+    });
+
+    if (alreadyAnthropic) {
+      return rawPayload;
+    }
+
+    const models = data
+      .filter((item) => item && typeof item === 'object')
+      .map((item) => {
+        const m = item as Record<string, unknown>;
+        const id = typeof m.id === 'string' ? m.id : '';
+        if (!id) return null;
+        return {
+          type: 'model',
+          id,
+          display_name: id,
+          created_at: normalizeModelCreatedAt(m.created),
+        };
+      })
+      .filter(
+        (item): item is { type: string; id: string; display_name: string; created_at: string } =>
+          Boolean(item)
+      );
+
+    return JSON.stringify({
+      data: models,
+      first_id: models.length > 0 ? models[0].id : null,
+      last_id: models.length > 0 ? models[models.length - 1].id : null,
+      has_more: false,
+    });
+  }
+
+  if (typeof record.id === 'string') {
+    const id = record.id;
+    return JSON.stringify({
+      type: 'model',
+      id,
+      display_name: id,
+      created_at: normalizeModelCreatedAt(record.created),
+    });
+  }
+
+  return rawPayload;
+}
+
 // ─── Proxy Server ────────────────────────────────────────────────────────────
 
 export class AnthropicToOpenAIProxy {
@@ -948,6 +1020,87 @@ export class AnthropicToOpenAIProxy {
     });
   }
 
+  private async handleModelsRequest(
+    requestPath: string,
+    clientRes: http.ServerResponse
+  ): Promise<void> {
+    return new Promise((resolve) => {
+      const targetUrl = new URL(`${this.config.targetBaseUrl}${requestPath}`);
+      const requestFn = targetUrl.protocol === 'https:' ? https.request : http.request;
+
+      const upstreamReq = requestFn(
+        {
+          protocol: targetUrl.protocol,
+          hostname: targetUrl.hostname,
+          port: targetUrl.port,
+          path: targetUrl.pathname + targetUrl.search,
+          method: 'GET',
+          timeout: this.config.timeoutMs,
+          agent: targetUrl.protocol === 'https:' ? this.httpsAgent : this.httpAgent,
+          headers: {
+            Authorization: `Bearer ${this.config.apiKey}`,
+            Accept: 'application/json',
+          },
+        },
+        (upstreamRes) => {
+          const chunks: Buffer[] = [];
+          upstreamRes.on('data', (chunk: Buffer) => chunks.push(chunk));
+          upstreamRes.on('end', () => {
+            const statusCode = upstreamRes.statusCode || 502;
+            const rawBody = Buffer.concat(chunks).toString('utf8');
+            const normalizedBody =
+              statusCode < 400 ? normalizeModelsPayloadForAnthropic(rawBody) : rawBody;
+
+            if (!clientRes.headersSent) {
+              clientRes.writeHead(statusCode, { 'Content-Type': 'application/json' });
+            }
+            clientRes.end(
+              normalizedBody ||
+                JSON.stringify({
+                  type: 'error',
+                  error: {
+                    type: 'api_error',
+                    message: `Upstream models request failed: ${statusCode}`,
+                  },
+                })
+            );
+            resolve();
+          });
+          upstreamRes.on('error', (err) => {
+            if (!clientRes.headersSent) {
+              clientRes.writeHead(502, { 'Content-Type': 'application/json' });
+            }
+            clientRes.end(
+              JSON.stringify({
+                type: 'error',
+                error: { type: 'api_error', message: err.message },
+              })
+            );
+            resolve();
+          });
+        }
+      );
+
+      upstreamReq.on('timeout', () => {
+        upstreamReq.destroy(new Error('Upstream models request timeout'));
+      });
+      upstreamReq.on('error', (err) => {
+        if (!clientRes.headersSent) {
+          clientRes.writeHead(502, { 'Content-Type': 'application/json' });
+        }
+        clientRes.end(
+          JSON.stringify({
+            type: 'error',
+            error: { type: 'api_error', message: err.message },
+          })
+        );
+        resolve();
+      });
+
+      upstreamReq.end();
+    });
+  }
+
   private async handleRequest(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
     const method = req.method || 'GET';
     let requestPath = req.url || '/';
@@ -976,6 +1129,11 @@ export class AnthropicToOpenAIProxy {
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ input_tokens: 1000 }));
       }
+      return;
+    }
+
+    if (method === 'GET' && requestPath.startsWith('/v1/models')) {
+      await this.handleModelsRequest(requestPath, res);
       return;
     }
 
