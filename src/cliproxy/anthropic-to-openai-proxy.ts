@@ -134,6 +134,7 @@ interface OpenAIStreamChunk {
     delta?: {
       role?: string;
       content?: string | null;
+      reasoning_content?: string | null;
       tool_calls?: Array<{
         index?: number;
         id?: string;
@@ -528,17 +529,18 @@ class StreamingResponseTranslator {
     }
 
     // Handle reasoning content (OpenAI Chat Completions returns this for reasoning models)
-    if (
-      (delta as any)?.reasoning_content !== undefined &&
-      (delta as any).reasoning_content !== null
-    ) {
-      const reasoningText = (delta as any).reasoning_content as string;
-      if (reasoningText) {
-        // Log reasoning content for debugging
-        console.error(
-          `[anthropic-to-openai] [REASONING] got reasoning_content: ${reasoningText.slice(0, 100)}`
-        );
+    if (delta?.reasoning_content !== undefined && delta.reasoning_content !== null) {
+      if (!this.inThinkingBlock) {
+        events += this.emitThinkingStart();
       }
+      if (delta.reasoning_content) {
+        events += this.emitThinkingDelta(delta.reasoning_content);
+      }
+    }
+
+    // Close thinking block when text content starts
+    if (delta?.content !== undefined && delta.content !== null && this.inThinkingBlock) {
+      events += this.emitThinkingStop();
     }
 
     // Handle text content
@@ -1358,6 +1360,9 @@ export class AnthropicToOpenAIProxy {
             'Content-Length': Buffer.byteLength(bodyString),
             Authorization: `Bearer ${this.config.apiKey}`,
             Accept: 'text/event-stream',
+            'x-session-id': 'ccs-codex-stable',
+            conversation_id: 'ccs-codex-stable',
+            session_id: 'ccs-codex-stable',
           },
         },
         (upstreamRes) => {
@@ -1381,9 +1386,10 @@ export class AnthropicToOpenAIProxy {
             return;
           }
 
-          // Collect text and tool calls from streaming events
+          // Collect text, thinking, and tool calls from streaming events
           let buffer = '';
           let collectedText = '';
+          let collectedThinking = '';
           const collectedToolCalls: Array<{ id: string; name: string; arguments: string }> = [];
           const activeToolCallsMap = new Map<
             number,
@@ -1409,6 +1415,11 @@ export class AnthropicToOpenAIProxy {
 
                 if (evtType.endsWith('.output_text.delta') && typeof parsed.delta === 'string') {
                   collectedText += parsed.delta;
+                } else if (
+                  evtType === 'response.reasoning_summary_text.delta' &&
+                  typeof parsed.delta === 'string'
+                ) {
+                  collectedThinking += parsed.delta;
                 } else if (
                   evtType === 'response.output_item.added' &&
                   parsed.item?.type === 'function_call'
@@ -1451,6 +1462,9 @@ export class AnthropicToOpenAIProxy {
           upstreamRes.on('end', () => {
             // Build Anthropic Messages API response
             const content: unknown[] = [];
+            if (collectedThinking) {
+              content.push({ type: 'thinking', thinking: collectedThinking, signature: '' });
+            }
             if (collectedText) {
               content.push({ type: 'text', text: collectedText });
             }
