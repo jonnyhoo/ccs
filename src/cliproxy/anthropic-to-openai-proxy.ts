@@ -407,6 +407,7 @@ function translateChatToResponses(chat: OpenAIRequest): ResponsesRequest {
     top_p: chat.top_p,
     stop: chat.stop,
     store: false,
+    prompt_cache_key: 'ccs-codex-stable',
     reasoning: {
       ...(typeof chat.reasoning === 'object' ? chat.reasoning : {}),
       effort: chat.reasoning?.effort ?? 'xhigh',
