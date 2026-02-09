@@ -432,8 +432,46 @@ function translateChatToResponses(chat: OpenAIRequest): ResponsesRequest {
       parameters: t.function.parameters,
     }));
   }
-  if (chat.tool_choice) req.tool_choice = chat.tool_choice as any;
+  const responsesToolChoice = translateToolChoiceForResponses(chat.tool_choice);
+  if (responsesToolChoice !== undefined) req.tool_choice = responsesToolChoice as any;
   return req;
+}
+
+function translateToolChoiceForResponses(
+  toolChoice: OpenAIRequest['tool_choice']
+): string | { type: 'function'; name: string } | undefined {
+  if (!toolChoice) return undefined;
+  if (typeof toolChoice === 'string') return toolChoice;
+
+  if (toolChoice.type === 'function') {
+    const name = toolChoice.function?.name?.trim();
+    if (!name) return 'auto';
+    return { type: 'function', name };
+  }
+
+  return 'auto';
+}
+
+function consumeSSEEvents(buffer: string): { events: string[]; rest: string } {
+  const normalized = buffer.replace(/\r\n/g, '\n');
+  const parts = normalized.split('\n\n');
+  const rest = parts.pop() || '';
+  return {
+    events: parts.filter((evt) => evt.trim().length > 0),
+    rest,
+  };
+}
+
+function extractSSEDataPayload(event: string): string | null {
+  const dataLines: string[] = [];
+  for (const rawLine of event.split('\n')) {
+    const line = rawLine.trimEnd();
+    if (!line.startsWith('data:')) continue;
+    dataLines.push(line.slice(5).trimStart());
+  }
+
+  if (dataLines.length === 0) return null;
+  return dataLines.join('\n');
 }
 
 // ─── Streaming Response Translation ──────────────────────────────────────────
@@ -781,8 +819,14 @@ export class AnthropicToOpenAIProxy {
   private server: http.Server | null = null;
   private port: number | null = null;
   private readonly config: Required<
-    Pick<AnthropicToOpenAIProxyConfig, 'targetBaseUrl' | 'apiKey' | 'verbose' | 'timeoutMs' | 'useResponsesApi'>
+    Pick<
+      AnthropicToOpenAIProxyConfig,
+      'targetBaseUrl' | 'apiKey' | 'verbose' | 'timeoutMs' | 'useResponsesApi'
+    >
   >;
+  private readonly httpAgent: http.Agent;
+  private readonly httpsAgent: https.Agent;
+  private readonly maxNetworkRetries = 2;
 
   constructor(config: AnthropicToOpenAIProxyConfig) {
     // Normalize base URL: strip trailing slashes and /v1 suffix
@@ -796,12 +840,62 @@ export class AnthropicToOpenAIProxy {
       timeoutMs: config.timeoutMs ?? 120000,
       useResponsesApi: config.useResponsesApi ?? true,
     };
+
+    this.httpAgent = new http.Agent({
+      keepAlive: true,
+      keepAliveMsecs: 10000,
+      maxSockets: 64,
+      maxFreeSockets: 16,
+    });
+    this.httpsAgent = new https.Agent({
+      keepAlive: true,
+      keepAliveMsecs: 10000,
+      maxSockets: 64,
+      maxFreeSockets: 16,
+    });
   }
 
   private log(msg: string): void {
     if (this.config.verbose) {
       console.error(`[anthropic-to-openai] ${msg}`);
     }
+  }
+
+  private isRetryableNetworkError(error: Error): boolean {
+    const err = error as NodeJS.ErrnoException;
+    const code = String(err.code || '');
+
+    if (
+      [
+        'ECONNRESET',
+        'ETIMEDOUT',
+        'EPIPE',
+        'ECONNREFUSED',
+        'ENOTFOUND',
+        'EHOSTUNREACH',
+        'ENETUNREACH',
+      ].includes(code)
+    ) {
+      return true;
+    }
+
+    const message = error.message.toLowerCase();
+    return (
+      message.includes('socket hang up') ||
+      message.includes('network socket disconnected') ||
+      message.includes('client network socket disconnected')
+    );
+  }
+
+  private isRetryableStatusCode(statusCode: number): boolean {
+    return [408, 409, 425, 429, 500, 502, 503, 504].includes(statusCode);
+  }
+
+  private getRetryDelayMs(attempt: number, error?: Error): number {
+    const code = String((error as NodeJS.ErrnoException | undefined)?.code || '');
+    const baseMs = code === 'ECONNRESET' ? 3000 : 1000;
+    const jitter = Math.floor(Math.random() * 250);
+    return Math.min(baseMs * Math.pow(2, Math.max(0, attempt - 1)) + jitter, 15000);
   }
 
   async start(): Promise<number> {
@@ -823,10 +917,14 @@ export class AnthropicToOpenAIProxy {
   }
 
   stop(): void {
-    if (!this.server) return;
-    this.server.close();
-    this.server = null;
-    this.port = null;
+    if (this.server) {
+      this.server.close();
+      this.server = null;
+      this.port = null;
+    }
+
+    this.httpAgent.destroy();
+    this.httpsAgent.destroy();
   }
 
   private readBody(req: http.IncomingMessage): Promise<string> {
@@ -927,16 +1025,21 @@ export class AnthropicToOpenAIProxy {
     } catch (error) {
       const err = error as Error;
       this.log(`Error: ${err.message}`);
+
       if (!res.headersSent) {
         res.writeHead(502, { 'Content-Type': 'application/json' });
+        res.end(
+          JSON.stringify({
+            type: 'error',
+            error: { type: 'api_error', message: err.message },
+          })
+        );
+        return;
       }
-      // Return error in Anthropic format
-      res.end(
-        JSON.stringify({
-          type: 'error',
-          error: { type: 'api_error', message: err.message },
-        })
-      );
+
+      if (!res.writableEnded) {
+        res.end();
+      }
     }
   }
 
@@ -947,436 +1050,514 @@ export class AnthropicToOpenAIProxy {
     openaiReqChat: OpenAIRequest,
     model: string
   ): Promise<void> {
-    return new Promise((_resolve, _reject) => {
-      let retried = false;
-      const attempt = (mode: 'chat' | 'responses'): Promise<void> => {
-        return new Promise((resolveAttempt, rejectAttempt) => {
-          const targetUrl = new URL(
-            `${targetBase}${mode === 'chat' ? '/v1/chat/completions' : '/v1/responses'}`
-          );
-          const body =
-            mode === 'chat'
-              ? openaiReqChat
-              : translateChatToResponses(
-                  JSON.parse(JSON.stringify({ ...openaiReqChat, stream: true })) as any
-                );
-          const bodyString = JSON.stringify(body);
-          const requestFn = targetUrl.protocol === 'https:' ? https.request : http.request;
+    let retried401 = false;
+    const networkRetryCount: Record<'chat' | 'responses', number> = { chat: 0, responses: 0 };
 
-          // Build headers: include codex session headers only when using Responses API
-          const upstreamHeaders: Record<string, string | number> = {
-            'Content-Type': 'application/json',
-            'Content-Length': Buffer.byteLength(bodyString),
-            Authorization: `Bearer ${this.config.apiKey}`,
-            Accept: 'text/event-stream',
-          };
-          if (this.config.useResponsesApi) {
-            upstreamHeaders['x-session-id'] = 'ccs-codex-stable';
-            upstreamHeaders['conversation_id'] = 'ccs-codex-stable';
-            upstreamHeaders['session_id'] = 'ccs-codex-stable';
+    const attempt = (mode: 'chat' | 'responses'): Promise<void> => {
+      return new Promise((resolveAttempt, rejectAttempt) => {
+        const scheduleNetworkRetry = (err: Error, source: 'request' | 'response'): boolean => {
+          if (
+            !this.isRetryableNetworkError(err) ||
+            clientRes.headersSent ||
+            clientRes.writableEnded
+          ) {
+            return false;
           }
 
-          const upstreamReq = requestFn(
-            {
-              protocol: targetUrl.protocol,
-              hostname: targetUrl.hostname,
-              port: targetUrl.port,
-              path: targetUrl.pathname + targetUrl.search,
-              method: 'POST',
-              timeout: this.config.timeoutMs,
-              headers: upstreamHeaders,
-            },
-            (upstreamRes) => {
-              const statusCode = upstreamRes.statusCode || 200;
+          const next = networkRetryCount[mode] + 1;
+          if (next > this.maxNetworkRetries) {
+            return false;
+          }
 
-              if (statusCode >= 400) {
-                const chunks: Buffer[] = [];
-                upstreamRes.on('data', (c: Buffer) => chunks.push(c));
-                upstreamRes.on('end', () => {
-                  const bodyErr = Buffer.concat(chunks).toString('utf8');
-                  this.log(`Upstream ${mode} error ${statusCode}: ${bodyErr.slice(0, 200)}`);
-                  // Try fallback: chat→responses (only if Responses API is enabled)
-                  if (mode === 'chat' && this.config.useResponsesApi) {
-                    attempt('responses').then(resolveAttempt).catch(rejectAttempt);
-                    return;
-                  }
-                  // Auto-retry once on 401 (backend intermittently returns token_revoked)
-                  if (statusCode === 401 && !retried) {
-                    retried = true;
-                    this.log('401 received, retrying once...');
+          networkRetryCount[mode] = next;
+          const delay = this.getRetryDelayMs(next, err);
+          const seconds = Math.max(1, Math.round(delay / 1000));
+          const errCode = String((err as NodeJS.ErrnoException).code || '');
+          if (errCode === 'ECONNRESET') {
+            this.log(
+              `Connection reset by server [retrying in ${seconds}s attempt #${next}/${this.maxNetworkRetries}] (${source}, ${mode})`
+            );
+          } else {
+            this.log(
+              `Transient network error (${source}, ${mode}): ${err.message} [retrying in ${seconds}s attempt #${next}/${this.maxNetworkRetries}]`
+            );
+          }
+          setTimeout(() => {
+            attempt(mode).then(resolveAttempt).catch(rejectAttempt);
+          }, delay);
+          return true;
+        };
+
+        const targetUrl = new URL(
+          `${targetBase}${mode === 'chat' ? '/v1/chat/completions' : '/v1/responses'}`
+        );
+        const body =
+          mode === 'chat'
+            ? openaiReqChat
+            : translateChatToResponses(
+                JSON.parse(JSON.stringify({ ...openaiReqChat, stream: true })) as any
+              );
+        const bodyString = JSON.stringify(body);
+        const requestFn = targetUrl.protocol === 'https:' ? https.request : http.request;
+        // Build headers: include codex session headers only when using Responses API
+        const upstreamHeaders: Record<string, string | number> = {
+          'Content-Type': 'application/json',
+          'Content-Length': Buffer.byteLength(bodyString),
+          Authorization: `Bearer ${this.config.apiKey}`,
+          Accept: 'text/event-stream',
+        };
+        if (this.config.useResponsesApi) {
+          upstreamHeaders['x-session-id'] = 'ccs-codex-stable';
+          upstreamHeaders['conversation_id'] = 'ccs-codex-stable';
+          upstreamHeaders['session_id'] = 'ccs-codex-stable';
+        }
+
+        const upstreamReq = requestFn(
+          {
+            protocol: targetUrl.protocol,
+            hostname: targetUrl.hostname,
+            port: targetUrl.port,
+            path: targetUrl.pathname + targetUrl.search,
+            method: 'POST',
+            timeout: this.config.timeoutMs,
+            agent: targetUrl.protocol === 'https:' ? this.httpsAgent : this.httpAgent,
+            headers: upstreamHeaders,
+          },
+          (upstreamRes) => {
+            const statusCode = upstreamRes.statusCode || 200;
+
+            if (statusCode >= 400) {
+              const chunks: Buffer[] = [];
+              upstreamRes.on('data', (c: Buffer) => chunks.push(c));
+              upstreamRes.on('end', () => {
+                const bodyErr = Buffer.concat(chunks).toString('utf8');
+                this.log(`Upstream ${mode} error ${statusCode}: ${bodyErr.slice(0, 200)}`);
+                // Try fallback: chat→responses (only if Responses API is enabled)
+                if (mode === 'chat' && this.config.useResponsesApi) {
+                  attempt('responses').then(resolveAttempt).catch(rejectAttempt);
+                  return;
+                }
+                // Auto-retry once on 401 (backend intermittently returns token_revoked)
+                if (statusCode === 401 && !retried401) {
+                  retried401 = true;
+                  this.log('401 received, retrying once...');
+                  setTimeout(() => {
+                    attempt(mode).then(resolveAttempt).catch(rejectAttempt);
+                  }, 500);
+                  return;
+                }
+
+                if (this.isRetryableStatusCode(statusCode) && !clientRes.headersSent) {
+                  const next = networkRetryCount[mode] + 1;
+                  if (next <= this.maxNetworkRetries) {
+                    networkRetryCount[mode] = next;
+                    const delay = this.getRetryDelayMs(next);
+                    const seconds = Math.max(1, Math.round(delay / 1000));
+                    this.log(
+                      `Transient upstream status ${statusCode} [retrying in ${seconds}s attempt #${next}/${this.maxNetworkRetries}] (${mode})`
+                    );
                     setTimeout(() => {
                       attempt(mode).then(resolveAttempt).catch(rejectAttempt);
-                    }, 500);
+                    }, delay);
                     return;
                   }
-                  // No fallback left: return error
-                  if (!clientRes.headersSent) {
-                    clientRes.writeHead(statusCode, { 'Content-Type': 'application/json' });
+                }
+                // No fallback left: return error
+                if (!clientRes.headersSent) {
+                  clientRes.writeHead(statusCode, { 'Content-Type': 'application/json' });
+                }
+                try {
+                  const parsed = JSON.parse(bodyErr);
+                  clientRes.end(
+                    JSON.stringify({
+                      type: 'error',
+                      error: {
+                        type: 'api_error',
+                        message: parsed?.error?.message || bodyErr.slice(0, 500),
+                      },
+                    })
+                  );
+                } catch {
+                  clientRes.end(
+                    JSON.stringify({
+                      type: 'error',
+                      error: { type: 'api_error', message: bodyErr.slice(0, 500) },
+                    })
+                  );
+                }
+                resolveAttempt();
+              });
+              return;
+            }
+
+            // Set up Anthropic SSE response
+            clientRes.writeHead(200, {
+              'Content-Type': 'text/event-stream',
+              'Cache-Control': 'no-cache',
+              Connection: 'keep-alive',
+            });
+
+            const translator = new StreamingResponseTranslator(model);
+            let buffer = '';
+            let hasFinished = false;
+            const activeToolCalls = new Map<number, { id: string; name: string }>();
+            let refusalStarted = false;
+
+            upstreamRes.on('data', (chunk: Buffer) => {
+              buffer += chunk.toString('utf8');
+
+              const parsedEvents = consumeSSEEvents(buffer);
+              buffer = parsedEvents.rest;
+
+              for (const event of parsedEvents.events) {
+                if (hasFinished) continue;
+
+                const jsonStr = extractSSEDataPayload(event);
+                if (!jsonStr) continue;
+
+                if (jsonStr.trim() === '[DONE]') {
+                  if (!hasFinished) {
+                    const final = translator.emitFinalIfNeeded();
+                    if (final) clientRes.write(final);
+                    hasFinished = true;
                   }
+                  continue;
+                }
+
+                try {
+                  // Try Chat Completions chunk first
+                  const parsed = JSON.parse(jsonStr);
+                  if (parsed && parsed.type) {
+                    // Responses API event
+                    const evtType: string = parsed.type;
+                    if (evtType === 'keepalive') {
+                      // Keepalive event: silently ignore (connection heartbeat)
+                    } else if (
+                      evtType === 'response.created' ||
+                      evtType === 'response.in_progress'
+                    ) {
+                      // Response lifecycle events: silently ignore (informational only)
+                      // These indicate the response has started/is processing
+                    } else if (
+                      evtType.endsWith('.output_text.delta') &&
+                      typeof parsed.delta === 'string'
+                    ) {
+                      // Start block if needed, then stream text
+                      const start = translator.translateChunk({
+                        choices: [{ delta: { content: '' } }],
+                      } as any);
+                      const textDelta = translator.translateChunk({
+                        choices: [{ delta: { content: parsed.delta } }],
+                      } as any);
+                      if (start) clientRes.write(start);
+                      if (textDelta) clientRes.write(textDelta);
+                    } else if (evtType === 'response.output_text.done') {
+                      // output_text.done is informational; block close is handled by finish_reason/completed.
+                    } else if (evtType === 'response.output_item.added') {
+                      // Output item added: handle function_call, ignore message type (content comes via output_text.delta)
+                      if (parsed.item?.type === 'function_call') {
+                        // Tool call start: emit as Anthropic tool_use via fake chunk
+                        const tcId = parsed.item.call_id || parsed.item.id || `call_${Date.now()}`;
+                        const tcName = parsed.item.name || '';
+                        const outputIndex = parsed.output_index ?? 0;
+                        activeToolCalls.set(outputIndex, { id: tcId, name: tcName });
+                        const events = translator.translateChunk({
+                          choices: [
+                            {
+                              delta: {
+                                tool_calls: [
+                                  {
+                                    index: outputIndex,
+                                    id: tcId,
+                                    function: { name: tcName, arguments: '' },
+                                  },
+                                ],
+                              },
+                            },
+                          ],
+                        } as any);
+                        if (events) clientRes.write(events);
+                      }
+                      // Silently ignore message type - content is handled by output_text.delta
+                    } else if (
+                      evtType === 'response.content_part.added' ||
+                      evtType === 'response.content_part.done'
+                    ) {
+                      // Content part events: silently ignore (content is handled by output_text.delta)
+                      // These events indicate text/refusal content blocks but actual content comes via delta events
+                    } else if (
+                      evtType === 'response.function_call_arguments.delta' &&
+                      typeof parsed.delta === 'string'
+                    ) {
+                      // Tool call arguments delta
+                      const outputIndex = parsed.output_index ?? 0;
+                      const events = translator.translateChunk({
+                        choices: [
+                          {
+                            delta: {
+                              tool_calls: [
+                                { index: outputIndex, function: { arguments: parsed.delta } },
+                              ],
+                            },
+                          },
+                        ],
+                      } as any);
+                      if (events) clientRes.write(events);
+                    } else if (evtType === 'response.function_call_arguments.done') {
+                      // Tool call arguments complete: mark as done (translator will handle on finish_reason)
+                      this.log('Tool call arguments completed');
+                    } else if (evtType === 'response.output_item.done') {
+                      // Output item done: handle function_call, ignore message type
+                      if (parsed.item?.type === 'function_call') {
+                        // Tool call item done: just log, don't finish yet (wait for response.completed)
+                        this.log('Tool call item completed');
+                      }
+                      // Silently ignore message type
+                    } else if (
+                      evtType === 'response.refusal.delta' &&
+                      typeof parsed.delta === 'string'
+                    ) {
+                      // Refusal text delta: add [refusal] prefix only on first delta
+                      const start = translator.translateChunk({
+                        choices: [{ delta: { content: '' } }],
+                      } as any);
+                      const prefix = refusalStarted ? '' : '[refusal] ';
+                      const textDelta = translator.translateChunk({
+                        choices: [{ delta: { content: `${prefix}${parsed.delta}` } }],
+                      } as any);
+                      if (start) clientRes.write(start);
+                      if (textDelta) clientRes.write(textDelta);
+                      refusalStarted = true;
+                    } else if (evtType === 'response.refusal.done') {
+                      // Refusal complete: close block and finish
+                      const events = translator.translateChunk({
+                        choices: [{ finish_reason: 'end_turn' }],
+                      } as any);
+                      if (events) clientRes.write(events);
+                      hasFinished = true;
+                    } else if (evtType === 'error') {
+                      // Keep SSE protocol shape stable: emit error as assistant text, then finish.
+                      const errorMsg = parsed.error?.message || parsed.message || 'Unknown error';
+                      this.log(`Upstream SSE error event: ${errorMsg}`);
+                      if (!hasFinished) {
+                        const errorDelta = translator.translateChunk({
+                          choices: [{ delta: { content: `[upstream_error] ${errorMsg}` } }],
+                        } as any);
+                        if (errorDelta) clientRes.write(errorDelta);
+                        const finishEvent = translator.translateChunk({
+                          choices: [{ finish_reason: 'stop' }],
+                        } as any);
+                        if (finishEvent) clientRes.write(finishEvent);
+                        hasFinished = true;
+                      }
+                    } else if (evtType === 'response.completed') {
+                      // Extract usage info and emit final events
+                      if (parsed.response?.usage) {
+                        translator['inputTokens'] = parsed.response.usage.input_tokens ?? 0;
+                        translator['outputTokens'] = parsed.response.usage.output_tokens ?? 0;
+                      }
+                      if (!hasFinished) {
+                        hasFinished = true;
+                        // If we have active tool calls, emit tool_calls finish_reason
+                        if (activeToolCalls.size > 0) {
+                          const finishEvent = translator.translateChunk({
+                            choices: [{ finish_reason: 'tool_calls' }],
+                          } as any);
+                          if (finishEvent) clientRes.write(finishEvent);
+                        } else {
+                          // Only emit final if no tool calls (translateChunk already emitted terminal events)
+                          const final = translator.emitFinalIfNeeded();
+                          if (final) clientRes.write(final);
+                        }
+                      }
+                    } else if (evtType.startsWith('response.web_search.')) {
+                      // Web search events: log for debugging, treat as informational
+                      this.log(`Web search event: ${evtType}`);
+                      // Could emit as text delta if needed: "[Searching web...]"
+                      if (evtType === 'response.web_search.started') {
+                        const searchDelta = translator.translateChunk({
+                          choices: [{ delta: { content: '[Searching web...]\n' } }],
+                        } as any);
+                        if (searchDelta) clientRes.write(searchDelta);
+                      }
+                    } else if (evtType.startsWith('response.file_search.')) {
+                      // File search events: log for debugging
+                      this.log(`File search event: ${evtType}`);
+                      if (evtType === 'response.file_search.started') {
+                        const searchDelta = translator.translateChunk({
+                          choices: [{ delta: { content: '[Searching files...]\n' } }],
+                        } as any);
+                        if (searchDelta) clientRes.write(searchDelta);
+                      }
+                    } else if (evtType.startsWith('response.code_interpreter.')) {
+                      // Code interpreter events: log for debugging
+                      this.log(`Code interpreter event: ${evtType}`);
+                      if (evtType === 'response.code_interpreter.started') {
+                        const codeDelta = translator.translateChunk({
+                          choices: [{ delta: { content: '[Running code...]\n' } }],
+                        } as any);
+                        if (codeDelta) clientRes.write(codeDelta);
+                      } else if (evtType === 'response.code_interpreter.output' && parsed.output) {
+                        // Code output: emit as text
+                        const outputDelta = translator.translateChunk({
+                          choices: [{ delta: { content: `\`\`\`\n${parsed.output}\n\`\`\`\n` } }],
+                        } as any);
+                        if (outputDelta) clientRes.write(outputDelta);
+                      }
+                    } else if (evtType.startsWith('response.mcp.')) {
+                      // MCP tool events: log for debugging
+                      this.log(`MCP event: ${evtType}`);
+                      if (evtType === 'response.mcp.started') {
+                        const mcpDelta = translator.translateChunk({
+                          choices: [{ delta: { content: '[Using MCP tool...]\n' } }],
+                        } as any);
+                        if (mcpDelta) clientRes.write(mcpDelta);
+                      }
+                    } else if (evtType === 'response.reasoning_summary_part.added') {
+                      // Reasoning block start → Anthropic thinking block
+                      const events = translator.emitThinkingStart();
+                      if (events) clientRes.write(events);
+                    } else if (
+                      evtType === 'response.reasoning_summary_text.delta' &&
+                      typeof parsed.delta === 'string'
+                    ) {
+                      // Reasoning text delta → thinking_delta
+                      const events = translator.emitThinkingDelta(parsed.delta);
+                      if (events) clientRes.write(events);
+                    } else if (evtType === 'response.reasoning_summary_part.done') {
+                      // Reasoning block done → close thinking block
+                      const events = translator.emitThinkingStop();
+                      if (events) clientRes.write(events);
+                    } else if (evtType.includes('reasoning')) {
+                      // Log other reasoning events for debugging
+                      this.log(
+                        `[REASONING EVENT] ${evtType}: ${JSON.stringify(parsed).slice(0, 200)}`
+                      );
+                    } else {
+                      // Log unknown event types for debugging
+                      if (this.config.verbose) {
+                        this.log(`Unknown Responses API event type: ${evtType}`);
+                      }
+                    }
+                  } else {
+                    const chunkObj = parsed as OpenAIStreamChunk;
+                    const events = translator.translateChunk(chunkObj);
+                    if (events) clientRes.write(events);
+                    if (chunkObj.choices?.[0]?.finish_reason) hasFinished = true;
+                  }
+                } catch (e) {
+                  this.log(
+                    `Failed to parse SSE chunk: ${jsonStr.slice(0, 100)} - ${(e as Error).message}`
+                  );
+                }
+              }
+            });
+
+            upstreamRes.on('end', () => {
+              if (buffer.trim() && !hasFinished) {
+                const trailingPayload = extractSSEDataPayload(buffer);
+                if (trailingPayload && trailingPayload.trim() !== '[DONE]') {
                   try {
-                    const parsed = JSON.parse(bodyErr);
-                    clientRes.end(
-                      JSON.stringify({
-                        type: 'error',
-                        error: {
-                          type: 'api_error',
-                          message: parsed?.error?.message || bodyErr.slice(0, 500),
-                        },
-                      })
-                    );
-                  } catch {
-                    clientRes.end(
-                      JSON.stringify({
-                        type: 'error',
-                        error: { type: 'api_error', message: bodyErr.slice(0, 500) },
-                      })
+                    const parsed = JSON.parse(trailingPayload);
+                    if (parsed && parsed.type) {
+                      if (parsed.type === 'response.completed') {
+                        hasFinished = true;
+                      }
+                    } else {
+                      const chunk = parsed as OpenAIStreamChunk;
+                      const events = translator.translateChunk(chunk);
+                      if (events) clientRes.write(events);
+                      if (chunk.choices?.[0]?.finish_reason) hasFinished = true;
+                    }
+                  } catch (e) {
+                    this.log(
+                      `Failed to parse trailing SSE chunk: ${trailingPayload.slice(0, 100)} - ${(e as Error).message}`
                     );
                   }
-                  resolveAttempt();
-                });
+                }
+              }
+
+              if (!hasFinished) {
+                const final = translator.emitFinalIfNeeded();
+                if (final) clientRes.write(final);
+              }
+
+              if (!clientRes.writableEnded) {
+                clientRes.end();
+              }
+              resolveAttempt();
+            });
+
+            upstreamRes.on('error', (err) => {
+              if (hasFinished || clientRes.writableEnded) {
+                resolveAttempt();
                 return;
               }
 
-              // Set up Anthropic SSE response
-              clientRes.writeHead(200, {
-                'Content-Type': 'text/event-stream',
-                'Cache-Control': 'no-cache',
-                Connection: 'keep-alive',
-              });
+              if (scheduleNetworkRetry(err, 'response')) {
+                return;
+              }
 
-              const translator = new StreamingResponseTranslator(model);
-              let buffer = '';
-              let hasFinished = false;
-              const activeToolCalls = new Map<number, { id: string; name: string }>();
-              let refusalStarted = false;
+              this.log(`Upstream response stream error (${mode}): ${err.message}`);
 
-              upstreamRes.on('data', (chunk: Buffer) => {
-                buffer += chunk.toString('utf8');
+              if (clientRes.headersSent) {
+                const errorDelta = translator.translateChunk({
+                  choices: [{ delta: { content: `[upstream_error] ${err.message}` } }],
+                } as any);
+                if (errorDelta) clientRes.write(errorDelta);
 
-                const lines = buffer.split('\n');
-                buffer = lines.pop() || '';
+                const finishEvent = translator.translateChunk({
+                  choices: [{ finish_reason: 'stop' }],
+                } as any);
+                if (finishEvent) clientRes.write(finishEvent);
 
-                for (const line of lines) {
-                  const trimmed = line.trim();
-                  if (!trimmed || trimmed.startsWith(':')) continue;
-
-                  if (trimmed === 'data: [DONE]') {
-                    if (!hasFinished) {
-                      const final = translator.emitFinalIfNeeded();
-                      if (final) clientRes.write(final);
-                      hasFinished = true;
-                    }
-                    continue;
-                  }
-
-                  if (trimmed.startsWith('data: ')) {
-                    const jsonStr = trimmed.slice(6);
-                    try {
-                      // Try Chat Completions chunk first
-                      const parsed = JSON.parse(jsonStr);
-                      if (parsed && parsed.type) {
-                        // Responses API event
-                        const evtType: string = parsed.type;
-                        if (evtType === 'keepalive') {
-                          // Keepalive event: silently ignore (connection heartbeat)
-                        } else if (
-                          evtType === 'response.created' ||
-                          evtType === 'response.in_progress'
-                        ) {
-                          // Response lifecycle events: silently ignore (informational only)
-                          // These indicate the response has started/is processing
-                        } else if (
-                          evtType.endsWith('.output_text.delta') &&
-                          typeof parsed.delta === 'string'
-                        ) {
-                          // Start block if needed, then stream text
-                          const start = translator.translateChunk({
-                            choices: [{ delta: { content: '' } }],
-                          } as any);
-                          const textDelta = translator.translateChunk({
-                            choices: [{ delta: { content: parsed.delta } }],
-                          } as any);
-                          if (start) clientRes.write(start);
-                          if (textDelta) clientRes.write(textDelta);
-                        } else if (evtType === 'response.output_text.done') {
-                          // Text block complete: close text block if open
-                          const events = translator.translateChunk({
-                            choices: [{ delta: {} }],
-                          } as any);
-                          if (events) clientRes.write(events);
-                        } else if (evtType === 'response.output_item.added') {
-                          // Output item added: handle function_call, ignore message type (content comes via output_text.delta)
-                          if (parsed.item?.type === 'function_call') {
-                            // Tool call start: emit as Anthropic tool_use via fake chunk
-                            const tcId =
-                              parsed.item.call_id || parsed.item.id || `call_${Date.now()}`;
-                            const tcName = parsed.item.name || '';
-                            const outputIndex = parsed.output_index ?? 0;
-                            activeToolCalls.set(outputIndex, { id: tcId, name: tcName });
-                            const events = translator.translateChunk({
-                              choices: [
-                                {
-                                  delta: {
-                                    tool_calls: [
-                                      {
-                                        index: outputIndex,
-                                        id: tcId,
-                                        function: { name: tcName, arguments: '' },
-                                      },
-                                    ],
-                                  },
-                                },
-                              ],
-                            } as any);
-                            if (events) clientRes.write(events);
-                          }
-                          // Silently ignore message type - content is handled by output_text.delta
-                        } else if (
-                          evtType === 'response.content_part.added' ||
-                          evtType === 'response.content_part.done'
-                        ) {
-                          // Content part events: silently ignore (content is handled by output_text.delta)
-                          // These events indicate text/refusal content blocks but actual content comes via delta events
-                        } else if (
-                          evtType === 'response.function_call_arguments.delta' &&
-                          typeof parsed.delta === 'string'
-                        ) {
-                          // Tool call arguments delta
-                          const outputIndex = parsed.output_index ?? 0;
-                          const events = translator.translateChunk({
-                            choices: [
-                              {
-                                delta: {
-                                  tool_calls: [
-                                    { index: outputIndex, function: { arguments: parsed.delta } },
-                                  ],
-                                },
-                              },
-                            ],
-                          } as any);
-                          if (events) clientRes.write(events);
-                        } else if (evtType === 'response.function_call_arguments.done') {
-                          // Tool call arguments complete: mark as done (translator will handle on finish_reason)
-                          this.log('Tool call arguments completed');
-                        } else if (evtType === 'response.output_item.done') {
-                          // Output item done: handle function_call, ignore message type
-                          if (parsed.item?.type === 'function_call') {
-                            // Tool call item done: just log, don't finish yet (wait for response.completed)
-                            this.log('Tool call item completed');
-                          }
-                          // Silently ignore message type
-                        } else if (
-                          evtType === 'response.refusal.delta' &&
-                          typeof parsed.delta === 'string'
-                        ) {
-                          // Refusal text delta: add [refusal] prefix only on first delta
-                          const start = translator.translateChunk({
-                            choices: [{ delta: { content: '' } }],
-                          } as any);
-                          const prefix = refusalStarted ? '' : '[refusal] ';
-                          const textDelta = translator.translateChunk({
-                            choices: [{ delta: { content: `${prefix}${parsed.delta}` } }],
-                          } as any);
-                          if (start) clientRes.write(start);
-                          if (textDelta) clientRes.write(textDelta);
-                          refusalStarted = true;
-                        } else if (evtType === 'response.refusal.done') {
-                          // Refusal complete: close block and finish
-                          const events = translator.translateChunk({
-                            choices: [{ finish_reason: 'end_turn' }],
-                          } as any);
-                          if (events) clientRes.write(events);
-                          hasFinished = true;
-                        } else if (evtType === 'error') {
-                          // Stream error: return Anthropic error format and end
-                          const errorMsg =
-                            parsed.error?.message || parsed.message || 'Unknown error';
-                          if (!clientRes.headersSent) {
-                            clientRes.writeHead(500, { 'Content-Type': 'application/json' });
-                          }
-                          clientRes.end(
-                            JSON.stringify({
-                              type: 'error',
-                              error: { type: 'api_error', message: errorMsg },
-                            })
-                          );
-                          hasFinished = true;
-                          return;
-                        } else if (evtType === 'response.completed') {
-                          // Extract usage info and emit final events
-                          if (parsed.response?.usage) {
-                            translator['inputTokens'] = parsed.response.usage.input_tokens ?? 0;
-                            translator['outputTokens'] = parsed.response.usage.output_tokens ?? 0;
-                          }
-                          if (!hasFinished) {
-                            hasFinished = true;
-                            // If we have active tool calls, emit tool_calls finish_reason
-                            if (activeToolCalls.size > 0) {
-                              const finishEvent = translator.translateChunk({
-                                choices: [{ finish_reason: 'tool_calls' }],
-                              } as any);
-                              if (finishEvent) clientRes.write(finishEvent);
-                            } else {
-                              // Only emit final if no tool calls (translateChunk already emitted terminal events)
-                              const final = translator.emitFinalIfNeeded();
-                              if (final) clientRes.write(final);
-                            }
-                          }
-                        } else if (evtType.startsWith('response.web_search.')) {
-                          // Web search events: log for debugging, treat as informational
-                          this.log(`Web search event: ${evtType}`);
-                          // Could emit as text delta if needed: "[Searching web...]"
-                          if (evtType === 'response.web_search.started') {
-                            const searchDelta = translator.translateChunk({
-                              choices: [{ delta: { content: '[Searching web...]\n' } }],
-                            } as any);
-                            if (searchDelta) clientRes.write(searchDelta);
-                          }
-                        } else if (evtType.startsWith('response.file_search.')) {
-                          // File search events: log for debugging
-                          this.log(`File search event: ${evtType}`);
-                          if (evtType === 'response.file_search.started') {
-                            const searchDelta = translator.translateChunk({
-                              choices: [{ delta: { content: '[Searching files...]\n' } }],
-                            } as any);
-                            if (searchDelta) clientRes.write(searchDelta);
-                          }
-                        } else if (evtType.startsWith('response.code_interpreter.')) {
-                          // Code interpreter events: log for debugging
-                          this.log(`Code interpreter event: ${evtType}`);
-                          if (evtType === 'response.code_interpreter.started') {
-                            const codeDelta = translator.translateChunk({
-                              choices: [{ delta: { content: '[Running code...]\n' } }],
-                            } as any);
-                            if (codeDelta) clientRes.write(codeDelta);
-                          } else if (
-                            evtType === 'response.code_interpreter.output' &&
-                            parsed.output
-                          ) {
-                            // Code output: emit as text
-                            const outputDelta = translator.translateChunk({
-                              choices: [
-                                { delta: { content: `\`\`\`\n${parsed.output}\n\`\`\`\n` } },
-                              ],
-                            } as any);
-                            if (outputDelta) clientRes.write(outputDelta);
-                          }
-                        } else if (evtType.startsWith('response.mcp.')) {
-                          // MCP tool events: log for debugging
-                          this.log(`MCP event: ${evtType}`);
-                          if (evtType === 'response.mcp.started') {
-                            const mcpDelta = translator.translateChunk({
-                              choices: [{ delta: { content: '[Using MCP tool...]\n' } }],
-                            } as any);
-                            if (mcpDelta) clientRes.write(mcpDelta);
-                          }
-                        } else if (evtType === 'response.reasoning_summary_part.added') {
-                          // Reasoning block start → Anthropic thinking block
-                          const events = translator.emitThinkingStart();
-                          if (events) clientRes.write(events);
-                        } else if (
-                          evtType === 'response.reasoning_summary_text.delta' &&
-                          typeof parsed.delta === 'string'
-                        ) {
-                          // Reasoning text delta → thinking_delta
-                          const events = translator.emitThinkingDelta(parsed.delta);
-                          if (events) clientRes.write(events);
-                        } else if (evtType === 'response.reasoning_summary_part.done') {
-                          // Reasoning block done → close thinking block
-                          const events = translator.emitThinkingStop();
-                          if (events) clientRes.write(events);
-                        } else if (evtType.includes('reasoning')) {
-                          // Log other reasoning events for debugging
-                          this.log(
-                            `[REASONING EVENT] ${evtType}: ${JSON.stringify(parsed).slice(0, 200)}`
-                          );
-                        } else {
-                          // Log unknown event types for debugging
-                          if (this.config.verbose) {
-                            this.log(`Unknown Responses API event type: ${evtType}`);
-                          }
-                        }
-                      } else {
-                        const chunkObj = parsed as OpenAIStreamChunk;
-                        const events = translator.translateChunk(chunkObj);
-                        if (events) clientRes.write(events);
-                        if (chunkObj.choices?.[0]?.finish_reason) hasFinished = true;
-                      }
-                    } catch (e) {
-                      this.log(
-                        `Failed to parse SSE chunk: ${jsonStr.slice(0, 100)} - ${(e as Error).message}`
-                      );
-                    }
-                  }
+                hasFinished = true;
+                if (!clientRes.writableEnded) {
+                  clientRes.end();
                 }
-              });
-
-              upstreamRes.on('end', () => {
-                if (buffer.trim()) {
-                  const trimmed = buffer.trim();
-                  if (trimmed.startsWith('data: ') && trimmed !== 'data: [DONE]') {
-                    try {
-                      const parsed = JSON.parse(trimmed.slice(6));
-                      if (parsed && parsed.type) {
-                        if (parsed.type === 'response.completed') {
-                          hasFinished = true;
-                        }
-                      } else {
-                        const chunk = parsed as OpenAIStreamChunk;
-                        const events = translator.translateChunk(chunk);
-                        if (events) clientRes.write(events);
-                        if (chunk.choices?.[0]?.finish_reason) hasFinished = true;
-                      }
-                    } catch {
-                      // ignore
-                    }
-                  }
-                }
-
-                if (!hasFinished) {
-                  const final = translator.emitFinalIfNeeded();
-                  if (final) clientRes.write(final);
-                }
-
-                clientRes.end();
                 resolveAttempt();
-              });
+                return;
+              }
 
-              upstreamRes.on('error', rejectAttempt);
-            }
-          );
+              rejectAttempt(err);
+            });
+          }
+        );
 
-          upstreamReq.on('timeout', () => {
-            upstreamReq.destroy(new Error('Upstream request timeout'));
-          });
-
-          upstreamReq.on('error', (err) => {
-            // On network error for chat attempt, fallback to responses (only if Responses API enabled)
-            if (mode === 'chat' && this.config.useResponsesApi) {
-              attempt('responses').then(resolveAttempt).catch(rejectAttempt);
-              return;
-            }
-            this.log(`Request error (${mode}): ${err.message}`);
-            if (!clientRes.headersSent) {
-              clientRes.writeHead(502, { 'Content-Type': 'application/json' });
-              clientRes.end(
-                JSON.stringify({
-                  type: 'error',
-                  error: { type: 'api_error', message: err.message },
-                })
-              );
-            }
-            rejectAttempt(err);
-          });
-
-          upstreamReq.write(bodyString);
-          upstreamReq.end();
+        upstreamReq.on('timeout', () => {
+          upstreamReq.destroy(new Error('Upstream request timeout'));
         });
-      };
+        upstreamReq.on('error', (err) => {
+          // On network error for chat attempt, fallback to responses (only if Responses API enabled)
+          if (mode === 'chat' && this.config.useResponsesApi && !clientRes.headersSent) {
+            attempt('responses').then(resolveAttempt).catch(rejectAttempt);
+            return;
+          }
 
-      // Start with Responses API for codex, Chat Completions for generic OpenAI endpoints
-      return attempt(this.config.useResponsesApi ? 'responses' : 'chat');
-    });
+          if (scheduleNetworkRetry(err, 'request')) {
+            return;
+          }
+
+          this.log(`Request error (${mode}): ${err.message}`);
+          if (!clientRes.headersSent) {
+            clientRes.writeHead(502, { 'Content-Type': 'application/json' });
+            clientRes.end(
+              JSON.stringify({
+                type: 'error',
+                error: { type: 'api_error', message: err.message },
+              })
+            );
+          }
+          rejectAttempt(err);
+        });
+
+        upstreamReq.write(bodyString);
+        upstreamReq.end();
+      });
+    };
+
+    // Start with Responses API for codex, Chat Completions for generic OpenAI endpoints
+    await attempt(this.config.useResponsesApi ? 'responses' : 'chat');
   }
 
   /** For non-streaming requests: call API with stream=true, collect text, return Anthropic JSON */
@@ -1389,230 +1570,294 @@ export class AnthropicToOpenAIProxy {
   ): Promise<void> {
     return new Promise((resolve, reject) => {
       let retried = false;
+      let networkRetryCount = 0;
 
       const doRequest = (): void => {
-      // Use Responses API for codex, Chat Completions for generic OpenAI endpoints
-      const useResponses = this.config.useResponsesApi;
-      const targetUrl = new URL(`${targetBase}${useResponses ? '/v1/responses' : '/v1/chat/completions'}`);
-      const body = useResponses
-        ? translateChatToResponses(
-            JSON.parse(JSON.stringify({ ...openaiReqChat, stream: true })) as OpenAIRequest
-          )
-        : { ...openaiReqChat, stream: true };
-      const bodyString = JSON.stringify(body);
-      const requestFn = targetUrl.protocol === 'https:' ? https.request : http.request;
+        const scheduleNetworkRetry = (err: Error, source: 'request' | 'response'): boolean => {
+          if (
+            !this.isRetryableNetworkError(err) ||
+            clientRes.headersSent ||
+            clientRes.writableEnded
+          ) {
+            return false;
+          }
 
-      // Build headers: include codex session headers only when using Responses API
-      const nonStreamHeaders: Record<string, string | number> = {
-        'Content-Type': 'application/json',
-        'Content-Length': Buffer.byteLength(bodyString),
-        Authorization: `Bearer ${this.config.apiKey}`,
-        Accept: 'text/event-stream',
-      };
-      if (useResponses) {
-        nonStreamHeaders['x-session-id'] = 'ccs-codex-stable';
-        nonStreamHeaders['conversation_id'] = 'ccs-codex-stable';
-        nonStreamHeaders['session_id'] = 'ccs-codex-stable';
-      }
+          const next = networkRetryCount + 1;
+          if (next > this.maxNetworkRetries) {
+            return false;
+          }
 
-      const upstreamReq = requestFn(
-        {
-          protocol: targetUrl.protocol,
-          hostname: targetUrl.hostname,
-          port: targetUrl.port,
-          path: targetUrl.pathname + targetUrl.search,
-          method: 'POST',
-          timeout: this.config.timeoutMs,
-          headers: nonStreamHeaders,
-        },
-        (upstreamRes) => {
-          const statusCode = upstreamRes.statusCode || 200;
+          networkRetryCount = next;
+          const delay = this.getRetryDelayMs(next, err);
+          const seconds = Math.max(1, Math.round(delay / 1000));
+          const errCode = String((err as NodeJS.ErrnoException).code || '');
+          if (errCode === 'ECONNRESET') {
+            this.log(
+              `Connection reset by server [retrying in ${seconds}s attempt #${next}/${this.maxNetworkRetries}] (non-stream, ${source})`
+            );
+          } else {
+            this.log(
+              `Transient non-stream network error (${source}): ${err.message} [retrying in ${seconds}s attempt #${next}/${this.maxNetworkRetries}]`
+            );
+          }
+          setTimeout(() => doRequest(), delay);
+          return true;
+        };
+        // Use Responses API for codex, Chat Completions for generic OpenAI endpoints
+        const useResponses = this.config.useResponsesApi;
+        const targetUrl = new URL(
+          `${targetBase}${useResponses ? '/v1/responses' : '/v1/chat/completions'}`
+        );
+        const body = useResponses
+          ? translateChatToResponses(
+              JSON.parse(JSON.stringify({ ...openaiReqChat, stream: true })) as OpenAIRequest
+            )
+          : { ...openaiReqChat, stream: true };
+        const bodyString = JSON.stringify(body);
+        const requestFn = targetUrl.protocol === 'https:' ? https.request : http.request;
 
-          if (statusCode >= 400) {
-            const chunks: Buffer[] = [];
-            upstreamRes.on('data', (c: Buffer) => chunks.push(c));
-            upstreamRes.on('end', () => {
-              const bodyErr = Buffer.concat(chunks).toString('utf8');
-              this.log(`Upstream non-stream error ${statusCode}: ${bodyErr.slice(0, 200)}`);
-              // Auto-retry once on 401
-              if (statusCode === 401 && !retried) {
-                retried = true;
-                this.log('401 received (non-stream), retrying once...');
-                setTimeout(() => doRequest(), 500);
-                return;
+        // Build headers: include codex session headers only when using Responses API
+        const nonStreamHeaders: Record<string, string | number> = {
+          'Content-Type': 'application/json',
+          'Content-Length': Buffer.byteLength(bodyString),
+          Authorization: `Bearer ${this.config.apiKey}`,
+          Accept: 'text/event-stream',
+        };
+        if (useResponses) {
+          nonStreamHeaders['x-session-id'] = 'ccs-codex-stable';
+          nonStreamHeaders['conversation_id'] = 'ccs-codex-stable';
+          nonStreamHeaders['session_id'] = 'ccs-codex-stable';
+        }
+
+        const upstreamReq = requestFn(
+          {
+            protocol: targetUrl.protocol,
+            hostname: targetUrl.hostname,
+            port: targetUrl.port,
+            path: targetUrl.pathname + targetUrl.search,
+            method: 'POST',
+            timeout: this.config.timeoutMs,
+            agent: targetUrl.protocol === 'https:' ? this.httpsAgent : this.httpAgent,
+            headers: nonStreamHeaders,
+          },
+          (upstreamRes) => {
+            const statusCode = upstreamRes.statusCode || 200;
+
+            if (statusCode >= 400) {
+              const chunks: Buffer[] = [];
+              upstreamRes.on('data', (c: Buffer) => chunks.push(c));
+              upstreamRes.on('end', () => {
+                const bodyErr = Buffer.concat(chunks).toString('utf8');
+                this.log(`Upstream non-stream error ${statusCode}: ${bodyErr.slice(0, 200)}`);
+                // Auto-retry once on 401
+                if (statusCode === 401 && !retried) {
+                  retried = true;
+                  this.log('401 received (non-stream), retrying once...');
+                  setTimeout(() => doRequest(), 500);
+                  return;
+                }
+
+                if (this.isRetryableStatusCode(statusCode) && !clientRes.headersSent) {
+                  const next = networkRetryCount + 1;
+                  if (next <= this.maxNetworkRetries) {
+                    networkRetryCount = next;
+                    const delay = this.getRetryDelayMs(next);
+                    const seconds = Math.max(1, Math.round(delay / 1000));
+                    this.log(
+                      `Transient upstream status ${statusCode} [retrying in ${seconds}s attempt #${next}/${this.maxNetworkRetries}] (non-stream)`
+                    );
+                    setTimeout(() => doRequest(), delay);
+                    return;
+                  }
+                }
+
+                clientRes.writeHead(statusCode, { 'Content-Type': 'application/json' });
+                clientRes.end(
+                  JSON.stringify({
+                    type: 'error',
+                    error: { type: 'api_error', message: bodyErr.slice(0, 500) },
+                  })
+                );
+                resolve();
+              });
+              return;
+            }
+
+            // Collect text, thinking, and tool calls from streaming events
+            let buffer = '';
+            let collectedText = '';
+            let collectedThinking = '';
+            const collectedToolCalls: Array<{ id: string; name: string; arguments: string }> = [];
+            const activeToolCallsMap = new Map<
+              number,
+              { id: string; name: string; arguments: string }
+            >();
+            let inputTokens = 0;
+            let outputTokens = 0;
+
+            upstreamRes.on('data', (chunk: Buffer) => {
+              buffer += chunk.toString('utf8');
+              const parsedEvents = consumeSSEEvents(buffer);
+              buffer = parsedEvents.rest;
+
+              for (const event of parsedEvents.events) {
+                const payload = extractSSEDataPayload(event);
+                if (!payload || payload.trim() === '[DONE]') continue;
+
+                try {
+                  const parsed = JSON.parse(payload);
+
+                  // Chat Completions format (no .type field, has .choices)
+                  if (!parsed?.type && parsed?.choices) {
+                    const choice = parsed.choices[0];
+                    if (choice?.delta?.content) collectedText += choice.delta.content;
+                    if (choice?.delta?.reasoning_content)
+                      collectedThinking += choice.delta.reasoning_content;
+                    if (choice?.delta?.tool_calls) {
+                      for (const tc of choice.delta.tool_calls) {
+                        const idx = tc.index ?? 0;
+                        if (tc.id) {
+                          activeToolCallsMap.set(idx, {
+                            id: tc.id,
+                            name: tc.function?.name || '',
+                            arguments: '',
+                          });
+                        }
+                        if (tc.function?.arguments) {
+                          const existing = activeToolCallsMap.get(idx);
+                          if (existing) existing.arguments += tc.function.arguments;
+                        }
+                      }
+                    }
+                    if (choice?.finish_reason && choice.finish_reason !== 'stop') {
+                      // Tool calls finished
+                      for (const [idx, tc] of activeToolCallsMap) {
+                        collectedToolCalls.push(tc);
+                        activeToolCallsMap.delete(idx);
+                      }
+                    }
+                    if (parsed.usage) {
+                      inputTokens = parsed.usage.prompt_tokens ?? inputTokens;
+                      outputTokens = parsed.usage.completion_tokens ?? outputTokens;
+                    }
+                    continue;
+                  }
+
+                  // Responses API format (has .type field)
+                  if (!parsed?.type) continue;
+                  const evtType: string = parsed.type;
+
+                  if (evtType.endsWith('.output_text.delta') && typeof parsed.delta === 'string') {
+                    collectedText += parsed.delta;
+                  } else if (
+                    evtType === 'response.reasoning_summary_text.delta' &&
+                    typeof parsed.delta === 'string'
+                  ) {
+                    collectedThinking += parsed.delta;
+                  } else if (
+                    evtType === 'response.output_item.added' &&
+                    parsed.item?.type === 'function_call'
+                  ) {
+                    const outputIndex = parsed.output_index ?? 0;
+                    activeToolCallsMap.set(outputIndex, {
+                      id: parsed.item.call_id || parsed.item.id || `call_${Date.now()}`,
+                      name: parsed.item.name || '',
+                      arguments: '',
+                    });
+                  } else if (
+                    evtType === 'response.function_call_arguments.delta' &&
+                    typeof parsed.delta === 'string'
+                  ) {
+                    const outputIndex = parsed.output_index ?? 0;
+                    const toolCall = activeToolCallsMap.get(outputIndex);
+                    if (toolCall) {
+                      toolCall.arguments += parsed.delta;
+                    }
+                  } else if (
+                    evtType === 'response.output_item.done' &&
+                    parsed.item?.type === 'function_call'
+                  ) {
+                    const outputIndex = parsed.output_index ?? 0;
+                    const toolCall = activeToolCallsMap.get(outputIndex);
+                    if (toolCall) {
+                      collectedToolCalls.push(toolCall);
+                      activeToolCallsMap.delete(outputIndex);
+                    }
+                  } else if (evtType === 'response.completed' && parsed.response?.usage) {
+                    inputTokens = parsed.response.usage.input_tokens ?? 0;
+                    outputTokens = parsed.response.usage.output_tokens ?? 0;
+                  }
+                } catch (e) {
+                  this.log(
+                    `Failed to parse non-stream SSE chunk: ${payload.slice(0, 100)} - ${(e as Error).message}`
+                  );
+                }
               }
-              clientRes.writeHead(statusCode, { 'Content-Type': 'application/json' });
-              clientRes.end(
-                JSON.stringify({
-                  type: 'error',
-                  error: { type: 'api_error', message: bodyErr.slice(0, 500) },
-                })
-              );
+            });
+
+            upstreamRes.on('end', () => {
+              // Build Anthropic Messages API response
+              const content: unknown[] = [];
+              if (collectedThinking) {
+                content.push({ type: 'thinking', thinking: collectedThinking, signature: '' });
+              }
+              if (collectedText) {
+                content.push({ type: 'text', text: collectedText });
+              }
+              for (const tc of collectedToolCalls) {
+                let input: unknown = {};
+                try {
+                  input = JSON.parse(tc.arguments);
+                } catch {
+                  input = tc.arguments;
+                }
+                content.push({ type: 'tool_use', id: tc.id, name: tc.name, input });
+              }
+
+              const stopReason = collectedToolCalls.length > 0 ? 'tool_use' : 'end_turn';
+              const anthropicResp = {
+                id: `msg_${Date.now().toString(36)}`,
+                type: 'message',
+                role: 'assistant',
+                content,
+                model,
+                stop_reason: stopReason,
+                stop_sequence: null,
+                usage: { input_tokens: inputTokens, output_tokens: outputTokens },
+              };
+
+              clientRes.writeHead(200, { 'Content-Type': 'application/json' });
+              clientRes.end(JSON.stringify(anthropicResp));
               resolve();
             });
+
+            upstreamRes.on('error', (err) => {
+              if (scheduleNetworkRetry(err, 'response')) {
+                return;
+              }
+              reject(err);
+            });
+          }
+        );
+
+        upstreamReq.on('timeout', () => upstreamReq.destroy(new Error('Upstream request timeout')));
+        upstreamReq.on('error', (err) => {
+          if (scheduleNetworkRetry(err, 'request')) {
             return;
           }
 
-          // Collect text, thinking, and tool calls from streaming events
-          let buffer = '';
-          let collectedText = '';
-          let collectedThinking = '';
-          const collectedToolCalls: Array<{ id: string; name: string; arguments: string }> = [];
-          const activeToolCallsMap = new Map<
-            number,
-            { id: string; name: string; arguments: string }
-          >();
-          let inputTokens = 0;
-          let outputTokens = 0;
+          this.log(`Non-stream request error: ${err.message}`);
+          if (!clientRes.headersSent) {
+            clientRes.writeHead(502, { 'Content-Type': 'application/json' });
+            clientRes.end(
+              JSON.stringify({ type: 'error', error: { type: 'api_error', message: err.message } })
+            );
+          }
+          reject(err);
+        });
 
-          upstreamRes.on('data', (chunk: Buffer) => {
-            buffer += chunk.toString('utf8');
-            const lines = buffer.split('\n');
-            buffer = lines.pop() || '';
-
-            for (const line of lines) {
-              const trimmed = line.trim();
-              if (!trimmed || trimmed.startsWith(':') || trimmed === 'data: [DONE]') continue;
-              if (!trimmed.startsWith('data: ')) continue;
-
-              try {
-                const parsed = JSON.parse(trimmed.slice(6));
-
-                // Chat Completions format (no .type field, has .choices)
-                if (!parsed?.type && parsed?.choices) {
-                  const choice = parsed.choices[0];
-                  if (choice?.delta?.content) collectedText += choice.delta.content;
-                  if (choice?.delta?.reasoning_content) collectedThinking += choice.delta.reasoning_content;
-                  if (choice?.delta?.tool_calls) {
-                    for (const tc of choice.delta.tool_calls) {
-                      const idx = tc.index ?? 0;
-                      if (tc.id) {
-                        activeToolCallsMap.set(idx, { id: tc.id, name: tc.function?.name || '', arguments: '' });
-                      }
-                      if (tc.function?.arguments) {
-                        const existing = activeToolCallsMap.get(idx);
-                        if (existing) existing.arguments += tc.function.arguments;
-                      }
-                    }
-                  }
-                  if (choice?.finish_reason && choice.finish_reason !== 'stop') {
-                    // Tool calls finished
-                    for (const [idx, tc] of activeToolCallsMap) {
-                      collectedToolCalls.push(tc);
-                      activeToolCallsMap.delete(idx);
-                    }
-                  }
-                  if (parsed.usage) {
-                    inputTokens = parsed.usage.prompt_tokens ?? inputTokens;
-                    outputTokens = parsed.usage.completion_tokens ?? outputTokens;
-                  }
-                  continue;
-                }
-
-                // Responses API format (has .type field)
-                if (!parsed?.type) continue;
-                const evtType: string = parsed.type;
-
-                if (evtType.endsWith('.output_text.delta') && typeof parsed.delta === 'string') {
-                  collectedText += parsed.delta;
-                } else if (
-                  evtType === 'response.reasoning_summary_text.delta' &&
-                  typeof parsed.delta === 'string'
-                ) {
-                  collectedThinking += parsed.delta;
-                } else if (
-                  evtType === 'response.output_item.added' &&
-                  parsed.item?.type === 'function_call'
-                ) {
-                  const outputIndex = parsed.output_index ?? 0;
-                  activeToolCallsMap.set(outputIndex, {
-                    id: parsed.item.call_id || parsed.item.id || `call_${Date.now()}`,
-                    name: parsed.item.name || '',
-                    arguments: '',
-                  });
-                } else if (
-                  evtType === 'response.function_call_arguments.delta' &&
-                  typeof parsed.delta === 'string'
-                ) {
-                  const outputIndex = parsed.output_index ?? 0;
-                  const toolCall = activeToolCallsMap.get(outputIndex);
-                  if (toolCall) {
-                    toolCall.arguments += parsed.delta;
-                  }
-                } else if (
-                  evtType === 'response.output_item.done' &&
-                  parsed.item?.type === 'function_call'
-                ) {
-                  const outputIndex = parsed.output_index ?? 0;
-                  const toolCall = activeToolCallsMap.get(outputIndex);
-                  if (toolCall) {
-                    collectedToolCalls.push(toolCall);
-                    activeToolCallsMap.delete(outputIndex);
-                  }
-                } else if (evtType === 'response.completed' && parsed.response?.usage) {
-                  inputTokens = parsed.response.usage.input_tokens ?? 0;
-                  outputTokens = parsed.response.usage.output_tokens ?? 0;
-                }
-              } catch {
-                // ignore parse errors
-              }
-            }
-          });
-
-          upstreamRes.on('end', () => {
-            // Build Anthropic Messages API response
-            const content: unknown[] = [];
-            if (collectedThinking) {
-              content.push({ type: 'thinking', thinking: collectedThinking, signature: '' });
-            }
-            if (collectedText) {
-              content.push({ type: 'text', text: collectedText });
-            }
-            for (const tc of collectedToolCalls) {
-              let input: unknown = {};
-              try {
-                input = JSON.parse(tc.arguments);
-              } catch {
-                input = tc.arguments;
-              }
-              content.push({ type: 'tool_use', id: tc.id, name: tc.name, input });
-            }
-
-            const stopReason = collectedToolCalls.length > 0 ? 'tool_use' : 'end_turn';
-            const anthropicResp = {
-              id: `msg_${Date.now().toString(36)}`,
-              type: 'message',
-              role: 'assistant',
-              content,
-              model,
-              stop_reason: stopReason,
-              stop_sequence: null,
-              usage: { input_tokens: inputTokens, output_tokens: outputTokens },
-            };
-
-            clientRes.writeHead(200, { 'Content-Type': 'application/json' });
-            clientRes.end(JSON.stringify(anthropicResp));
-            resolve();
-          });
-
-          upstreamRes.on('error', reject);
-        }
-      );
-
-      upstreamReq.on('timeout', () => upstreamReq.destroy(new Error('Upstream request timeout')));
-      upstreamReq.on('error', (err) => {
-        this.log(`Non-stream request error: ${err.message}`);
-        if (!clientRes.headersSent) {
-          clientRes.writeHead(502, { 'Content-Type': 'application/json' });
-          clientRes.end(
-            JSON.stringify({ type: 'error', error: { type: 'api_error', message: err.message } })
-          );
-        }
-        reject(err);
-      });
-
-      upstreamReq.write(bodyString);
-      upstreamReq.end();
+        upstreamReq.write(bodyString);
+        upstreamReq.end();
       }; // end doRequest
 
       doRequest();

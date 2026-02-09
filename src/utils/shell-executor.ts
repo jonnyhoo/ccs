@@ -37,9 +37,7 @@ export function execClaude(
   const needsShell = isWindows && /\.(cmd|bat|ps1)$/i.test(claudeCli);
 
   // Prepare environment (merge with process.env if envVars provided)
-  const env = envVars
-    ? { ...process.env, ...envVars }
-    : { ...process.env };
+  const env = envVars ? { ...process.env, ...envVars } : { ...process.env };
 
   let child: ChildProcess;
   if (needsShell) {

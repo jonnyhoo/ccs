@@ -549,8 +549,8 @@ export function parseProviderApiKeySections(content: string): string {
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
     // Check if this line starts a provider API key section
-    const isProviderKeySection = PROVIDER_API_KEY_FIELDS.some(
-      (field) => line.trimStart().startsWith(`${field}:`)
+    const isProviderKeySection = PROVIDER_API_KEY_FIELDS.some((field) =>
+      line.trimStart().startsWith(`${field}:`)
     );
 
     if (isProviderKeySection) {

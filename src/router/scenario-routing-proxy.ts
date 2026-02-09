@@ -66,23 +66,23 @@ export interface ProfileSettings {
 export function loadProfileSettings(profileName: string): ProfileSettings | null {
   const config = loadOrCreateUnifiedConfig();
   const profileConfig = config.profiles?.[profileName];
-  
+
   if (!profileConfig?.settings) {
     return null;
   }
-  
+
   // Expand ~ to home directory
   const settingsPath = profileConfig.settings.replace(/^~/, os.homedir());
-  
+
   if (!fs.existsSync(settingsPath)) {
     return null;
   }
-  
+
   try {
     const content = fs.readFileSync(settingsPath, 'utf-8');
     const settings = JSON.parse(content);
     const env = settings.env || {};
-    
+
     return {
       baseUrl: env.ANTHROPIC_BASE_URL,
       authToken: env.ANTHROPIC_AUTH_TOKEN,
@@ -117,7 +117,16 @@ export function buildScenarioUpstreams(
   const defaultUpstream = `${nextProxyBaseUrl}/api/provider/${currentProvider}`;
 
   // Known CLIProxy providers that can be used as route targets
-  const validProviders: CLIProxyProvider[] = ['gemini', 'codex', 'agy', 'qwen', 'iflow', 'kiro', 'ghcp', 'claude'];
+  const validProviders: CLIProxyProvider[] = [
+    'gemini',
+    'codex',
+    'agy',
+    'qwen',
+    'iflow',
+    'kiro',
+    'ghcp',
+    'claude',
+  ];
 
   // Build upstream for each configured route
   if (routerConfig.routes) {
@@ -129,7 +138,7 @@ export function buildScenarioUpstreams(
         };
         continue;
       }
-      
+
       // Option 2: Settings-based profile - route directly to its endpoint
       const profileSettings = loadProfileSettings(profile);
       if (profileSettings?.baseUrl) {
@@ -137,7 +146,10 @@ export function buildScenarioUpstreams(
           baseUrl: profileSettings.baseUrl,
           // Include auth token if available
           headers: profileSettings.authToken
-            ? { 'x-api-key': profileSettings.authToken, 'anthropic-api-key': profileSettings.authToken }
+            ? {
+                'x-api-key': profileSettings.authToken,
+                'anthropic-api-key': profileSettings.authToken,
+              }
             : undefined,
           // Include model override if configured
           model: profileSettings.model,
@@ -160,8 +172,8 @@ export function buildScenarioUpstreams(
 export function buildSettingsUpstreams(
   routerConfig: ScenarioRouterConfig,
   entryProfileName: string
-): { 
-  upstreams: Partial<Record<ScenarioType, ScenarioUpstream>>; 
+): {
+  upstreams: Partial<Record<ScenarioType, ScenarioUpstream>>;
   defaultUpstream: ScenarioUpstream;
   /** Full env from entry profile's settings.json */
   entryProfileEnv: Record<string, string>;
@@ -192,7 +204,10 @@ export function buildSettingsUpstreams(
         upstreams[scenario as ScenarioType] = {
           baseUrl: profileSettings.baseUrl,
           headers: profileSettings.authToken
-            ? { 'x-api-key': profileSettings.authToken, 'anthropic-api-key': profileSettings.authToken }
+            ? {
+                'x-api-key': profileSettings.authToken,
+                'anthropic-api-key': profileSettings.authToken,
+              }
             : undefined,
           // Include model override if configured
           model: profileSettings.model,
@@ -217,7 +232,9 @@ export class ScenarioRoutingProxy {
   constructor(config: ScenarioRoutingProxyConfig) {
     this.router = new ScenarioRouter(config.routerConfig);
     this.defaultUpstream = config.defaultUpstream;
-    this.upstreams = new Map(Object.entries(config.upstreams) as [ScenarioType, ScenarioUpstream][]);
+    this.upstreams = new Map(
+      Object.entries(config.upstreams) as [ScenarioType, ScenarioUpstream][]
+    );
     this.verbose = config.verbose ?? false;
 
     // Build map for logging: scenario -> target profile name
@@ -247,9 +264,10 @@ export class ScenarioRoutingProxy {
     // Always log when routing to a non-default upstream
     const targetProfile = this.routeTargets.get(scenario) || 'unknown';
     const modelInfo = targetModel ? ` [${targetModel}]` : '';
-    const overrideInfo = (originalModel && targetModel && originalModel !== targetModel)
-      ? ` (was: ${originalModel})`
-      : '';
+    const overrideInfo =
+      originalModel && targetModel && originalModel !== targetModel
+        ? ` (was: ${originalModel})`
+        : '';
     console.error(`[router] ${scenario}${modelInfo}${overrideInfo} → ${targetProfile}`);
   }
 

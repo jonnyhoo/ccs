@@ -9,7 +9,11 @@
  */
 
 import { spawn, ChildProcess } from 'child_process';
-import { ScenarioRoutingProxy, buildSettingsUpstreams, ScenarioUpstream } from './scenario-routing-proxy';
+import {
+  ScenarioRoutingProxy,
+  buildSettingsUpstreams,
+  ScenarioUpstream,
+} from './scenario-routing-proxy';
 import { loadOrCreateUnifiedConfig } from '../config/unified-config-loader';
 import { ScenarioRouterConfig } from './types';
 import { escapeShellArg } from '../utils/shell-executor';

@@ -43,7 +43,13 @@ import { resolveProxyConfig, PROXY_CLI_FLAGS } from './proxy-config-resolver';
 import { getImageAnalysisHookEnv } from '../utils/hooks/get-image-analysis-hook-env';
 import { supportsModelConfig, isModelBroken, getModelIssueUrl, findModel } from './model-catalog';
 import { CodexReasoningProxy } from './codex-reasoning-proxy';
-import { supportsSetup, setupProviderEndpoint, getEndpointFromEnv, getProviderEndpoint, persistEnvEndpoint } from './endpoint-setup';
+import {
+  supportsSetup,
+  setupProviderEndpoint,
+  getEndpointFromEnv,
+  getProviderEndpoint,
+  persistEnvEndpoint,
+} from './endpoint-setup';
 import { ToolSanitizationProxy } from './tool-sanitization-proxy';
 import { AnthropicToOpenAIProxy } from './anthropic-to-openai-proxy';
 import {
@@ -598,7 +604,12 @@ export async function execClaudeWithCLIProxy(
       // For providers that support --setup (codex/gemini/claude), if user has never
       // authenticated before, skip OAuth entirely and offer --setup directly.
       // This provides a seamless first-run experience for API-key-based workflows.
-      if (!forceAuth && supportsSetup(provider) && !isAuthenticated(provider) && process.stdin.isTTY) {
+      if (
+        !forceAuth &&
+        supportsSetup(provider) &&
+        !isAuthenticated(provider) &&
+        process.stdin.isTTY
+      ) {
         console.log('');
         console.log(info(`No authentication found for ${providerConfig.displayName}`));
         console.log('');
@@ -961,29 +972,30 @@ export async function execClaudeWithCLIProxy(
   // Build env vars - use tunnel port for HTTPS remote, or local proxy
   let envVars: NodeJS.ProcessEnv;
   if (useRemoteProxy) {
-    envVars = httpsTunnel && tunnelPort
-      ? // HTTPS remote via local tunnel - use HTTP to tunnel
-        getRemoteEnvVars(
-          provider,
-          {
-            host: '127.0.0.1',
-            port: tunnelPort,
-            protocol: 'http', // Tunnel speaks HTTP locally
-            authToken: proxyConfig.authToken,
-          },
-          cfg.customSettingsPath
-        )
-      : // HTTP remote - direct connection
-        getRemoteEnvVars(
-          provider,
-          {
-            host: proxyConfig.host ?? 'localhost',
-            port: proxyConfig.port,
-            protocol: proxyConfig.protocol,
-            authToken: proxyConfig.authToken,
-          },
-          cfg.customSettingsPath
-        );
+    envVars =
+      httpsTunnel && tunnelPort
+        ? // HTTPS remote via local tunnel - use HTTP to tunnel
+          getRemoteEnvVars(
+            provider,
+            {
+              host: '127.0.0.1',
+              port: tunnelPort,
+              protocol: 'http', // Tunnel speaks HTTP locally
+              authToken: proxyConfig.authToken,
+            },
+            cfg.customSettingsPath
+          )
+        : // HTTP remote - direct connection
+          getRemoteEnvVars(
+            provider,
+            {
+              host: proxyConfig.host ?? 'localhost',
+              port: proxyConfig.port,
+              protocol: proxyConfig.protocol,
+              authToken: proxyConfig.authToken,
+            },
+            cfg.customSettingsPath
+          );
   } else {
     envVars = getEffectiveEnvVars(provider, cfg.port, cfg.customSettingsPath, remoteRewriteConfig);
   }
@@ -1050,7 +1062,8 @@ export async function execClaudeWithCLIProxy(
           process.env.CCS_CODEX_REASONING_TRACE === 'true';
         // For remote proxy mode or direct API key mode, strip /api/provider/codex prefix
         // because the upstream (remote CLIProxyAPI or AnthropicToOpenAIProxy) uses root paths
-        const stripPathPrefix = (useRemoteProxy || useDirectApiKey) ? '/api/provider/codex' : undefined;
+        const stripPathPrefix =
+          useRemoteProxy || useDirectApiKey ? '/api/provider/codex' : undefined;
         codexReasoningProxy = new CodexReasoningProxy({
           upstreamBaseUrl: postSanitizationBaseUrl,
           verbose,
@@ -1217,13 +1230,19 @@ export async function execClaudeWithCLIProxy(
     // The base settings file may only have hooks (no env), but session file needs env
     settings.env = settings.env || {};
     settings.env.ANTHROPIC_BASE_URL = effectiveEnvVars.ANTHROPIC_BASE_URL;
-    settings.env.ANTHROPIC_AUTH_TOKEN = envVars.ANTHROPIC_AUTH_TOKEN || settings.env.ANTHROPIC_AUTH_TOKEN;
+    settings.env.ANTHROPIC_AUTH_TOKEN =
+      envVars.ANTHROPIC_AUTH_TOKEN || settings.env.ANTHROPIC_AUTH_TOKEN;
     settings.env.ANTHROPIC_MODEL = envVars.ANTHROPIC_MODEL || settings.env.ANTHROPIC_MODEL;
-    settings.env.ANTHROPIC_DEFAULT_OPUS_MODEL = envVars.ANTHROPIC_DEFAULT_OPUS_MODEL || settings.env.ANTHROPIC_DEFAULT_OPUS_MODEL;
-    settings.env.ANTHROPIC_DEFAULT_SONNET_MODEL = envVars.ANTHROPIC_DEFAULT_SONNET_MODEL || settings.env.ANTHROPIC_DEFAULT_SONNET_MODEL;
-    settings.env.ANTHROPIC_DEFAULT_HAIKU_MODEL = envVars.ANTHROPIC_DEFAULT_HAIKU_MODEL || settings.env.ANTHROPIC_DEFAULT_HAIKU_MODEL;
+    settings.env.ANTHROPIC_DEFAULT_OPUS_MODEL =
+      envVars.ANTHROPIC_DEFAULT_OPUS_MODEL || settings.env.ANTHROPIC_DEFAULT_OPUS_MODEL;
+    settings.env.ANTHROPIC_DEFAULT_SONNET_MODEL =
+      envVars.ANTHROPIC_DEFAULT_SONNET_MODEL || settings.env.ANTHROPIC_DEFAULT_SONNET_MODEL;
+    settings.env.ANTHROPIC_DEFAULT_HAIKU_MODEL =
+      envVars.ANTHROPIC_DEFAULT_HAIKU_MODEL || settings.env.ANTHROPIC_DEFAULT_HAIKU_MODEL;
     const sessionSettingsPath = baseSettingsPath.replace(/\.json$/, '.session.json');
-    fs.writeFileSync(sessionSettingsPath, JSON.stringify(settings, null, 2) + '\n', { mode: 0o600 });
+    fs.writeFileSync(sessionSettingsPath, JSON.stringify(settings, null, 2) + '\n', {
+      mode: 0o600,
+    });
     settingsPath = sessionSettingsPath;
     log(`Session settings written: ${sessionSettingsPath}`);
   } catch (err) {

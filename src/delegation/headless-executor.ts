@@ -368,7 +368,13 @@ WshShell.Run """${ps}"" -NoProfile -ExecutionPolicy Bypass -File ""${scriptFile}
     }
 
     const streamKey = `ccs:task:${taskId}:events`;
-    const runnerScript = path.resolve(__dirname, '..', '..', 'scripts', 'background-redis-bridge.js');
+    const runnerScript = path.resolve(
+      __dirname,
+      '..',
+      '..',
+      'scripts',
+      'background-redis-bridge.js'
+    );
 
     if (!fs.existsSync(runnerScript)) {
       throw new Error(`Redis bridge script not found: ${runnerScript}`);

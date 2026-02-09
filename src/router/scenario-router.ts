@@ -172,7 +172,9 @@ export class ScenarioRouter {
  * Create a scenario router from unified config.
  * Returns null if router is not configured or disabled.
  */
-export function createScenarioRouter(routerConfig?: Partial<ScenarioRouterConfig>): ScenarioRouter | null {
+export function createScenarioRouter(
+  routerConfig?: Partial<ScenarioRouterConfig>
+): ScenarioRouter | null {
   if (!routerConfig?.enabled) {
     return null;
   }

@@ -475,7 +475,9 @@ async function showHelp(): Promise<void> {
   console.log(`  ${color('--api-key <key>', 'command')}      API key (create)`);
   console.log(`  ${color('--model <model>', 'command')}      Default model (create)`);
   console.log(`  ${color('--force', 'command')}              Overwrite existing (create)`);
-  console.log(`  ${color('--openai', 'command')}             Mark as OpenAI-compatible endpoint (create)`);
+  console.log(
+    `  ${color('--openai', 'command')}             Mark as OpenAI-compatible endpoint (create)`
+  );
   console.log(`  ${color('--yes, -y', 'command')}            Skip confirmation prompts`);
   console.log('');
   console.log(subheader('Provider Presets'));

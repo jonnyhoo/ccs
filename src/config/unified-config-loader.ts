@@ -580,9 +580,7 @@ function generateYamlWithComments(config: UnifiedConfig): string {
     lines.push('# Configure via: ccs router set <scenario> <profile>');
     lines.push('# ----------------------------------------------------------------------------');
     lines.push(
-      yaml
-        .dump({ router: config.router }, { indent: 2, lineWidth: -1, quotingType: '"' })
-        .trim()
+      yaml.dump({ router: config.router }, { indent: 2, lineWidth: -1, quotingType: '"' }).trim()
     );
     lines.push('');
   }

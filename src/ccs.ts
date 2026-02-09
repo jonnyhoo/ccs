@@ -277,7 +277,9 @@ async function execClaudeWithOpenAIProxy(
 
   let claude: ChildProcess;
   if (needsShell) {
-    const cmdString = [claudeCli, '--settings', settingsPath, ...args].map(escapeShellArg).join(' ');
+    const cmdString = [claudeCli, '--settings', settingsPath, ...args]
+      .map(escapeShellArg)
+      .join(' ');
     claude = spawn(cmdString, {
       stdio: 'inherit',
       windowsHide: true,
@@ -749,7 +751,11 @@ async function main(): Promise<void> {
           const globalEnv = globalEnvConfig.enabled ? globalEnvConfig.env : {};
 
           // Log global env injection for visibility (debug mode only)
-          if (globalEnvConfig.enabled && Object.keys(globalEnv).length > 0 && process.env.CCS_DEBUG) {
+          if (
+            globalEnvConfig.enabled &&
+            Object.keys(globalEnv).length > 0 &&
+            process.env.CCS_DEBUG
+          ) {
             const envNames = Object.keys(globalEnv).join(', ');
             console.error(info(`Global env: ${envNames}`));
           }
