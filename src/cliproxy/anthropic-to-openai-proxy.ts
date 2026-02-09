@@ -596,13 +596,15 @@ class StreamingResponseTranslator {
             content_block: { type: 'tool_use', id: tracked.id, name: tracked.name, input: {} },
           });
           tracked.started = true;
+          this.contentBlockIndex++;
         }
 
         // Emit argument deltas
         if (tc.function?.arguments) {
+          // Use contentBlockIndex - 1 since we incremented after block start
           events += this.sse('content_block_delta', {
             type: 'content_block_delta',
-            index: this.contentBlockIndex,
+            index: this.contentBlockIndex - 1,
             delta: { type: 'input_json_delta', partial_json: tc.function.arguments },
           });
         }
@@ -621,20 +623,36 @@ class StreamingResponseTranslator {
         this.inTextBlock = false;
       }
 
+      // Close thinking block if still open
+      if (this.inThinkingBlock) {
+        events += this.emitThinkingStop();
+      }
+
       // Close open tool call blocks
+      let tcBlockIdx = this.contentBlockIndex - this.inToolCallBlocks.size;
       for (const [, tracked] of this.inToolCallBlocks) {
         if (tracked.started) {
           events += this.sse('content_block_stop', {
             type: 'content_block_stop',
-            index: this.contentBlockIndex,
+            index: tcBlockIdx,
           });
-          this.contentBlockIndex++;
         }
+        tcBlockIdx++;
       }
       this.inToolCallBlocks.clear();
 
       // Map finish reason
-      const stopReason = choice.finish_reason === 'tool_calls' ? 'tool_use' : 'end_turn';
+      let stopReason: string;
+      switch (choice.finish_reason) {
+        case 'tool_calls':
+          stopReason = 'tool_use';
+          break;
+        case 'length':
+          stopReason = 'max_tokens';
+          break;
+        default:
+          stopReason = 'end_turn';
+      }
 
       events += this.sse('message_delta', {
         type: 'message_delta',
@@ -656,6 +674,11 @@ class StreamingResponseTranslator {
       events += this.emitMessageStart();
     }
 
+    // Close thinking block if still open
+    if (this.inThinkingBlock) {
+      events += this.emitThinkingStop();
+    }
+
     if (this.inTextBlock) {
       events += this.sse('content_block_stop', {
         type: 'content_block_stop',
@@ -663,14 +686,15 @@ class StreamingResponseTranslator {
       });
     }
 
+    let tcBlockIdx = this.contentBlockIndex - this.inToolCallBlocks.size;
     for (const [, tracked] of this.inToolCallBlocks) {
       if (tracked.started) {
         events += this.sse('content_block_stop', {
           type: 'content_block_stop',
-          index: this.contentBlockIndex,
+          index: tcBlockIdx,
         });
-        this.contentBlockIndex++;
       }
+      tcBlockIdx++;
     }
 
     events += this.sse('message_delta', {
@@ -917,6 +941,7 @@ export class AnthropicToOpenAIProxy {
     model: string
   ): Promise<void> {
     return new Promise((_resolve, _reject) => {
+      let retried = false;
       const attempt = (mode: 'chat' | 'responses'): Promise<void> => {
         return new Promise((resolveAttempt, rejectAttempt) => {
           const targetUrl = new URL(
@@ -961,6 +986,15 @@ export class AnthropicToOpenAIProxy {
                   // Try fallback if we attempted chat first
                   if (mode === 'chat') {
                     attempt('responses').then(resolveAttempt).catch(rejectAttempt);
+                    return;
+                  }
+                  // Auto-retry once on 401 (backend intermittently returns token_revoked)
+                  if (statusCode === 401 && !retried) {
+                    retried = true;
+                    this.log('401 received, retrying once...');
+                    setTimeout(() => {
+                      attempt(mode).then(resolveAttempt).catch(rejectAttempt);
+                    }, 500);
                     return;
                   }
                   // No fallback left: return error
@@ -1341,6 +1375,9 @@ export class AnthropicToOpenAIProxy {
     model: string
   ): Promise<void> {
     return new Promise((resolve, reject) => {
+      let retried = false;
+
+      const doRequest = (): void => {
       const targetUrl = new URL(`${targetBase}/v1/responses`);
       const body = translateChatToResponses(
         JSON.parse(JSON.stringify({ ...openaiReqChat, stream: true })) as OpenAIRequest
@@ -1375,6 +1412,13 @@ export class AnthropicToOpenAIProxy {
             upstreamRes.on('end', () => {
               const bodyErr = Buffer.concat(chunks).toString('utf8');
               this.log(`Upstream non-stream error ${statusCode}: ${bodyErr.slice(0, 200)}`);
+              // Auto-retry once on 401
+              if (statusCode === 401 && !retried) {
+                retried = true;
+                this.log('401 received (non-stream), retrying once...');
+                setTimeout(() => doRequest(), 500);
+                return;
+              }
               clientRes.writeHead(statusCode, { 'Content-Type': 'application/json' });
               clientRes.end(
                 JSON.stringify({
@@ -1514,6 +1558,9 @@ export class AnthropicToOpenAIProxy {
 
       upstreamReq.write(bodyString);
       upstreamReq.end();
+      }; // end doRequest
+
+      doRequest();
     });
   }
 }
