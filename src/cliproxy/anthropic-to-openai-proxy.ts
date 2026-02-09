@@ -19,6 +19,8 @@
  *   - Tool calls and tool results
  */
 
+/* eslint-disable @typescript-eslint/no-explicit-any */
+
 import * as http from 'http';
 import * as https from 'https';
 import { URL } from 'url';
@@ -192,7 +194,8 @@ function translateMessages(messages: AnthropicMessage[]): OpenAIMessage[] {
             type: 'function',
             function: {
               name: block.name || '',
-              arguments: typeof block.input === 'string' ? block.input : JSON.stringify(block.input ?? {}),
+              arguments:
+                typeof block.input === 'string' ? block.input : JSON.stringify(block.input ?? {}),
             },
           });
         }
@@ -402,8 +405,14 @@ function translateChatToResponses(chat: OpenAIRequest): ResponsesRequest {
     temperature: chat.temperature,
     top_p: chat.top_p,
     stop: chat.stop,
-    reasoning: chat.reasoning ?? { effort: 'xhigh' },
-  };
+    store: false,
+    reasoning: {
+      ...(typeof chat.reasoning === 'object' ? chat.reasoning : {}),
+      effort: chat.reasoning?.effort ?? 'xhigh',
+      summary: 'auto',
+    },
+    include: ['reasoning.encrypted_content'],
+  } as any;
   if (chat.tools) {
     // Convert Chat Completions tool format to Responses API format
     // Chat: {type:"function", function:{name, description, parameters}}
@@ -427,6 +436,7 @@ class StreamingResponseTranslator {
   private model: string;
   private contentBlockIndex = 0;
   private inTextBlock = false;
+  private inThinkingBlock = false;
   private inToolCallBlocks = new Map<number, { id: string; name: string; started: boolean }>();
   private inputTokens = 0;
   private outputTokens = 0;
@@ -458,6 +468,44 @@ class StreamingResponseTranslator {
     });
   }
 
+  /** Emit a thinking content block start */
+  emitThinkingStart(): string {
+    let events = '';
+    if (!this.headersSent) {
+      this.headersSent = true;
+      events += this.emitMessageStart();
+    }
+    events += this.sse('content_block_start', {
+      type: 'content_block_start',
+      index: this.contentBlockIndex,
+      content_block: { type: 'thinking', thinking: '' },
+    });
+    this.inThinkingBlock = true;
+    return events;
+  }
+
+  /** Emit a thinking content delta */
+  emitThinkingDelta(text: string): string {
+    if (!text) return '';
+    return this.sse('content_block_delta', {
+      type: 'content_block_delta',
+      index: this.contentBlockIndex,
+      delta: { type: 'thinking_delta', thinking: text },
+    });
+  }
+
+  /** Emit thinking block stop */
+  emitThinkingStop(): string {
+    if (!this.inThinkingBlock) return '';
+    const events = this.sse('content_block_stop', {
+      type: 'content_block_stop',
+      index: this.contentBlockIndex,
+    });
+    this.contentBlockIndex++;
+    this.inThinkingBlock = false;
+    return events;
+  }
+
   /** Translate a single OpenAI chunk to zero or more Anthropic SSE events */
   translateChunk(chunk: OpenAIStreamChunk): string {
     let events = '';
@@ -477,6 +525,20 @@ class StreamingResponseTranslator {
     if (!this.headersSent && delta) {
       this.headersSent = true;
       events += this.emitMessageStart();
+    }
+
+    // Handle reasoning content (OpenAI Chat Completions returns this for reasoning models)
+    if (
+      (delta as any)?.reasoning_content !== undefined &&
+      (delta as any).reasoning_content !== null
+    ) {
+      const reasoningText = (delta as any).reasoning_content as string;
+      if (reasoningText) {
+        // Log reasoning content for debugging
+        console.error(
+          `[anthropic-to-openai] [REASONING] got reasoning_content: ${reasoningText.slice(0, 100)}`
+        );
+      }
     }
 
     // Handle text content
@@ -685,7 +747,9 @@ interface ResponsesRequest {
 export class AnthropicToOpenAIProxy {
   private server: http.Server | null = null;
   private port: number | null = null;
-  private readonly config: Required<Pick<AnthropicToOpenAIProxyConfig, 'targetBaseUrl' | 'apiKey' | 'verbose' | 'timeoutMs'>>;
+  private readonly config: Required<
+    Pick<AnthropicToOpenAIProxyConfig, 'targetBaseUrl' | 'apiKey' | 'verbose' | 'timeoutMs'>
+  >;
 
   constructor(config: AnthropicToOpenAIProxyConfig) {
     // Normalize base URL: strip trailing slashes and /v1 suffix
@@ -810,7 +874,9 @@ export class AnthropicToOpenAIProxy {
       // Translate request
       const openaiReq = translateRequestChat(anthropicReq);
       const model = anthropicReq.model || 'unknown';
-      this.log(`Translated request: model=${model}, stream=${openaiReq.stream}, messages=${openaiReq.messages.length}`);
+      this.log(
+        `Translated request: model=${model}, stream=${openaiReq.stream}, messages=${openaiReq.messages.length}`
+      );
 
       // Build target base URL (without endpoint path)
       const targetBase = this.config.targetBaseUrl;
@@ -831,10 +897,12 @@ export class AnthropicToOpenAIProxy {
         res.writeHead(502, { 'Content-Type': 'application/json' });
       }
       // Return error in Anthropic format
-      res.end(JSON.stringify({
-        type: 'error',
-        error: { type: 'api_error', message: err.message },
-      }));
+      res.end(
+        JSON.stringify({
+          type: 'error',
+          error: { type: 'api_error', message: err.message },
+        })
+      );
     }
   }
 
@@ -848,8 +916,15 @@ export class AnthropicToOpenAIProxy {
     return new Promise((_resolve, _reject) => {
       const attempt = (mode: 'chat' | 'responses'): Promise<void> => {
         return new Promise((resolveAttempt, rejectAttempt) => {
-          const targetUrl = new URL(`${targetBase}${mode === 'chat' ? '/v1/chat/completions' : '/v1/responses'}`);
-          const body = mode === 'chat' ? openaiReqChat : translateChatToResponses(JSON.parse(JSON.stringify({ ...openaiReqChat, stream: true })) as any);
+          const targetUrl = new URL(
+            `${targetBase}${mode === 'chat' ? '/v1/chat/completions' : '/v1/responses'}`
+          );
+          const body =
+            mode === 'chat'
+              ? openaiReqChat
+              : translateChatToResponses(
+                  JSON.parse(JSON.stringify({ ...openaiReqChat, stream: true })) as any
+                );
           const bodyString = JSON.stringify(body);
           const requestFn = targetUrl.protocol === 'https:' ? https.request : http.request;
 
@@ -862,292 +937,392 @@ export class AnthropicToOpenAIProxy {
               method: 'POST',
               timeout: this.config.timeoutMs,
               headers: {
-            'Content-Type': 'application/json',
-            'Content-Length': Buffer.byteLength(bodyString),
-            'Authorization': `Bearer ${this.config.apiKey}`,
-'Accept': 'text/event-stream',
+                'Content-Type': 'application/json',
+                'Content-Length': Buffer.byteLength(bodyString),
+                Authorization: `Bearer ${this.config.apiKey}`,
+                Accept: 'text/event-stream',
+                'x-session-id': 'ccs-codex-stable',
+                conversation_id: 'ccs-codex-stable',
+                session_id: 'ccs-codex-stable',
               },
             },
             (upstreamRes) => {
-          const statusCode = upstreamRes.statusCode || 200;
+              const statusCode = upstreamRes.statusCode || 200;
 
-          if (statusCode >= 400) {
-            const chunks: Buffer[] = [];
-            upstreamRes.on('data', (c: Buffer) => chunks.push(c));
-            upstreamRes.on('end', () => {
-              const bodyErr = Buffer.concat(chunks).toString('utf8');
-              this.log(`Upstream ${mode} error ${statusCode}: ${bodyErr.slice(0, 200)}`);
-              // Try fallback if we attempted chat first
-              if (mode === 'chat') {
-                attempt('responses').then(resolveAttempt).catch(rejectAttempt);
+              if (statusCode >= 400) {
+                const chunks: Buffer[] = [];
+                upstreamRes.on('data', (c: Buffer) => chunks.push(c));
+                upstreamRes.on('end', () => {
+                  const bodyErr = Buffer.concat(chunks).toString('utf8');
+                  this.log(`Upstream ${mode} error ${statusCode}: ${bodyErr.slice(0, 200)}`);
+                  // Try fallback if we attempted chat first
+                  if (mode === 'chat') {
+                    attempt('responses').then(resolveAttempt).catch(rejectAttempt);
+                    return;
+                  }
+                  // No fallback left: return error
+                  if (!clientRes.headersSent) {
+                    clientRes.writeHead(statusCode, { 'Content-Type': 'application/json' });
+                  }
+                  try {
+                    const parsed = JSON.parse(bodyErr);
+                    clientRes.end(
+                      JSON.stringify({
+                        type: 'error',
+                        error: {
+                          type: 'api_error',
+                          message: parsed?.error?.message || bodyErr.slice(0, 500),
+                        },
+                      })
+                    );
+                  } catch {
+                    clientRes.end(
+                      JSON.stringify({
+                        type: 'error',
+                        error: { type: 'api_error', message: bodyErr.slice(0, 500) },
+                      })
+                    );
+                  }
+                  resolveAttempt();
+                });
                 return;
               }
-              // No fallback left: return error
-              if (!clientRes.headersSent) {
-                clientRes.writeHead(statusCode, { 'Content-Type': 'application/json' });
-              }
-              try {
-                const parsed = JSON.parse(bodyErr);
-                clientRes.end(JSON.stringify({ type: 'error', error: { type: 'api_error', message: parsed?.error?.message || bodyErr.slice(0, 500) } }));
-              } catch {
-                clientRes.end(JSON.stringify({ type: 'error', error: { type: 'api_error', message: bodyErr.slice(0, 500) } }));
-              }
-              resolveAttempt();
-            });
-            return;
-          }
 
-          // Set up Anthropic SSE response
-          clientRes.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', 'Connection': 'keep-alive' });
+              // Set up Anthropic SSE response
+              clientRes.writeHead(200, {
+                'Content-Type': 'text/event-stream',
+                'Cache-Control': 'no-cache',
+                Connection: 'keep-alive',
+              });
 
-          const translator = new StreamingResponseTranslator(model);
-          let buffer = '';
-          let hasFinished = false;
-          const activeToolCalls = new Map<number, { id: string; name: string }>();
-          let refusalStarted = false;
+              const translator = new StreamingResponseTranslator(model);
+              let buffer = '';
+              let hasFinished = false;
+              const activeToolCalls = new Map<number, { id: string; name: string }>();
+              let refusalStarted = false;
 
-          upstreamRes.on('data', (chunk: Buffer) => {
-            buffer += chunk.toString('utf8');
+              upstreamRes.on('data', (chunk: Buffer) => {
+                buffer += chunk.toString('utf8');
 
-            const lines = buffer.split('\n');
-            buffer = lines.pop() || '';
+                const lines = buffer.split('\n');
+                buffer = lines.pop() || '';
 
-            for (const line of lines) {
-              const trimmed = line.trim();
-              if (!trimmed || trimmed.startsWith(':')) continue;
+                for (const line of lines) {
+                  const trimmed = line.trim();
+                  if (!trimmed || trimmed.startsWith(':')) continue;
 
-              if (trimmed === 'data: [DONE]') {
+                  if (trimmed === 'data: [DONE]') {
+                    if (!hasFinished) {
+                      const final = translator.emitFinalIfNeeded();
+                      if (final) clientRes.write(final);
+                      hasFinished = true;
+                    }
+                    continue;
+                  }
+
+                  if (trimmed.startsWith('data: ')) {
+                    const jsonStr = trimmed.slice(6);
+                    try {
+                      // Try Chat Completions chunk first
+                      const parsed = JSON.parse(jsonStr);
+                      if (parsed && parsed.type) {
+                        // Responses API event
+                        const evtType: string = parsed.type;
+                        if (evtType === 'keepalive') {
+                          // Keepalive event: silently ignore (connection heartbeat)
+                        } else if (
+                          evtType === 'response.created' ||
+                          evtType === 'response.in_progress'
+                        ) {
+                          // Response lifecycle events: silently ignore (informational only)
+                          // These indicate the response has started/is processing
+                        } else if (
+                          evtType.endsWith('.output_text.delta') &&
+                          typeof parsed.delta === 'string'
+                        ) {
+                          // Start block if needed, then stream text
+                          const start = translator.translateChunk({
+                            choices: [{ delta: { content: '' } }],
+                          } as any);
+                          const textDelta = translator.translateChunk({
+                            choices: [{ delta: { content: parsed.delta } }],
+                          } as any);
+                          if (start) clientRes.write(start);
+                          if (textDelta) clientRes.write(textDelta);
+                        } else if (evtType === 'response.output_text.done') {
+                          // Text block complete: close text block if open
+                          const events = translator.translateChunk({
+                            choices: [{ delta: {} }],
+                          } as any);
+                          if (events) clientRes.write(events);
+                        } else if (evtType === 'response.output_item.added') {
+                          // Output item added: handle function_call, ignore message type (content comes via output_text.delta)
+                          if (parsed.item?.type === 'function_call') {
+                            // Tool call start: emit as Anthropic tool_use via fake chunk
+                            const tcId =
+                              parsed.item.call_id || parsed.item.id || `call_${Date.now()}`;
+                            const tcName = parsed.item.name || '';
+                            const outputIndex = parsed.output_index ?? 0;
+                            activeToolCalls.set(outputIndex, { id: tcId, name: tcName });
+                            const events = translator.translateChunk({
+                              choices: [
+                                {
+                                  delta: {
+                                    tool_calls: [
+                                      {
+                                        index: outputIndex,
+                                        id: tcId,
+                                        function: { name: tcName, arguments: '' },
+                                      },
+                                    ],
+                                  },
+                                },
+                              ],
+                            } as any);
+                            if (events) clientRes.write(events);
+                          }
+                          // Silently ignore message type - content is handled by output_text.delta
+                        } else if (
+                          evtType === 'response.content_part.added' ||
+                          evtType === 'response.content_part.done'
+                        ) {
+                          // Content part events: silently ignore (content is handled by output_text.delta)
+                          // These events indicate text/refusal content blocks but actual content comes via delta events
+                        } else if (
+                          evtType === 'response.function_call_arguments.delta' &&
+                          typeof parsed.delta === 'string'
+                        ) {
+                          // Tool call arguments delta
+                          const outputIndex = parsed.output_index ?? 0;
+                          const events = translator.translateChunk({
+                            choices: [
+                              {
+                                delta: {
+                                  tool_calls: [
+                                    { index: outputIndex, function: { arguments: parsed.delta } },
+                                  ],
+                                },
+                              },
+                            ],
+                          } as any);
+                          if (events) clientRes.write(events);
+                        } else if (evtType === 'response.function_call_arguments.done') {
+                          // Tool call arguments complete: mark as done (translator will handle on finish_reason)
+                          this.log('Tool call arguments completed');
+                        } else if (evtType === 'response.output_item.done') {
+                          // Output item done: handle function_call, ignore message type
+                          if (parsed.item?.type === 'function_call') {
+                            // Tool call item done: just log, don't finish yet (wait for response.completed)
+                            this.log('Tool call item completed');
+                          }
+                          // Silently ignore message type
+                        } else if (
+                          evtType === 'response.refusal.delta' &&
+                          typeof parsed.delta === 'string'
+                        ) {
+                          // Refusal text delta: add [refusal] prefix only on first delta
+                          const start = translator.translateChunk({
+                            choices: [{ delta: { content: '' } }],
+                          } as any);
+                          const prefix = refusalStarted ? '' : '[refusal] ';
+                          const textDelta = translator.translateChunk({
+                            choices: [{ delta: { content: `${prefix}${parsed.delta}` } }],
+                          } as any);
+                          if (start) clientRes.write(start);
+                          if (textDelta) clientRes.write(textDelta);
+                          refusalStarted = true;
+                        } else if (evtType === 'response.refusal.done') {
+                          // Refusal complete: close block and finish
+                          const events = translator.translateChunk({
+                            choices: [{ finish_reason: 'end_turn' }],
+                          } as any);
+                          if (events) clientRes.write(events);
+                          hasFinished = true;
+                        } else if (evtType === 'error') {
+                          // Stream error: return Anthropic error format and end
+                          const errorMsg =
+                            parsed.error?.message || parsed.message || 'Unknown error';
+                          if (!clientRes.headersSent) {
+                            clientRes.writeHead(500, { 'Content-Type': 'application/json' });
+                          }
+                          clientRes.end(
+                            JSON.stringify({
+                              type: 'error',
+                              error: { type: 'api_error', message: errorMsg },
+                            })
+                          );
+                          hasFinished = true;
+                          return;
+                        } else if (evtType === 'response.completed') {
+                          // Extract usage info and emit final events
+                          if (parsed.response?.usage) {
+                            translator['inputTokens'] = parsed.response.usage.input_tokens ?? 0;
+                            translator['outputTokens'] = parsed.response.usage.output_tokens ?? 0;
+                          }
+                          if (!hasFinished) {
+                            hasFinished = true;
+                            // If we have active tool calls, emit tool_calls finish_reason
+                            if (activeToolCalls.size > 0) {
+                              const finishEvent = translator.translateChunk({
+                                choices: [{ finish_reason: 'tool_calls' }],
+                              } as any);
+                              if (finishEvent) clientRes.write(finishEvent);
+                            } else {
+                              // Only emit final if no tool calls (translateChunk already emitted terminal events)
+                              const final = translator.emitFinalIfNeeded();
+                              if (final) clientRes.write(final);
+                            }
+                          }
+                        } else if (evtType.startsWith('response.web_search.')) {
+                          // Web search events: log for debugging, treat as informational
+                          this.log(`Web search event: ${evtType}`);
+                          // Could emit as text delta if needed: "[Searching web...]"
+                          if (evtType === 'response.web_search.started') {
+                            const searchDelta = translator.translateChunk({
+                              choices: [{ delta: { content: '[Searching web...]\n' } }],
+                            } as any);
+                            if (searchDelta) clientRes.write(searchDelta);
+                          }
+                        } else if (evtType.startsWith('response.file_search.')) {
+                          // File search events: log for debugging
+                          this.log(`File search event: ${evtType}`);
+                          if (evtType === 'response.file_search.started') {
+                            const searchDelta = translator.translateChunk({
+                              choices: [{ delta: { content: '[Searching files...]\n' } }],
+                            } as any);
+                            if (searchDelta) clientRes.write(searchDelta);
+                          }
+                        } else if (evtType.startsWith('response.code_interpreter.')) {
+                          // Code interpreter events: log for debugging
+                          this.log(`Code interpreter event: ${evtType}`);
+                          if (evtType === 'response.code_interpreter.started') {
+                            const codeDelta = translator.translateChunk({
+                              choices: [{ delta: { content: '[Running code...]\n' } }],
+                            } as any);
+                            if (codeDelta) clientRes.write(codeDelta);
+                          } else if (
+                            evtType === 'response.code_interpreter.output' &&
+                            parsed.output
+                          ) {
+                            // Code output: emit as text
+                            const outputDelta = translator.translateChunk({
+                              choices: [
+                                { delta: { content: `\`\`\`\n${parsed.output}\n\`\`\`\n` } },
+                              ],
+                            } as any);
+                            if (outputDelta) clientRes.write(outputDelta);
+                          }
+                        } else if (evtType.startsWith('response.mcp.')) {
+                          // MCP tool events: log for debugging
+                          this.log(`MCP event: ${evtType}`);
+                          if (evtType === 'response.mcp.started') {
+                            const mcpDelta = translator.translateChunk({
+                              choices: [{ delta: { content: '[Using MCP tool...]\n' } }],
+                            } as any);
+                            if (mcpDelta) clientRes.write(mcpDelta);
+                          }
+                        } else if (evtType === 'response.reasoning_summary_part.added') {
+                          // Reasoning block start → Anthropic thinking block
+                          const events = translator.emitThinkingStart();
+                          if (events) clientRes.write(events);
+                        } else if (
+                          evtType === 'response.reasoning_summary_text.delta' &&
+                          typeof parsed.delta === 'string'
+                        ) {
+                          // Reasoning text delta → thinking_delta
+                          const events = translator.emitThinkingDelta(parsed.delta);
+                          if (events) clientRes.write(events);
+                        } else if (evtType === 'response.reasoning_summary_part.done') {
+                          // Reasoning block done → close thinking block
+                          const events = translator.emitThinkingStop();
+                          if (events) clientRes.write(events);
+                        } else if (evtType.includes('reasoning')) {
+                          // Log other reasoning events for debugging
+                          this.log(
+                            `[REASONING EVENT] ${evtType}: ${JSON.stringify(parsed).slice(0, 200)}`
+                          );
+                        } else {
+                          // Log unknown event types for debugging
+                          if (this.config.verbose) {
+                            this.log(`Unknown Responses API event type: ${evtType}`);
+                          }
+                        }
+                      } else {
+                        const chunkObj = parsed as OpenAIStreamChunk;
+                        const events = translator.translateChunk(chunkObj);
+                        if (events) clientRes.write(events);
+                        if (chunkObj.choices?.[0]?.finish_reason) hasFinished = true;
+                      }
+                    } catch (e) {
+                      this.log(
+                        `Failed to parse SSE chunk: ${jsonStr.slice(0, 100)} - ${(e as Error).message}`
+                      );
+                    }
+                  }
+                }
+              });
+
+              upstreamRes.on('end', () => {
+                if (buffer.trim()) {
+                  const trimmed = buffer.trim();
+                  if (trimmed.startsWith('data: ') && trimmed !== 'data: [DONE]') {
+                    try {
+                      const parsed = JSON.parse(trimmed.slice(6));
+                      if (parsed && parsed.type) {
+                        if (parsed.type === 'response.completed') {
+                          hasFinished = true;
+                        }
+                      } else {
+                        const chunk = parsed as OpenAIStreamChunk;
+                        const events = translator.translateChunk(chunk);
+                        if (events) clientRes.write(events);
+                        if (chunk.choices?.[0]?.finish_reason) hasFinished = true;
+                      }
+                    } catch {
+                      // ignore
+                    }
+                  }
+                }
+
                 if (!hasFinished) {
                   const final = translator.emitFinalIfNeeded();
                   if (final) clientRes.write(final);
-                  hasFinished = true;
                 }
-                continue;
-              }
 
-              if (trimmed.startsWith('data: ')) {
-                const jsonStr = trimmed.slice(6);
-                try {
-                  // Try Chat Completions chunk first
-                  const parsed = JSON.parse(jsonStr);
-                  if (parsed && parsed.type) {
-                    // Responses API event
-                    const evtType: string = parsed.type;
-                    if (evtType === 'keepalive') {
-                      // Keepalive event: silently ignore (connection heartbeat)
-                    } else if (evtType === 'response.created' || evtType === 'response.in_progress') {
-                      // Response lifecycle events: silently ignore (informational only)
-                      // These indicate the response has started/is processing
-                    } else if (evtType.endsWith('.output_text.delta') && typeof parsed.delta === 'string') {
-                      // Start block if needed, then stream text
-                      const start = translator.translateChunk({ choices: [{ delta: { content: '' } }] } as any);
-                      const textDelta = translator.translateChunk({ choices: [{ delta: { content: parsed.delta } }] } as any);
-                      if (start) clientRes.write(start);
-                      if (textDelta) clientRes.write(textDelta);
-                    } else if (evtType === 'response.output_text.done') {
-                      // Text block complete: close text block if open
-                      const events = translator.translateChunk({
-                        choices: [{ delta: {} }]
-                      } as any);
-                      if (events) clientRes.write(events);
-                    } else if (evtType === 'response.output_item.added') {
-                      // Output item added: handle function_call, ignore message type (content comes via output_text.delta)
-                      if (parsed.item?.type === 'function_call') {
-                        // Tool call start: emit as Anthropic tool_use via fake chunk
-                        const tcId = parsed.item.call_id || parsed.item.id || `call_${Date.now()}`;
-                        const tcName = parsed.item.name || '';
-                        const outputIndex = parsed.output_index ?? 0;
-                        activeToolCalls.set(outputIndex, { id: tcId, name: tcName });
-                        const events = translator.translateChunk({
-                          choices: [{ delta: { tool_calls: [{ index: outputIndex, id: tcId, function: { name: tcName, arguments: '' } }] } }]
-                        } as any);
-                        if (events) clientRes.write(events);
-                      }
-                      // Silently ignore message type - content is handled by output_text.delta
-                    } else if (evtType === 'response.content_part.added' || evtType === 'response.content_part.done') {
-                      // Content part events: silently ignore (content is handled by output_text.delta)
-                      // These events indicate text/refusal content blocks but actual content comes via delta events
-                    } else if (evtType === 'response.function_call_arguments.delta' && typeof parsed.delta === 'string') {
-                      // Tool call arguments delta
-                      const outputIndex = parsed.output_index ?? 0;
-                      const events = translator.translateChunk({
-                        choices: [{ delta: { tool_calls: [{ index: outputIndex, function: { arguments: parsed.delta } }] } }]
-                      } as any);
-                      if (events) clientRes.write(events);
-                    } else if (evtType === 'response.function_call_arguments.done') {
-                      // Tool call arguments complete: mark as done (translator will handle on finish_reason)
-                      this.log('Tool call arguments completed');
-                    } else if (evtType === 'response.output_item.done') {
-                      // Output item done: handle function_call, ignore message type
-                      if (parsed.item?.type === 'function_call') {
-                        // Tool call item done: just log, don't finish yet (wait for response.completed)
-                        this.log('Tool call item completed');
-                      }
-                      // Silently ignore message type
-                    } else if (evtType === 'response.refusal.delta' && typeof parsed.delta === 'string') {
-                      // Refusal text delta: add [refusal] prefix only on first delta
-                      const start = translator.translateChunk({ choices: [{ delta: { content: '' } }] } as any);
-                      const prefix = refusalStarted ? '' : '[refusal] ';
-                      const textDelta = translator.translateChunk({ choices: [{ delta: { content: `${prefix}${parsed.delta}` } }] } as any);
-                      if (start) clientRes.write(start);
-                      if (textDelta) clientRes.write(textDelta);
-                      refusalStarted = true;
-                    } else if (evtType === 'response.refusal.done') {
-                      // Refusal complete: close block and finish
-                      const events = translator.translateChunk({
-                        choices: [{ finish_reason: 'end_turn' }]
-                      } as any);
-                      if (events) clientRes.write(events);
-                      hasFinished = true;
-                    } else if (evtType === 'error') {
-                      // Stream error: return Anthropic error format and end
-                      const errorMsg = parsed.error?.message || parsed.message || 'Unknown error';
-                      if (!clientRes.headersSent) {
-                        clientRes.writeHead(500, { 'Content-Type': 'application/json' });
-                      }
-                      clientRes.end(JSON.stringify({
-                        type: 'error',
-                        error: { type: 'api_error', message: errorMsg }
-                      }));
-                      hasFinished = true;
-                      return;
-                    } else if (evtType === 'response.completed') {
-                      // Extract usage info and emit final events
-                      if (parsed.response?.usage) {
-                        translator['inputTokens'] = parsed.response.usage.input_tokens ?? 0;
-                        translator['outputTokens'] = parsed.response.usage.output_tokens ?? 0;
-                      }
-                      if (!hasFinished) {
-                        hasFinished = true;
-                        // If we have active tool calls, emit tool_calls finish_reason
-                        if (activeToolCalls.size > 0) {
-                          const finishEvent = translator.translateChunk({
-                            choices: [{ finish_reason: 'tool_calls' }]
-                          } as any);
-                          if (finishEvent) clientRes.write(finishEvent);
-                        } else {
-                          // Only emit final if no tool calls (translateChunk already emitted terminal events)
-                          const final = translator.emitFinalIfNeeded();
-                          if (final) clientRes.write(final);
-                        }
-                      }
-                    } else if (evtType.startsWith('response.web_search.')) {
-                      // Web search events: log for debugging, treat as informational
-                      this.log(`Web search event: ${evtType}`);
-                      // Could emit as text delta if needed: "[Searching web...]"
-                      if (evtType === 'response.web_search.started') {
-                        const searchDelta = translator.translateChunk({
-                          choices: [{ delta: { content: '[Searching web...]\n' } }]
-                        } as any);
-                        if (searchDelta) clientRes.write(searchDelta);
-                      }
-                    } else if (evtType.startsWith('response.file_search.')) {
-                      // File search events: log for debugging
-                      this.log(`File search event: ${evtType}`);
-                      if (evtType === 'response.file_search.started') {
-                        const searchDelta = translator.translateChunk({
-                          choices: [{ delta: { content: '[Searching files...]\n' } }]
-                        } as any);
-                        if (searchDelta) clientRes.write(searchDelta);
-                      }
-                    } else if (evtType.startsWith('response.code_interpreter.')) {
-                      // Code interpreter events: log for debugging
-                      this.log(`Code interpreter event: ${evtType}`);
-                      if (evtType === 'response.code_interpreter.started') {
-                        const codeDelta = translator.translateChunk({
-                          choices: [{ delta: { content: '[Running code...]\n' } }]
-                        } as any);
-                        if (codeDelta) clientRes.write(codeDelta);
-                      } else if (evtType === 'response.code_interpreter.output' && parsed.output) {
-                        // Code output: emit as text
-                        const outputDelta = translator.translateChunk({
-                          choices: [{ delta: { content: `\`\`\`\n${parsed.output}\n\`\`\`\n` } }]
-                        } as any);
-                        if (outputDelta) clientRes.write(outputDelta);
-                      }
-                    } else if (evtType.startsWith('response.mcp.')) {
-                      // MCP tool events: log for debugging
-                      this.log(`MCP event: ${evtType}`);
-                      if (evtType === 'response.mcp.started') {
-                        const mcpDelta = translator.translateChunk({
-                          choices: [{ delta: { content: '[Using MCP tool...]\n' } }]
-                        } as any);
-                        if (mcpDelta) clientRes.write(mcpDelta);
-                      }
-                    } else {
-                      // Log unknown event types for debugging
-                      if (this.config.verbose) {
-                        this.log(`Unknown Responses API event type: ${evtType}`);
-                      }
-                    }
-                  } else {
-                    const chunkObj = parsed as OpenAIStreamChunk;
-                    const events = translator.translateChunk(chunkObj);
-                    if (events) clientRes.write(events);
-                    if (chunkObj.choices?.[0]?.finish_reason) hasFinished = true;
-                  }
-                } catch (e) {
-                  this.log(`Failed to parse SSE chunk: ${jsonStr.slice(0, 100)} - ${(e as Error).message}`);
-                }
-              }
+                clientRes.end();
+                resolveAttempt();
+              });
+
+              upstreamRes.on('error', rejectAttempt);
             }
+          );
+
+          upstreamReq.on('timeout', () => {
+            upstreamReq.destroy(new Error('Upstream request timeout'));
           });
 
-          upstreamRes.on('end', () => {
-            if (buffer.trim()) {
-              const trimmed = buffer.trim();
-              if (trimmed.startsWith('data: ') && trimmed !== 'data: [DONE]') {
-                try {
-                  const parsed = JSON.parse(trimmed.slice(6));
-                  if (parsed && parsed.type) {
-                    if (parsed.type === 'response.completed') {
-                      hasFinished = true;
-                    }
-                  } else {
-                    const chunk = parsed as OpenAIStreamChunk;
-                    const events = translator.translateChunk(chunk);
-                    if (events) clientRes.write(events);
-                    if (chunk.choices?.[0]?.finish_reason) hasFinished = true;
-                  }
-                } catch {
-                  // ignore
-                }
-              }
+          upstreamReq.on('error', (err) => {
+            // On network error for chat attempt, fallback to responses
+            if (mode === 'chat') {
+              attempt('responses').then(resolveAttempt).catch(rejectAttempt);
+              return;
             }
-
-            if (!hasFinished) {
-              const final = translator.emitFinalIfNeeded();
-              if (final) clientRes.write(final);
+            this.log(`Request error (${mode}): ${err.message}`);
+            if (!clientRes.headersSent) {
+              clientRes.writeHead(502, { 'Content-Type': 'application/json' });
+              clientRes.end(
+                JSON.stringify({
+                  type: 'error',
+                  error: { type: 'api_error', message: err.message },
+                })
+              );
             }
-
-            clientRes.end();
-            resolveAttempt();
+            rejectAttempt(err);
           });
 
-          upstreamRes.on('error', rejectAttempt);
+          upstreamReq.write(bodyString);
+          upstreamReq.end();
         });
-
-        upstreamReq.on('timeout', () => {
-          upstreamReq.destroy(new Error('Upstream request timeout'));
-        });
-
-        upstreamReq.on('error', (err) => {
-          // On network error for chat attempt, fallback to responses
-          if (mode === 'chat') {
-            attempt('responses').then(resolveAttempt).catch(rejectAttempt);
-            return;
-          }
-          this.log(`Request error (${mode}): ${err.message}`);
-          if (!clientRes.headersSent) {
-            clientRes.writeHead(502, { 'Content-Type': 'application/json' });
-            clientRes.end(JSON.stringify({ type: 'error', error: { type: 'api_error', message: err.message } }));
-          }
-          rejectAttempt(err);
-        });
-
-        upstreamReq.write(bodyString);
-        upstreamReq.end();
-      });
       };
 
       return attempt('responses');
@@ -1164,7 +1339,9 @@ export class AnthropicToOpenAIProxy {
   ): Promise<void> {
     return new Promise((resolve, reject) => {
       const targetUrl = new URL(`${targetBase}/v1/responses`);
-      const body = translateChatToResponses(JSON.parse(JSON.stringify({ ...openaiReqChat, stream: true })) as OpenAIRequest);
+      const body = translateChatToResponses(
+        JSON.parse(JSON.stringify({ ...openaiReqChat, stream: true })) as OpenAIRequest
+      );
       const bodyString = JSON.stringify(body);
       const requestFn = targetUrl.protocol === 'https:' ? https.request : http.request;
 
@@ -1179,8 +1356,8 @@ export class AnthropicToOpenAIProxy {
           headers: {
             'Content-Type': 'application/json',
             'Content-Length': Buffer.byteLength(bodyString),
-            'Authorization': `Bearer ${this.config.apiKey}`,
-            'Accept': 'text/event-stream',
+            Authorization: `Bearer ${this.config.apiKey}`,
+            Accept: 'text/event-stream',
           },
         },
         (upstreamRes) => {
@@ -1193,7 +1370,12 @@ export class AnthropicToOpenAIProxy {
               const bodyErr = Buffer.concat(chunks).toString('utf8');
               this.log(`Upstream non-stream error ${statusCode}: ${bodyErr.slice(0, 200)}`);
               clientRes.writeHead(statusCode, { 'Content-Type': 'application/json' });
-              clientRes.end(JSON.stringify({ type: 'error', error: { type: 'api_error', message: bodyErr.slice(0, 500) } }));
+              clientRes.end(
+                JSON.stringify({
+                  type: 'error',
+                  error: { type: 'api_error', message: bodyErr.slice(0, 500) },
+                })
+              );
               resolve();
             });
             return;
@@ -1203,7 +1385,10 @@ export class AnthropicToOpenAIProxy {
           let buffer = '';
           let collectedText = '';
           const collectedToolCalls: Array<{ id: string; name: string; arguments: string }> = [];
-          const activeToolCallsMap = new Map<number, { id: string; name: string; arguments: string }>();
+          const activeToolCallsMap = new Map<
+            number,
+            { id: string; name: string; arguments: string }
+          >();
           let inputTokens = 0;
           let outputTokens = 0;
 
@@ -1224,20 +1409,29 @@ export class AnthropicToOpenAIProxy {
 
                 if (evtType.endsWith('.output_text.delta') && typeof parsed.delta === 'string') {
                   collectedText += parsed.delta;
-                } else if (evtType === 'response.output_item.added' && parsed.item?.type === 'function_call') {
+                } else if (
+                  evtType === 'response.output_item.added' &&
+                  parsed.item?.type === 'function_call'
+                ) {
                   const outputIndex = parsed.output_index ?? 0;
                   activeToolCallsMap.set(outputIndex, {
                     id: parsed.item.call_id || parsed.item.id || `call_${Date.now()}`,
                     name: parsed.item.name || '',
                     arguments: '',
                   });
-                } else if (evtType === 'response.function_call_arguments.delta' && typeof parsed.delta === 'string') {
+                } else if (
+                  evtType === 'response.function_call_arguments.delta' &&
+                  typeof parsed.delta === 'string'
+                ) {
                   const outputIndex = parsed.output_index ?? 0;
                   const toolCall = activeToolCallsMap.get(outputIndex);
                   if (toolCall) {
                     toolCall.arguments += parsed.delta;
                   }
-                } else if (evtType === 'response.output_item.done' && parsed.item?.type === 'function_call') {
+                } else if (
+                  evtType === 'response.output_item.done' &&
+                  parsed.item?.type === 'function_call'
+                ) {
                   const outputIndex = parsed.output_index ?? 0;
                   const toolCall = activeToolCallsMap.get(outputIndex);
                   if (toolCall) {
@@ -1262,7 +1456,11 @@ export class AnthropicToOpenAIProxy {
             }
             for (const tc of collectedToolCalls) {
               let input: unknown = {};
-              try { input = JSON.parse(tc.arguments); } catch { input = tc.arguments; }
+              try {
+                input = JSON.parse(tc.arguments);
+              } catch {
+                input = tc.arguments;
+              }
               content.push({ type: 'tool_use', id: tc.id, name: tc.name, input });
             }
 
@@ -1292,7 +1490,9 @@ export class AnthropicToOpenAIProxy {
         this.log(`Non-stream request error: ${err.message}`);
         if (!clientRes.headersSent) {
           clientRes.writeHead(502, { 'Content-Type': 'application/json' });
-          clientRes.end(JSON.stringify({ type: 'error', error: { type: 'api_error', message: err.message } }));
+          clientRes.end(
+            JSON.stringify({ type: 'error', error: { type: 'api_error', message: err.message } })
+          );
         }
         reject(err);
       });

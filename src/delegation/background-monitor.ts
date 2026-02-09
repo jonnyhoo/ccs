@@ -138,7 +138,9 @@ export class BackgroundMonitor {
       if (!status.error && status.status === 'running') {
         status.status = 'stuck';
         if (!this.options.silent) {
-          console.error(warn(`Task may be stuck (no output for ${(stuckTime / 1000).toFixed(1)}s)`));
+          console.error(
+            warn(`Task may be stuck (no output for ${(stuckTime / 1000).toFixed(1)}s)`)
+          );
         }
       }
     }
@@ -193,7 +195,9 @@ export class BackgroundMonitor {
 
             // 提取工具使用
             if (msg.message.content) {
-              const tools = msg.message.content.filter((c: any) => c.type === 'tool_use');
+              const tools = msg.message.content.filter(
+                (c: { type: string }) => c.type === 'tool_use'
+              );
               if (tools.length > 0) {
                 status.lastTool = tools[tools.length - 1].name;
               }
@@ -257,10 +261,7 @@ export class BackgroundMonitor {
   /**
    * 构建状态对象
    */
-  private buildStatus(
-    status: TaskStatus['status'],
-    elapsed: number
-  ): TaskStatus {
+  private buildStatus(status: TaskStatus['status'], elapsed: number): TaskStatus {
     return {
       taskId: this.taskId,
       outputFile: this.outputFile,
