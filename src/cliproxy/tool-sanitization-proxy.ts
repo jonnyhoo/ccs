@@ -176,9 +176,24 @@ export class ToolSanitizationProxy {
     const method = req.method || 'GET';
     const requestPath = req.url || '/';
     const upstreamBase = new URL(this.config.upstreamBaseUrl);
-    const fullUpstreamUrl = new URL(requestPath, upstreamBase);
+    const upstreamOrigin = `${upstreamBase.protocol}//${upstreamBase.host}`;
+    const upstreamPathPrefix =
+      upstreamBase.pathname === '/' ? '' : upstreamBase.pathname.replace(/\/$/, '');
+    const normalizedRequestPath = requestPath.startsWith('/') ? requestPath : `/${requestPath}`;
+    const fullUpstreamUrl = new URL(
+      `${upstreamPathPrefix}${normalizedRequestPath}`,
+      upstreamOrigin
+    );
 
     this.log(`${method} ${requestPath} → ${fullUpstreamUrl.href}`);
+
+    const tracePayload = process.env.CCS_TOOL_SANITIZATION_TRACE === '1';
+    if (tracePayload) {
+      this.writeLog(
+        'info',
+        `[tool-sanitization-proxy] ${method} ${requestPath} → ${fullUpstreamUrl.href}`
+      );
+    }
 
     // Only buffer+rewrite JSON POST requests
     const contentType = String(req.headers['content-type'] || '');
@@ -203,6 +218,22 @@ export class ToolSanitizationProxy {
 
       // Create mapper for this request
       const mapper = new ToolNameMapper();
+
+      if (tracePayload) {
+        if (isRecord(parsed) && Array.isArray(parsed.tools)) {
+          const totalTools = parsed.tools.length;
+          const mcpTools = parsed.tools.filter(
+            (tool): boolean =>
+              isRecord(tool) && typeof tool.name === 'string' && tool.name.startsWith('mcp__')
+          ).length;
+          this.writeLog(
+            'info',
+            `[tool-sanitization-proxy] Tools in request: total=${totalTools}, mcp=${mcpTools}`
+          );
+        } else {
+          this.writeLog('info', '[tool-sanitization-proxy] Tools in request: none');
+        }
+      }
 
       // Sanitize tools if present
       let modifiedBody = parsed;

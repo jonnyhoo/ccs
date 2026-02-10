@@ -27,11 +27,15 @@ describe('Tool Name Sanitizer', () => {
       assert.strictEqual(isValidToolName('Tool123'), true);
     });
 
-    it('returns true for names with valid special characters', () => {
-      assert.strictEqual(isValidToolName('my.tool'), true);
-      assert.strictEqual(isValidToolName('my:tool'), true);
+    it('returns true for conservative safe special characters', () => {
       assert.strictEqual(isValidToolName('my-tool'), true);
-      assert.strictEqual(isValidToolName('my_tool.v1:test-123'), true);
+      assert.strictEqual(isValidToolName('my_tool-123'), true);
+    });
+
+    it('returns false for unsupported special characters', () => {
+      assert.strictEqual(isValidToolName('my.tool'), false);
+      assert.strictEqual(isValidToolName('my:tool'), false);
+      assert.strictEqual(isValidToolName('my/tool'), false);
     });
 
     it('returns true for exactly 64 character names', () => {
@@ -169,6 +173,15 @@ describe('Tool Name Sanitizer', () => {
       assert.ok(result.sanitized.length <= 64);
       assert.strictEqual(result.changed, true);
       assert.strictEqual(result.sanitized, 'gitmcp__plus-pro-components');
+    });
+
+    it('maps mcp__ names to deterministic short aliases', () => {
+      const name = 'mcp__sicko-http__mcp-github-trending-get_github_trending_repositories';
+      const result = sanitizeToolName(name);
+
+      assert.strictEqual(result.changed, true);
+      assert.ok(/^mcp_[a-f0-9]{12}$/.test(result.sanitized));
+      assert.strictEqual(result.sanitized.length, 16);
     });
   });
 });

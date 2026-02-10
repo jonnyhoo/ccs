@@ -156,7 +156,7 @@ Run ${color('ccs config', 'command')} for web dashboard`.trim();
   // ═══════════════════════════════════════════════════════════════════════════
   printMajorSection(
     'CLI Proxy OAuth (Removed)',
-    ['gemini/codex/agy/qwen/iflow/kiro/ghcp/claude are disabled in this build'],
+    ['gemini/agy/qwen/iflow/kiro/ghcp/claude are disabled in this build (codex restored)'],
     [
       ['ccs api create --openai', 'Use OpenAI-compatible endpoint profiles'],
       ['ccs glmt', 'Use GLMT thinking proxy'],

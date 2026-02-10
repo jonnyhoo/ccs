@@ -19,7 +19,7 @@ import { getCcsDir } from '../utils/config-manager';
 
 export type ProfileType = 'settings' | 'account' | 'cliproxy' | 'copilot' | 'default';
 
-/** Legacy CLIProxy profile names (kept for backward-compatible error handling) */
+/** Built-in CLIProxy profile names */
 export const CLIPROXY_PROFILES = [
   'gemini',
   'codex',
@@ -358,10 +358,9 @@ class ProfileDetector {
   private listAvailableProfiles(): string {
     const lines: string[] = [];
 
-    // CLIProxy OAuth profiles have been removed from lite mode.
-    lines.push(
-      'Removed feature: CLIProxy OAuth profiles (gemini/codex/agy/qwen/iflow/kiro/ghcp/claude)'
-    );
+    // In lite mode, most CLIProxy OAuth profiles are removed, except codex.
+    lines.push('Removed feature: CLIProxy OAuth profiles (gemini/agy/qwen/iflow/kiro/ghcp/claude)');
+    lines.push('Available built-in profile: codex');
 
     // Check unified config first
     const unifiedConfig = this.readUnifiedConfig();

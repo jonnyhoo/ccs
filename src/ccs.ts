@@ -376,6 +376,150 @@ async function execClaudeWithOpenAIProxy(
   });
 }
 
+async function execClaudeWithToolSanitizationProxy(
+  claudeCli: string,
+  settingsPath: string,
+  args: string[],
+  envVars: NodeJS.ProcessEnv
+): Promise<void> {
+  const verbose = args.includes('--verbose') || args.includes('-v');
+
+  let toolSanitizationProxy: { start: () => Promise<number>; stop: () => void } | null = null;
+  let effectiveBaseUrl = envVars.ANTHROPIC_BASE_URL;
+
+  if (effectiveBaseUrl) {
+    try {
+      const { ToolSanitizationProxy } = await import('./cliproxy/tool-sanitization-proxy');
+      toolSanitizationProxy = new ToolSanitizationProxy({
+        upstreamBaseUrl: effectiveBaseUrl,
+        verbose,
+        warnOnSanitize: true,
+      });
+      const toolSanitizationPort = await toolSanitizationProxy.start();
+      effectiveBaseUrl = `http://127.0.0.1:${toolSanitizationPort}`;
+    } catch (error) {
+      const err = error as Error;
+      if (verbose) {
+        console.error(info(`Tool sanitization proxy disabled: ${err.message}`));
+      }
+    }
+  }
+
+  const env: NodeJS.ProcessEnv = {
+    ...process.env,
+    ...envVars,
+    ...(effectiveBaseUrl ? { ANTHROPIC_BASE_URL: effectiveBaseUrl } : {}),
+  };
+
+  if (process.env.CCS_DEBUG === '1') {
+    console.error(info(`Settings flow ANTHROPIC_BASE_URL=${env.ANTHROPIC_BASE_URL || ''}`));
+  }
+
+  let sessionSettingsPath = settingsPath;
+
+  const anthropicOverrides = Object.fromEntries(
+    Object.entries(envVars).filter(
+      ([key, value]) => key.startsWith('ANTHROPIC_') && typeof value === 'string'
+    )
+  ) as Record<string, string>;
+  if (effectiveBaseUrl) {
+    anthropicOverrides.ANTHROPIC_BASE_URL = effectiveBaseUrl;
+  }
+
+  try {
+    const rawSettings = fs.readFileSync(settingsPath, 'utf8');
+    const settings = JSON.parse(rawSettings) as { env?: Record<string, string> };
+
+    const sessionSettings = {
+      ...settings,
+      env: {
+        ...(settings.env || {}),
+        ...anthropicOverrides,
+      },
+    };
+
+    sessionSettingsPath = path.join(
+      os.tmpdir(),
+      `ccs-tool-sanitize-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.settings.json`
+    );
+
+    fs.writeFileSync(sessionSettingsPath, JSON.stringify(sessionSettings, null, 2) + '\n', 'utf8');
+  } catch (error) {
+    sessionSettingsPath = settingsPath;
+    if (verbose) {
+      const err = error as Error;
+      console.error(info(`Session settings fallback to original file: ${err.message}`));
+    }
+  }
+
+  const cleanupSessionSettings = (): void => {
+    if (sessionSettingsPath === settingsPath) {
+      return;
+    }
+    try {
+      if (fs.existsSync(sessionSettingsPath)) {
+        fs.unlinkSync(sessionSettingsPath);
+      }
+    } catch {
+      // Ignore cleanup errors
+    }
+  };
+
+  const isWindows = process.platform === 'win32';
+  const needsShell = isWindows && /\.(cmd|bat|ps1)$/i.test(claudeCli);
+
+  let claude: ChildProcess;
+  if (needsShell) {
+    const cmdString = [claudeCli, '--settings', sessionSettingsPath, ...args]
+      .map(escapeShellArg)
+      .join(' ');
+    claude = spawn(cmdString, {
+      stdio: 'inherit',
+      windowsHide: true,
+      shell: true,
+      env,
+    });
+  } else {
+    claude = spawn(claudeCli, ['--settings', sessionSettingsPath, ...args], {
+      stdio: 'inherit',
+      windowsHide: true,
+      env,
+    });
+  }
+
+  const stopToolSanitizationProxy = (): void => {
+    if (toolSanitizationProxy) {
+      toolSanitizationProxy.stop();
+    }
+  };
+
+  claude.on('exit', (code, signal) => {
+    stopToolSanitizationProxy();
+    cleanupSessionSettings();
+    if (signal) process.kill(process.pid, signal as NodeJS.Signals);
+    else process.exit(code || 0);
+  });
+
+  claude.on('error', (error) => {
+    console.error(fail(`Claude CLI error: ${error}`));
+    stopToolSanitizationProxy();
+    cleanupSessionSettings();
+    process.exit(1);
+  });
+
+  process.once('SIGTERM', () => {
+    stopToolSanitizationProxy();
+    cleanupSessionSettings();
+    claude.kill('SIGTERM');
+  });
+
+  process.once('SIGINT', () => {
+    stopToolSanitizationProxy();
+    cleanupSessionSettings();
+    claude.kill('SIGTERM');
+  });
+}
+
 // ========== Main Execution ==========
 
 interface ProfileError extends Error {
@@ -665,7 +809,12 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
-  if (remainingArgs.length > 0 && !remainingArgs[0].startsWith('-') && profile !== 'default') {
+  if (
+    remainingArgs.length > 0 &&
+    !remainingArgs[0].startsWith('-') &&
+    profile !== 'default' &&
+    profile !== 'codex'
+  ) {
     const { DelegationHandler } = await import('./delegation/delegation-handler');
     const handler = new DelegationHandler();
     const delegationArgs = [profile, remainingArgs[0], ...remainingArgs.slice(1)];
@@ -833,7 +982,12 @@ async function main(): Promise<void> {
             ...settingsEnv, // Explicitly inject all settings env vars
             CCS_PROFILE_TYPE: 'settings', // Signal to hooks this is a third-party provider
           };
-          execClaude(claudeCli, ['--settings', expandedSettingsPath, ...remainingArgs], envVars);
+          await execClaudeWithToolSanitizationProxy(
+            claudeCli,
+            expandedSettingsPath,
+            remainingArgs,
+            envVars
+          );
         }
       }
     } else if (profileInfo.type === 'account') {
