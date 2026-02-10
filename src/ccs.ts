@@ -67,7 +67,6 @@ function showCliproxyOauthRemoved(): void {
 
 const REMOVED_CLIPROXY_PROFILES = new Set([
   'gemini',
-  'codex',
   'agy',
   'qwen',
   'iflow',
@@ -695,8 +694,16 @@ async function main(): Promise<void> {
     const profileInfo = detector.detectProfileType(profile);
 
     if (profileInfo.type === 'cliproxy') {
-      showCliproxyOauthRemoved();
-      process.exit(1);
+      // Inject Image Analyzer hook into profile settings before launch
+      ensureImageAnalyzerHooks(profileInfo.name);
+
+      const { execClaudeWithCLIProxy } = await import('./cliproxy/cliproxy-executor');
+      const provider = profileInfo.provider as import('./cliproxy/types').CLIProxyProvider;
+      await execClaudeWithCLIProxy(claudeCli, provider, remainingArgs, {
+        port: profileInfo.port,
+        verbose: remainingArgs.includes('--verbose') || remainingArgs.includes('-v'),
+      });
+      return;
     } else if (profileInfo.type === 'copilot') {
       // COPILOT FLOW: GitHub Copilot subscription via copilot-api proxy
       // Inject Image Analyzer hook into profile settings before launch
