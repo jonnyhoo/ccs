@@ -39,7 +39,6 @@ import {
   getPresetIds,
   type ModelMapping,
 } from '../api/services';
-import { syncToLocalConfig } from '../cliproxy/sync/local-config-sync';
 
 interface ApiCommandArgs {
   name?: string;
@@ -298,14 +297,6 @@ async function handleCreate(args: string[]): Promise<void> {
     process.exit(1);
   }
 
-  // Trigger sync to local CLIProxy config (best-effort)
-  try {
-    syncToLocalConfig();
-  } catch (err) {
-    const message = err instanceof Error ? err.message : 'Unknown error';
-    console.log(`[i] Auto-sync to CLIProxy config skipped: ${message}`);
-  }
-
   // Display success
   console.log('');
   const hasCustomMapping = opusModel !== model || sonnetModel !== model || haikuModel !== model;
@@ -343,7 +334,7 @@ async function handleList(): Promise<void> {
   console.log(header('CCS API Profiles'));
   console.log('');
 
-  const { profiles, variants } = listApiProfiles();
+  const { profiles } = listApiProfiles();
 
   if (profiles.length === 0) {
     console.log(warn('No API profiles configured'));
@@ -368,19 +359,6 @@ async function handleList(): Promise<void> {
     })
   );
   console.log('');
-
-  // Show CLIProxy variants if any
-  if (variants.length > 0) {
-    console.log(subheader('CLIProxy Variants'));
-    const cliproxyRows = variants.map((v) => [v.name, v.provider, v.settings]);
-    console.log(
-      table(cliproxyRows, {
-        head: ['Variant', 'Provider', 'Settings'],
-        colWidths: [15, 15, 30],
-      })
-    );
-    console.log('');
-  }
 
   console.log(dim(`Total: ${profiles.length} API profile(s)`));
   console.log('');

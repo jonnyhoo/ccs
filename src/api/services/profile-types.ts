@@ -20,17 +20,9 @@ export interface ApiProfileInfo {
   configSource: 'unified' | 'legacy';
 }
 
-/** CLIProxy variant info */
-export interface CliproxyVariantInfo {
-  name: string;
-  provider: string;
-  settings: string;
-}
-
 /** Result from list operation */
 export interface ApiListResult {
   profiles: ApiProfileInfo[];
-  variants: CliproxyVariantInfo[];
 }
 
 /** Result from create operation */

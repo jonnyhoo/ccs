@@ -16,12 +16,11 @@ export async function initUI(): Promise<void> {
 
   try {
     // Dynamic import for ESM-only packages
-    const [chalkImport, boxenImport, gradientImport, oraImport, listrImport] = await Promise.all([
+    const [chalkImport, boxenImport, gradientImport, oraImport] = await Promise.all([
       import('chalk'),
       import('boxen'),
       import('gradient-string'),
       import('ora'),
-      import('listr2'),
     ]);
 
     // CJS modules: use .default if available (ESM interop), otherwise use module directly
@@ -29,7 +28,6 @@ export async function initUI(): Promise<void> {
     moduleCache.boxen = boxenImport.default || boxenImport;
     moduleCache.gradient = gradientImport.default || gradientImport;
     moduleCache.ora = oraImport.default || oraImport;
-    moduleCache.listr = listrImport.Listr || listrImport.default?.Listr;
     setInitialized(true);
   } catch (_e) {
     // Fallback: UI works without colors if imports fail

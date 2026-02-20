@@ -44,7 +44,6 @@ export {
   spinner,
 
   // Tasks
-  taskList,
 
   // Text formatting
   header,
@@ -57,7 +56,6 @@ export {
 } from './ui/index';
 
 // Re-export types
-export type { TaskItem, TaskListOptions } from './ui/index';
 
 // Default export
 export { default } from './ui/index';

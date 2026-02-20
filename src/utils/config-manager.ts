@@ -1,7 +1,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
-import { Config, isConfig, Settings, isSettings, CLIProxyVariantsConfig } from '../types';
+import { Config, isConfig, Settings, isSettings } from '../types';
 import { expandPath, error } from './helpers';
 import { info } from './ui';
 import { isUnifiedMode, loadOrCreateUnifiedConfig } from '../config/unified-config-loader';
@@ -123,23 +123,8 @@ export function loadConfigSafe(): Config {
       }
     }
 
-    // Convert unified cliproxy variants to legacy format
-    let cliproxy: CLIProxyVariantsConfig | undefined;
-    if (unifiedConfig.cliproxy?.variants) {
-      cliproxy = {};
-      for (const [name, variant] of Object.entries(unifiedConfig.cliproxy.variants)) {
-        cliproxy[name] = {
-          provider: variant.provider,
-          settings: variant.settings,
-          account: variant.account,
-          port: variant.port,
-        };
-      }
-    }
-
     return {
       profiles,
-      cliproxy,
     };
   }
 

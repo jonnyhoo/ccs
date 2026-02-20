@@ -9,7 +9,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { getCcsDir, loadConfigSafe } from '../../utils/config-manager';
 import { loadOrCreateUnifiedConfig, isUnifiedMode } from '../../config/unified-config-loader';
-import type { ApiProfileInfo, CliproxyVariantInfo, ApiListResult } from './profile-types';
+import type { ApiProfileInfo, ApiListResult } from './profile-types';
 
 /**
  * Check if API profile exists in config
@@ -54,7 +54,6 @@ export function isApiProfileConfigured(apiName: string): boolean {
  */
 export function listApiProfiles(): ApiListResult {
   const profiles: ApiProfileInfo[] = [];
-  const variants: CliproxyVariantInfo[] = [];
 
   if (isUnifiedMode()) {
     const unifiedConfig = loadOrCreateUnifiedConfig();
@@ -68,14 +67,6 @@ export function listApiProfiles(): ApiListResult {
         settingsPath: profile.settings || 'config.yaml',
         isConfigured: isApiProfileConfigured(name),
         configSource: 'unified',
-      });
-    }
-    // CLIProxy variants
-    for (const [name, variant] of Object.entries(unifiedConfig.cliproxy?.variants || {})) {
-      variants.push({
-        name,
-        provider: variant?.provider || 'unknown',
-        settings: variant?.settings || '-',
       });
     }
   } else {
@@ -92,20 +83,9 @@ export function listApiProfiles(): ApiListResult {
         configSource: 'legacy',
       });
     }
-    // CLIProxy variants
-    if (config.cliproxy) {
-      for (const [name, v] of Object.entries(config.cliproxy)) {
-        const variant = v as { provider: string; settings: string };
-        variants.push({
-          name,
-          provider: variant.provider,
-          settings: variant.settings,
-        });
-      }
-    }
   }
 
-  return { profiles, variants };
+  return { profiles };
 }
 
 /**

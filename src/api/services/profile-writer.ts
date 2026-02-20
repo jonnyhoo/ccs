@@ -51,7 +51,7 @@ function updateLegacyConfig(name: string): void {
   const configPath = getConfigPath();
   const ccsDir = getCcsDir();
 
-  let config: { profiles: Record<string, string>; cliproxy?: Record<string, unknown> };
+  let config: { profiles: Record<string, string> };
   try {
     config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
   } catch {

@@ -12,7 +12,6 @@ export type {
   EnvValue,
   ProfileMetadata,
   ProfilesRegistry,
-  CLIProxyVariantsConfig,
 } from './config';
 export { isConfig, isSettings } from './config';
 
@@ -30,21 +29,6 @@ export type {
   OutputEvent,
   DelegationEvent,
 } from './delegation';
-
-// GLMT types
-export type {
-  AnthropicMessage,
-  ContentBlock,
-  AnthropicRequest,
-  AnthropicTool,
-  OpenAIMessage,
-  OpenAIToolCall,
-  OpenAIRequest,
-  OpenAITool,
-  SSEEvent,
-  DeltaChunk,
-  TransformationContext,
-} from './glmt';
 
 // Utility types
 export { LogLevel } from './utils';

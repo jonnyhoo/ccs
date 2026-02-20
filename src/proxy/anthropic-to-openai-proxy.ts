@@ -25,6 +25,9 @@ import * as http from 'http';
 import * as https from 'https';
 import { URL } from 'url';
 
+/** User agent matching Codex CLI for API compatibility */
+const CODEX_USER_AGENT = 'codex_cli_rs/0.104.0 (Windows 10.0.19044; x86_64) WindowsTerminal';
+
 // ─── Types ───────────────────────────────────────────────────────────────────
 
 export interface AnthropicToOpenAIProxyConfig {
@@ -403,11 +406,39 @@ function toResponsesMessages(messages: OpenAIMessage[]): ResponsesMessage[] {
   return out;
 }
 
-function translateChatToResponses(chat: OpenAIRequest): ResponsesRequest {
-  // chat is already an OpenAI Chat Completions payload; convert messages to Responses format
+function translateChatToResponses(
+  chat: OpenAIRequest,
+  previousResponseId?: string | null
+): ResponsesRequest {
+  // Extract system messages → instructions field (enables prompt caching)
+  const systemParts: string[] = [];
+  const nonSystemMessages: OpenAIMessage[] = [];
+  for (const m of chat.messages) {
+    if (m.role === 'system' && m.content) {
+      systemParts.push(m.content);
+    } else {
+      nonSystemMessages.push(m);
+    }
+  }
+
+  // When chaining with previous_response_id, only send new messages (after last assistant turn)
+  let inputMessages = nonSystemMessages;
+  if (previousResponseId) {
+    let lastAssistantIdx = -1;
+    for (let i = nonSystemMessages.length - 1; i >= 0; i--) {
+      if (nonSystemMessages[i].role === 'assistant') {
+        lastAssistantIdx = i;
+        break;
+      }
+    }
+    if (lastAssistantIdx >= 0) {
+      inputMessages = nonSystemMessages.slice(lastAssistantIdx + 1);
+    }
+  }
+
   const req: ResponsesRequest = {
     model: chat.model,
-    input: toResponsesMessages(chat.messages),
+    input: toResponsesMessages(inputMessages),
     stream: chat.stream,
     temperature: chat.temperature,
     top_p: chat.top_p,
@@ -421,19 +452,25 @@ function translateChatToResponses(chat: OpenAIRequest): ResponsesRequest {
     },
     include: ['reasoning.encrypted_content'],
   } as any;
-  if (chat.tools) {
-    // Convert Chat Completions tool format to Responses API format
-    // Chat: {type:"function", function:{name, description, parameters}}
-    // Responses: {type:"function", name, description, parameters}
-    req.tools = chat.tools.map((t: OpenAITool) => ({
-      type: 'function' as const,
-      name: t.function.name,
-      description: t.function.description,
-      parameters: t.function.parameters,
-    }));
+  if (previousResponseId) {
+    (req as any).previous_response_id = previousResponseId;
+    // Server already has instructions + tools from the chain, skip to save tokens
+  } else {
+    // First request: send instructions and tools
+    if (systemParts.length > 0) {
+      (req as any).instructions = systemParts.join('\n');
+    }
+    if (chat.tools) {
+      req.tools = chat.tools.map((t: OpenAITool) => ({
+        type: 'function' as const,
+        name: t.function.name,
+        description: t.function.description,
+        parameters: t.function.parameters,
+      }));
+    }
+    const responsesToolChoice = translateToolChoiceForResponses(chat.tool_choice);
+    if (responsesToolChoice !== undefined) req.tool_choice = responsesToolChoice as any;
   }
-  const responsesToolChoice = translateToolChoiceForResponses(chat.tool_choice);
-  if (responsesToolChoice !== undefined) req.tool_choice = responsesToolChoice as any;
   return req;
 }
 
@@ -899,6 +936,8 @@ export class AnthropicToOpenAIProxy {
   private readonly httpAgent: http.Agent;
   private readonly httpsAgent: https.Agent;
   private readonly maxNetworkRetries = 2;
+  /** Track last Responses API response ID for conversation chaining */
+  private lastResponseId: string | null = null;
 
   constructor(config: AnthropicToOpenAIProxyConfig) {
     // Normalize base URL: strip trailing slashes and /v1 suffix
@@ -1040,6 +1079,7 @@ export class AnthropicToOpenAIProxy {
           headers: {
             Authorization: `Bearer ${this.config.apiKey}`,
             Accept: 'application/json',
+            'User-Agent': CODEX_USER_AGENT,
           },
         },
         (upstreamRes) => {
@@ -1253,7 +1293,8 @@ export class AnthropicToOpenAIProxy {
           mode === 'chat'
             ? openaiReqChat
             : translateChatToResponses(
-                JSON.parse(JSON.stringify({ ...openaiReqChat, stream: true })) as any
+                JSON.parse(JSON.stringify({ ...openaiReqChat, stream: true })) as any,
+                this.lastResponseId
               );
         const bodyString = JSON.stringify(body);
         const requestFn = targetUrl.protocol === 'https:' ? https.request : http.request;
@@ -1263,6 +1304,7 @@ export class AnthropicToOpenAIProxy {
           'Content-Length': Buffer.byteLength(bodyString),
           Authorization: `Bearer ${this.config.apiKey}`,
           Accept: 'text/event-stream',
+          'User-Agent': CODEX_USER_AGENT,
         };
         if (this.config.useResponsesApi) {
           upstreamHeaders['x-session-id'] = 'ccs-codex-stable';
@@ -1513,6 +1555,11 @@ export class AnthropicToOpenAIProxy {
                       if (parsed.response?.usage) {
                         translator['inputTokens'] = parsed.response.usage.input_tokens ?? 0;
                         translator['outputTokens'] = parsed.response.usage.output_tokens ?? 0;
+                      }
+                      // Track response ID for conversation chaining
+                      if (parsed.response?.id) {
+                        this.lastResponseId = parsed.response.id;
+                        this.log(`Stored response ID: ${this.lastResponseId}`);
                       }
                       if (!hasFinished) {
                         hasFinished = true;
@@ -1768,7 +1815,8 @@ export class AnthropicToOpenAIProxy {
         );
         const body = useResponses
           ? translateChatToResponses(
-              JSON.parse(JSON.stringify({ ...openaiReqChat, stream: true })) as OpenAIRequest
+              JSON.parse(JSON.stringify({ ...openaiReqChat, stream: true })) as OpenAIRequest,
+              this.lastResponseId
             )
           : { ...openaiReqChat, stream: true };
         const bodyString = JSON.stringify(body);
@@ -1780,6 +1828,7 @@ export class AnthropicToOpenAIProxy {
           'Content-Length': Buffer.byteLength(bodyString),
           Authorization: `Bearer ${this.config.apiKey}`,
           Accept: 'text/event-stream',
+          'User-Agent': CODEX_USER_AGENT,
         };
         if (useResponses) {
           nonStreamHeaders['x-session-id'] = 'ccs-codex-stable';
@@ -1941,9 +1990,14 @@ export class AnthropicToOpenAIProxy {
                       collectedToolCalls.push(toolCall);
                       activeToolCallsMap.delete(outputIndex);
                     }
-                  } else if (evtType === 'response.completed' && parsed.response?.usage) {
-                    inputTokens = parsed.response.usage.input_tokens ?? 0;
-                    outputTokens = parsed.response.usage.output_tokens ?? 0;
+                  } else if (evtType === 'response.completed') {
+                    if (parsed.response?.usage) {
+                      inputTokens = parsed.response.usage.input_tokens ?? 0;
+                      outputTokens = parsed.response.usage.output_tokens ?? 0;
+                    }
+                    if (parsed.response?.id) {
+                      this.lastResponseId = parsed.response.id;
+                    }
                   }
                 } catch (e) {
                   this.log(

@@ -5,7 +5,51 @@
  * Extracted from api-command.ts for reuse and testability.
  */
 
-import { isReservedName, isWindowsReservedName } from '../../config/reserved-names';
+/** 保留的 profile 名称，不能用于用户自定义 profile */
+const RESERVED_PROFILE_NAMES = [
+  'default',
+  'config',
+  'api',
+  'help',
+  'version',
+  'update',
+  'doctor',
+  'setup',
+] as const;
+
+/** Windows 保留设备名 */
+const WINDOWS_RESERVED_NAMES = [
+  'CON',
+  'PRN',
+  'AUX',
+  'NUL',
+  'COM1',
+  'COM2',
+  'COM3',
+  'COM4',
+  'COM5',
+  'COM6',
+  'COM7',
+  'COM8',
+  'COM9',
+  'LPT1',
+  'LPT2',
+  'LPT3',
+  'LPT4',
+  'LPT5',
+  'LPT6',
+  'LPT7',
+  'LPT8',
+  'LPT9',
+] as const;
+
+function isReservedName(name: string): boolean {
+  return (RESERVED_PROFILE_NAMES as readonly string[]).includes(name.toLowerCase());
+}
+
+function isWindowsReservedName(name: string): boolean {
+  return (WINDOWS_RESERVED_NAMES as readonly string[]).includes(name.toUpperCase());
+}
 
 /**
  * Validate API profile name

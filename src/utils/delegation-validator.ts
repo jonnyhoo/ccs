@@ -168,18 +168,6 @@ export class DelegationValidator {
             }
           }
         }
-
-        // Also check CLIProxy providers (gemini, codex, agy, etc.)
-        if (config.cliproxy && typeof config.cliproxy === 'object') {
-          const cliproxy = config.cliproxy as Record<string, unknown>;
-          if (Array.isArray(cliproxy.providers)) {
-            for (const provider of cliproxy.providers) {
-              if (typeof provider === 'string' && this.isReady(provider)) {
-                profiles.push(provider);
-              }
-            }
-          }
-        }
       } catch {
         // Config parse error, fall back to empty
       }

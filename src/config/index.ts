@@ -7,14 +7,8 @@
 // Types
 export * from './unified-config-types';
 
-// Feature Flags
-export * from './feature-flags';
-
-// Reserved Names
-export * from './reserved-names';
-
 // Loaders
 export * from './unified-config-loader';
 
-// Migration
-export * from './migration-manager';
+// Profile Detection
+export * from './profile-detector';

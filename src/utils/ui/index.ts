@@ -37,8 +37,6 @@ export { header, subheader, hr, sectionHeader } from './text';
 export { spinner } from './spinner';
 
 // Tasks
-export { taskList } from './tasks';
-export type { TaskItem, TaskListOptions } from './tasks';
 
 // Import all functions for the ui object
 import { initUI, isInteractive, isClaudeCodeContext } from './init';
@@ -48,7 +46,6 @@ import { box, errorBox, infoBox, warnBox } from './boxes';
 import { table } from './tables';
 import { header, subheader, hr, sectionHeader } from './text';
 import { spinner } from './spinner';
-import { taskList } from './tasks';
 
 // Unified UI object for convenient access
 export const ui = {
@@ -78,7 +75,6 @@ export const ui = {
 
   // Progress
   spinner,
-  taskList,
 
   // Headers
   header,

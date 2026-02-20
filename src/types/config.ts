@@ -12,38 +12,12 @@ export interface ProfilesConfig {
 }
 
 /**
- * CLIProxy variant configuration
- * Allows user-defined CLIProxy profile variants with custom settings
- * Example: "flash" → gemini provider with gemini-2.5-flash model
- */
-export interface CLIProxyVariantConfig {
-  /** CLIProxy provider to use */
-  provider: 'gemini' | 'codex' | 'agy' | 'qwen' | 'iflow' | 'kiro' | 'ghcp' | 'claude';
-  /** Path to settings.json with custom model configuration (optional) */
-  settings?: string;
-  /** Account identifier for multi-account support (optional, defaults to 'default') */
-  account?: string;
-  /** Unique port for variant isolation (8318-8417) */
-  port?: number;
-}
-
-/**
- * CLIProxy variants section in config.json
- * Maps custom profile names to CLIProxy provider + settings
- */
-export interface CLIProxyVariantsConfig {
-  [profileName: string]: CLIProxyVariantConfig;
-}
-
-/**
  * Main CCS configuration
  * Located at: ~/.ccs/config.json
  */
 export interface Config {
   /** Settings-based profiles (GLM, Kimi, etc.) */
   profiles: ProfilesConfig;
-  /** User-defined CLIProxy profile variants (optional) */
-  cliproxy?: CLIProxyVariantsConfig;
 }
 
 /**

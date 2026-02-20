@@ -11,7 +11,6 @@ export { validateApiName, validateUrl, getUrlWarning, sanitizeBaseUrl } from './
 export {
   type ModelMapping,
   type ApiProfileInfo,
-  type CliproxyVariantInfo,
   type ApiListResult,
   type CreateApiProfileResult,
   type RemoveApiProfileResult,

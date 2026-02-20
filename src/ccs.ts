@@ -4,37 +4,15 @@ import * as fs from 'fs';
 import * as os from 'os';
 import { detectClaudeCli } from './utils/claude-detector';
 import { getSettingsPath, loadSettings } from './utils/config-manager';
-import { validateGlmKey, validateMiniMaxKey } from './utils/api-key-validator';
 import { ErrorManager } from './utils/error-manager';
-import { getGlobalEnvConfig, loadOrCreateUnifiedConfig } from './config/unified-config-loader';
-import { ensureProfileHooks as ensureImageAnalyzerHooks } from './utils/hooks/image-analyzer-profile-hook-injector';
-import { fail, info } from './utils/ui';
-import { execWithScenarioRouting } from './router';
+import { getGlobalEnvConfig } from './config/unified-config-loader';
+import { fail, info, initUI } from './utils/ui';
 
-// Import centralized error handling
+// 集中错误处理
 import { handleError, runCleanup } from './errors';
 
-// Import extracted command handlers
-import { handleVersionCommand } from './commands/version-command';
-import { handleHelpCommand } from './commands/help-command';
-import { handleInstallCommand, handleUninstallCommand } from './commands/install-command';
-import { handleDoctorCommand } from './commands/doctor-command';
-import { handleSyncCommand } from './commands/sync-command';
-import { handleShellCompletionCommand } from './commands/shell-completion-command';
-import { handleUpdateCommand } from './commands/update-command';
-
-// Import extracted utility functions
+// Shell 执行工具
 import { execClaude, escapeShellArg } from './utils/shell-executor';
-
-// Version and Update check utilities
-import { getVersion } from './utils/version';
-import {
-  checkForUpdates,
-  showUpdateNotification,
-  checkCachedUpdate,
-  isCacheStale,
-} from './utils/update-checker';
-// Note: npm is now the only supported installation method
 
 // ========== Profile Detection ==========
 
@@ -44,48 +22,25 @@ interface DetectedProfile {
 }
 
 /**
- * Smart profile detection
+ * 从命令行参数中检测 profile 名称
  */
 function detectProfile(args: string[]): DetectedProfile {
   if (args.length === 0 || args[0].startsWith('-')) {
-    // No args or first arg is a flag → use default profile
     return { profile: 'default', remainingArgs: args };
-  } else {
-    // First arg doesn't start with '-' → treat as profile name
-    return { profile: args[0], remainingArgs: args.slice(1) };
   }
+  return { profile: args[0], remainingArgs: args.slice(1) };
 }
-
-function showCliproxyOauthRemoved(): void {
-  console.error(fail('CLIProxy OAuth flow has been removed from this build.'));
-  console.error('');
-  console.error(info('Use one of these instead:'));
-  console.error('  1) ccs api create --openai   (OpenAI-compatible endpoint)');
-  console.error('  2) ccs glmt                  (GLMT thinking proxy)');
-  console.error('');
-}
-
-const REMOVED_CLIPROXY_PROFILES = new Set([
-  'gemini',
-  'agy',
-  'qwen',
-  'iflow',
-  'kiro',
-  'ghcp',
-  'claude',
-]);
 
 // ========== GLMT Proxy Execution ==========
 
 /**
- * Execute Claude CLI with embedded proxy (for GLMT profile)
+ * 通过内嵌 GLMT 代理执行 Claude CLI（用于 glmt profile）
  */
 async function execClaudeWithProxy(
   claudeCli: string,
   profileName: string,
   args: string[]
 ): Promise<void> {
-  // 1. Read settings to get API key
   const settingsPath = getSettingsPath(profileName);
   const settings = JSON.parse(fs.readFileSync(settingsPath, 'utf8'));
   const envData = settings.env;
@@ -97,14 +52,10 @@ async function execClaudeWithProxy(
     process.exit(1);
   }
 
-  // Detect verbose flag
   const verbose = args.includes('--verbose') || args.includes('-v');
 
-  // 2. Spawn embedded proxy with verbose flag
   const proxyPath = path.join(__dirname, 'glmt', 'glmt-proxy.js');
   const proxyArgs = verbose ? ['--verbose'] : [];
-  // Use process.execPath for Windows compatibility (CVE-2024-27980)
-  // Pass environment variables to proxy subprocess (required for auth)
   const proxy = spawn(process.execPath, [proxyPath, ...proxyArgs], {
     stdio: ['ignore', 'pipe', verbose ? 'pipe' : 'inherit'],
     env: {
@@ -114,7 +65,6 @@ async function execClaudeWithProxy(
     },
   });
 
-  // 3. Wait for proxy ready signal (with timeout)
   const { ProgressIndicator } = await import('./utils/progress-indicator');
   const spinner = new ProgressIndicator('Starting GLMT proxy');
   spinner.start();
@@ -152,23 +102,10 @@ async function execClaudeWithProxy(
     const err = error as Error;
     spinner.fail('Failed to start GLMT proxy');
     console.error(fail(`Error: ${err.message}`));
-    console.error('');
-    console.error('Possible causes:');
-    console.error('  1. Port conflict (unlikely with random port)');
-    console.error('  2. Node.js permission issue');
-    console.error('  3. Firewall blocking localhost');
-    console.error('');
-    console.error('Workarounds:');
-    console.error('  - Use non-thinking mode: ccs glm "prompt"');
-    console.error('  - Enable verbose logging: ccs glmt --verbose "prompt"');
-    console.error('  - Check proxy logs in ~/.ccs/logs/ (if debug enabled)');
-    console.error('');
     proxy.kill();
     process.exit(1);
   }
 
-  // 4. Spawn Claude CLI with proxy URL
-  // Use model from user's settings (not hardcoded) - fixes issue #358
   const configuredModel = envData['ANTHROPIC_MODEL'] || 'glm-4.7';
   const envVars: NodeJS.ProcessEnv = {
     ANTHROPIC_BASE_URL: `http://127.0.0.1:${port}`,
@@ -181,27 +118,17 @@ async function execClaudeWithProxy(
   const env = {
     ...process.env,
     ...envVars,
-    CCS_PROFILE_TYPE: 'settings', // Signal to hooks this is a third-party provider
+    CCS_PROFILE_TYPE: 'settings',
   };
 
   let claude: ChildProcess;
   if (needsShell) {
     const cmdString = [claudeCli, ...args].map(escapeShellArg).join(' ');
-    claude = spawn(cmdString, {
-      stdio: 'inherit',
-      windowsHide: true,
-      shell: true,
-      env,
-    });
+    claude = spawn(cmdString, { stdio: 'inherit', windowsHide: true, shell: true, env });
   } else {
-    claude = spawn(claudeCli, args, {
-      stdio: 'inherit',
-      windowsHide: true,
-      env,
-    });
+    claude = spawn(claudeCli, args, { stdio: 'inherit', windowsHide: true, env });
   }
 
-  // 5. Cleanup: kill proxy when Claude exits
   claude.on('exit', (code, signal) => {
     proxy.kill('SIGTERM');
     if (signal) process.kill(process.pid, signal as NodeJS.Signals);
@@ -214,12 +141,10 @@ async function execClaudeWithProxy(
     process.exit(1);
   });
 
-  // Also handle parent process termination
   process.once('SIGTERM', () => {
     proxy.kill('SIGTERM');
     claude.kill('SIGTERM');
   });
-
   process.once('SIGINT', () => {
     proxy.kill('SIGTERM');
     claude.kill('SIGTERM');
@@ -229,15 +154,13 @@ async function execClaudeWithProxy(
 // ========== OpenAI Translation Proxy Execution ==========
 
 /**
- * Execute Claude CLI with AnthropicToOpenAIProxy for OpenAI-compatible endpoints.
- * Used for settings profiles with protocol: 'openai' (created via `ccs api create --openai`).
+ * 通过 AnthropicToOpenAIProxy 执行 Claude CLI（用于 OpenAI 兼容端点）
  */
 async function execClaudeWithOpenAIProxy(
   claudeCli: string,
   profileName: string,
   args: string[]
 ): Promise<void> {
-  // 1. Read settings to get endpoint info
   const settingsPath = getSettingsPath(profileName);
   const settings = JSON.parse(fs.readFileSync(settingsPath, 'utf8'));
   const envData = settings.env || {};
@@ -252,14 +175,13 @@ async function execClaudeWithOpenAIProxy(
 
   const verbose = args.includes('--verbose') || args.includes('-v');
 
-  // 2. Start AnthropicToOpenAIProxy in Chat Completions mode
-  const { AnthropicToOpenAIProxy } = await import('./cliproxy/anthropic-to-openai-proxy');
+  const { AnthropicToOpenAIProxy } = await import('./proxy/anthropic-to-openai-proxy');
   const proxy = new AnthropicToOpenAIProxy({
     targetBaseUrl: baseUrl,
     apiKey,
     verbose,
     timeoutMs: 120000,
-    useResponsesApi: false, // Generic OpenAI: Chat Completions only
+    useResponsesApi: false,
   });
 
   let proxyPort: number;
@@ -275,7 +197,6 @@ async function execClaudeWithOpenAIProxy(
     process.exit(1);
   }
 
-  // 3. Create session settings pointing to local proxy
   const globalEnvConfig = getGlobalEnvConfig();
   const globalEnv = globalEnvConfig.enabled ? globalEnvConfig.env : {};
 
@@ -317,11 +238,9 @@ async function execClaudeWithOpenAIProxy(
 
   const cleanupSessionSettings = (): void => {
     try {
-      if (fs.existsSync(sessionSettingsPath)) {
-        fs.unlinkSync(sessionSettingsPath);
-      }
+      if (fs.existsSync(sessionSettingsPath)) fs.unlinkSync(sessionSettingsPath);
     } catch {
-      // Ignore cleanup errors
+      /* ignore */
     }
   };
 
@@ -334,12 +253,7 @@ async function execClaudeWithOpenAIProxy(
     const cmdString = [claudeCli, '--settings', sessionSettingsPath, ...args]
       .map(escapeShellArg)
       .join(' ');
-    claude = spawn(cmdString, {
-      stdio: 'inherit',
-      windowsHide: true,
-      shell: true,
-      env,
-    });
+    claude = spawn(cmdString, { stdio: 'inherit', windowsHide: true, shell: true, env });
   } else {
     claude = spawn(claudeCli, ['--settings', sessionSettingsPath, ...args], {
       stdio: 'inherit',
@@ -348,7 +262,6 @@ async function execClaudeWithOpenAIProxy(
     });
   }
 
-  // 4. Cleanup: stop proxy and remove session settings when Claude exits
   claude.on('exit', (code, signal) => {
     proxy.stop();
     cleanupSessionSettings();
@@ -368,7 +281,6 @@ async function execClaudeWithOpenAIProxy(
     cleanupSessionSettings();
     claude.kill('SIGTERM');
   });
-
   process.once('SIGINT', () => {
     proxy.stop();
     cleanupSessionSettings();
@@ -376,6 +288,11 @@ async function execClaudeWithOpenAIProxy(
   });
 }
 
+// ========== Tool Sanitization Proxy Execution ==========
+
+/**
+ * 通过工具名清洗代理执行 Claude CLI（用于普通 settings profile）
+ */
 async function execClaudeWithToolSanitizationProxy(
   claudeCli: string,
   settingsPath: string,
@@ -389,7 +306,7 @@ async function execClaudeWithToolSanitizationProxy(
 
   if (effectiveBaseUrl) {
     try {
-      const { ToolSanitizationProxy } = await import('./cliproxy/tool-sanitization-proxy');
+      const { ToolSanitizationProxy } = await import('./proxy/tool-sanitization-proxy');
       toolSanitizationProxy = new ToolSanitizationProxy({
         upstreamBaseUrl: effectiveBaseUrl,
         verbose,
@@ -428,14 +345,11 @@ async function execClaudeWithToolSanitizationProxy(
 
   try {
     const rawSettings = fs.readFileSync(settingsPath, 'utf8');
-    const settings = JSON.parse(rawSettings) as { env?: Record<string, string> };
+    const parsedSettings = JSON.parse(rawSettings) as { env?: Record<string, string> };
 
     const sessionSettings = {
-      ...settings,
-      env: {
-        ...(settings.env || {}),
-        ...anthropicOverrides,
-      },
+      ...parsedSettings,
+      env: { ...(parsedSettings.env || {}), ...anthropicOverrides },
     };
 
     sessionSettingsPath = path.join(
@@ -453,15 +367,11 @@ async function execClaudeWithToolSanitizationProxy(
   }
 
   const cleanupSessionSettings = (): void => {
-    if (sessionSettingsPath === settingsPath) {
-      return;
-    }
+    if (sessionSettingsPath === settingsPath) return;
     try {
-      if (fs.existsSync(sessionSettingsPath)) {
-        fs.unlinkSync(sessionSettingsPath);
-      }
+      if (fs.existsSync(sessionSettingsPath)) fs.unlinkSync(sessionSettingsPath);
     } catch {
-      // Ignore cleanup errors
+      /* ignore */
     }
   };
 
@@ -473,12 +383,7 @@ async function execClaudeWithToolSanitizationProxy(
     const cmdString = [claudeCli, '--settings', sessionSettingsPath, ...args]
       .map(escapeShellArg)
       .join(' ');
-    claude = spawn(cmdString, {
-      stdio: 'inherit',
-      windowsHide: true,
-      shell: true,
-      env,
-    });
+    claude = spawn(cmdString, { stdio: 'inherit', windowsHide: true, shell: true, env });
   } else {
     claude = spawn(claudeCli, ['--settings', sessionSettingsPath, ...args], {
       stdio: 'inherit',
@@ -487,14 +392,12 @@ async function execClaudeWithToolSanitizationProxy(
     });
   }
 
-  const stopToolSanitizationProxy = (): void => {
-    if (toolSanitizationProxy) {
-      toolSanitizationProxy.stop();
-    }
+  const stopProxy = (): void => {
+    if (toolSanitizationProxy) toolSanitizationProxy.stop();
   };
 
   claude.on('exit', (code, signal) => {
-    stopToolSanitizationProxy();
+    stopProxy();
     cleanupSessionSettings();
     if (signal) process.kill(process.pid, signal as NodeJS.Signals);
     else process.exit(code || 0);
@@ -502,25 +405,24 @@ async function execClaudeWithToolSanitizationProxy(
 
   claude.on('error', (error) => {
     console.error(fail(`Claude CLI error: ${error}`));
-    stopToolSanitizationProxy();
+    stopProxy();
     cleanupSessionSettings();
     process.exit(1);
   });
 
   process.once('SIGTERM', () => {
-    stopToolSanitizationProxy();
+    stopProxy();
     cleanupSessionSettings();
     claude.kill('SIGTERM');
   });
-
   process.once('SIGINT', () => {
-    stopToolSanitizationProxy();
+    stopProxy();
     cleanupSessionSettings();
     claude.kill('SIGTERM');
   });
 }
 
-// ========== Main Execution ==========
+// ========== Main ==========
 
 interface ProfileError extends Error {
   profileName?: string;
@@ -528,293 +430,27 @@ interface ProfileError extends Error {
   suggestions?: string[];
 }
 
-/**
- * Perform background update check (refreshes cache, no notification)
- */
-async function refreshUpdateCache(): Promise<void> {
-  try {
-    const currentVersion = getVersion();
-    // npm is now the only supported installation method
-    await checkForUpdates(currentVersion, true, 'npm');
-  } catch (_e) {
-    // Silently fail - update check shouldn't crash main CLI
-  }
-}
-
-/**
- * Show update notification if cached result indicates update available
- * Returns true if notification was shown
- */
-async function showCachedUpdateNotification(): Promise<boolean> {
-  try {
-    const currentVersion = getVersion();
-    const updateInfo = checkCachedUpdate(currentVersion);
-
-    if (updateInfo) {
-      await showUpdateNotification(updateInfo);
-      return true;
-    }
-  } catch (_e) {
-    // Silently fail
-  }
-  return false;
-}
-
 async function main(): Promise<void> {
   const args = process.argv.slice(2);
   const firstArg = args[0];
 
-  // Initialize UI colors early to ensure consistent colored output
-  // Must happen before any status messages (ok, info, fail, etc.)
+  // 初始化 UI
   if (process.stdout.isTTY && !process.env['CI']) {
-    const { initUI } = await import('./utils/ui');
     await initUI();
   }
 
-  // Trigger update check early for ALL commands except version/help/update
-  // Only if TTY and not CI to avoid noise in automated environments
-  const skipUpdateCheck = [
-    'version',
-    '--version',
-    '-v',
-    'help',
-    '--help',
-    '-h',
-    'update',
-    '--update',
-  ];
-  if (process.stdout.isTTY && !process.env['CI'] && !skipUpdateCheck.includes(firstArg)) {
-    // 1. Show cached update notification (async for proper UI)
-    await showCachedUpdateNotification();
-
-    // 2. Refresh cache in background if stale (non-blocking)
-    if (isCacheStale()) {
-      refreshUpdateCache();
-    }
-  }
-
-  // Auto-migrate to unified config format (silent if already migrated)
-  // Skip if user is explicitly running migrate command
-  if (firstArg !== 'migrate') {
-    const { autoMigrate } = await import('./config/migration-manager');
-    await autoMigrate();
-  }
-
-  // Auto-recovery for missing configuration (BEFORE any early-exit commands)
-  // This ensures ALL commands benefit from auto-recovery, not just profile-switching flow
-  // Recovery is safe to run early - it only creates missing files with safe defaults
-  // Wrapped in try-catch to prevent blocking --version/--help on permission errors
-  try {
-    const RecoveryManagerModule = await import('./management/recovery-manager');
-    const RecoveryManager = RecoveryManagerModule.default;
-    const recovery = new RecoveryManager();
-    const recovered = recovery.recoverAll();
-
-    if (recovered) {
-      recovery.showRecoveryHints();
-    }
-  } catch (err) {
-    // Recovery is best-effort - don't block basic CLI functionality
-    console.warn('[!] Recovery failed:', (err as Error).message);
-  }
-
-  // Special case: version command (check BEFORE profile detection)
-  if (firstArg === 'version' || firstArg === '--version' || firstArg === '-v') {
-    handleVersionCommand();
-  }
-
-  // Special case: help command
-  if (firstArg === '--help' || firstArg === '-h' || firstArg === 'help') {
-    await handleHelpCommand();
-    return;
-  }
-
-  // Special case: install command
-  if (firstArg === '--install') {
-    handleInstallCommand();
-    return;
-  }
-
-  // Special case: uninstall command
-  if (firstArg === '--uninstall') {
-    handleUninstallCommand();
-    return;
-  }
-
-  // Special case: shell completion installer
-  if (firstArg === '--shell-completion' || firstArg === '-sc') {
-    await handleShellCompletionCommand(args.slice(1));
-    return;
-  }
-
-  // Special case: doctor command
-  if (firstArg === 'doctor' || firstArg === '--doctor') {
-    const restArgs = args.slice(args.indexOf(firstArg) + 1);
-    await handleDoctorCommand(restArgs);
-    return;
-  }
-
-  // Special case: sync command
-  if (firstArg === 'sync' || firstArg === '--sync') {
-    await handleSyncCommand();
-    return;
-  }
-
-  // Special case: cleanup command
-  if (firstArg === 'cleanup' || firstArg === '--cleanup') {
-    const { handleCleanupCommand } = await import('./commands/cleanup-command');
-    await handleCleanupCommand(args.slice(1));
-    return;
-  }
-
-  // Special case: migrate command
-  if (firstArg === 'migrate' || firstArg === '--migrate') {
-    const { handleMigrateCommand, printMigrateHelp } = await import('./commands/migrate-command');
-    const migrateArgs = args.slice(1);
-
-    if (migrateArgs.includes('--help') || migrateArgs.includes('-h')) {
-      printMigrateHelp();
-      return;
-    }
-
-    await handleMigrateCommand(migrateArgs);
-    return;
-  }
-
-  // Special case: update command
-  if (firstArg === 'update' || firstArg === '--update') {
-    const updateArgs = args.slice(1);
-
-    // Handle --help for update command
-    if (updateArgs.includes('--help') || updateArgs.includes('-h')) {
-      console.log('');
-      console.log('Usage: ccs update [options]');
-      console.log('');
-      console.log('Options:');
-      console.log('  --force       Force reinstall current version');
-      console.log('  --beta, --dev Install from dev channel (unstable)');
-      console.log('  --help, -h    Show this help message');
-      console.log('');
-      console.log('Examples:');
-      console.log('  ccs update           Update to latest stable');
-      console.log('  ccs update --force   Force reinstall');
-      console.log('  ccs update --beta    Install dev channel');
-      console.log('');
-      return;
-    }
-
-    const forceFlag = updateArgs.includes('--force');
-    const betaFlag = updateArgs.includes('--beta') || updateArgs.includes('--dev');
-    await handleUpdateCommand({ force: forceFlag, beta: betaFlag });
-    return;
-  }
-
-  // Special case: auth command
-  if (firstArg === 'auth') {
-    const AuthCommandsModule = await import('./auth/auth-commands');
-    const AuthCommands = AuthCommandsModule.default;
-    const authCommands = new AuthCommands();
-    await authCommands.route(args.slice(1));
-    return;
-  }
-
-  // Special case: api command (manages API profiles)
+  // 子命令路由：只保留 api
   if (firstArg === 'api') {
     const { handleApiCommand } = await import('./commands/api-command');
     await handleApiCommand(args.slice(1));
     return;
   }
 
-  // Special case: router command (scenario routing for sub-agents)
-  if (firstArg === 'router') {
-    const { handleRouterCommand } = await import('./commands/router');
-    handleRouterCommand(args.slice(1));
-    return;
-  }
-
-  // Special case: cliproxy command (removed in lite mode)
-  if (firstArg === 'cliproxy') {
-    showCliproxyOauthRemoved();
-    process.exit(1);
-  }
-
-  // Special case: config command (web dashboard)
-  if (firstArg === 'config') {
-    const { handleConfigCommand } = await import('./commands/config-command');
-    await handleConfigCommand(args.slice(1));
-    return;
-  }
-
-  // Special case: tokens command (auth token management)
-  if (firstArg === 'tokens') {
-    const { handleTokensCommand } = await import('./commands/tokens-command');
-    const exitCode = await handleTokensCommand(args.slice(1));
-    process.exit(exitCode);
-  }
-
-  // Special case: persist command (write profile env to ~/.claude/settings.json)
-  if (firstArg === 'persist') {
-    const { handlePersistCommand } = await import('./commands/persist-command');
-    await handlePersistCommand(args.slice(1));
-    return;
-  }
-
-  // Special case: setup command (first-time wizard)
-  if (firstArg === 'setup' || firstArg === '--setup') {
-    const { handleSetupCommand } = await import('./commands/setup-command');
-    await handleSetupCommand(args.slice(1));
-    return;
-  }
-
-  // Special case: copilot command (GitHub Copilot integration)
-  // Only route to command handler for known subcommands, otherwise treat as profile
-  const COPILOT_SUBCOMMANDS = [
-    'auth',
-    'status',
-    'models',
-    'start',
-    'stop',
-    'enable',
-    'disable',
-    'help',
-    '--help',
-    '-h',
-  ];
-  if (firstArg === 'copilot' && args.length > 1 && COPILOT_SUBCOMMANDS.includes(args[1])) {
-    // `ccs copilot <subcommand>` - route to copilot command handler
-    const { handleCopilotCommand } = await import('./commands/copilot-command');
-    const exitCode = await handleCopilotCommand(args.slice(1));
-    process.exit(exitCode);
-  }
-
-  // First-time install: offer setup wizard for interactive users
-  // Check independently of recovery status (user may have empty config.yaml)
-  // Skip if headless, CI, or non-TTY environment
-  const { isFirstTimeInstall } = await import('./commands/setup-command');
-  if (process.stdout.isTTY && !process.env['CI'] && isFirstTimeInstall()) {
-    console.log('');
-    console.log(info('First-time install detected. Run `ccs setup` for guided configuration.'));
-    console.log('    Or use `ccs config` for the web dashboard.');
-    console.log('');
-  }
-
-  // Detect profile
+  // 检测 profile
   const { profile, remainingArgs } = detectProfile(args);
 
-  // Auto-delegation: 当 profile 后跟非 flag 文本时，自动作为后台委派任务执行
-  // 例: ccs zhipu "写一个排序函数" → 后台委派给 zhipu
-  // 加 --wait/-w 可前台阻塞执行
-  if (REMOVED_CLIPROXY_PROFILES.has(profile)) {
-    showCliproxyOauthRemoved();
-    process.exit(1);
-  }
-
-  if (
-    remainingArgs.length > 0 &&
-    !remainingArgs[0].startsWith('-') &&
-    profile !== 'default' &&
-    profile !== 'codex'
-  ) {
+  // 自动委托：profile + prompt → DelegationHandler
+  if (remainingArgs.length > 0 && !remainingArgs[0].startsWith('-') && profile !== 'default') {
     const { DelegationHandler } = await import('./delegation/delegation-handler');
     const handler = new DelegationHandler();
     const delegationArgs = [profile, remainingArgs[0], ...remainingArgs.slice(1)];
@@ -822,242 +458,85 @@ async function main(): Promise<void> {
     return;
   }
 
-  // Detect Claude CLI first (needed for all paths)
+  // 检测 Claude CLI
   const claudeCli = detectClaudeCli();
   if (!claudeCli) {
     await ErrorManager.showClaudeNotFound();
     process.exit(1);
   }
 
-  // Use ProfileDetector to determine profile type
-  const ProfileDetectorModule = await import('./auth/profile-detector');
+  // Profile 类型检测
+  const ProfileDetectorModule = await import('./config/profile-detector');
   const ProfileDetector = ProfileDetectorModule.default;
-  const InstanceManagerModule = await import('./management/instance-manager');
-  const InstanceManager = InstanceManagerModule.default;
-  const ProfileRegistryModule = await import('./auth/profile-registry');
-  const ProfileRegistry = ProfileRegistryModule.default;
-
   const detector = new ProfileDetector();
 
   try {
     const profileInfo = detector.detectProfileType(profile);
 
-    if (profileInfo.type === 'cliproxy') {
-      // Inject Image Analyzer hook into profile settings before launch
-      ensureImageAnalyzerHooks(profileInfo.name);
-
-      const { execClaudeWithCLIProxy } = await import('./cliproxy/cliproxy-executor');
-      const provider = profileInfo.provider as import('./cliproxy/types').CLIProxyProvider;
-      await execClaudeWithCLIProxy(claudeCli, provider, remainingArgs, {
-        port: profileInfo.port,
-        verbose: remainingArgs.includes('--verbose') || remainingArgs.includes('-v'),
-      });
-      return;
-    } else if (profileInfo.type === 'copilot') {
-      // COPILOT FLOW: GitHub Copilot subscription via copilot-api proxy
-      // Inject Image Analyzer hook into profile settings before launch
-      ensureImageAnalyzerHooks(profileInfo.name);
-
-      const { executeCopilotProfile } = await import('./copilot');
-      const copilotConfig = profileInfo.copilotConfig;
-      if (!copilotConfig) {
-        console.error(fail('Copilot configuration not found'));
-        process.exit(1);
-      }
-      const exitCode = await executeCopilotProfile(copilotConfig, remainingArgs);
-      process.exit(exitCode);
-    } else if (profileInfo.type === 'settings') {
-      // Settings-based profiles (glm, glmt, kimi) are third-party providers
-      // Inject Image Analyzer hook into profile settings before launch
-      ensureImageAnalyzerHooks(profileInfo.name);
-
-      // Pre-flight validation for GLM/GLMT/MiniMax profiles
-      if (profileInfo.name === 'glm' || profileInfo.name === 'glmt') {
-        const preflightSettingsPath = getSettingsPath(profileInfo.name);
-        const preflightSettings = loadSettings(preflightSettingsPath);
-        const apiKey = preflightSettings.env?.['ANTHROPIC_AUTH_TOKEN'];
-
-        if (apiKey) {
-          const validation = await validateGlmKey(
-            apiKey,
-            preflightSettings.env?.['ANTHROPIC_BASE_URL']
-          );
-
-          if (!validation.valid) {
-            console.error('');
-            console.error(fail(validation.error || 'API key validation failed'));
-            if (validation.suggestion) {
-              console.error('');
-              console.error(validation.suggestion);
-            }
-            console.error('');
-            console.error(info('To skip validation: CCS_SKIP_PREFLIGHT=1 ccs glm "prompt"'));
-            process.exit(1);
-          }
-        }
-      }
-
-      if (profileInfo.name === 'mm') {
-        const preflightSettingsPath = getSettingsPath(profileInfo.name);
-        const preflightSettings = loadSettings(preflightSettingsPath);
-        const apiKey = preflightSettings.env?.['ANTHROPIC_AUTH_TOKEN'];
-
-        if (apiKey) {
-          const validation = await validateMiniMaxKey(
-            apiKey,
-            preflightSettings.env?.['ANTHROPIC_BASE_URL']
-          );
-
-          if (!validation.valid) {
-            console.error('');
-            console.error(fail(validation.error || 'API key validation failed'));
-            if (validation.suggestion) {
-              console.error('');
-              console.error(validation.suggestion);
-            }
-            console.error('');
-            console.error(info('To skip validation: CCS_SKIP_PREFLIGHT=1 ccs mm "prompt"'));
-            process.exit(1);
-          }
-        }
-      }
-
-      // Check if this is GLMT profile (requires proxy)
+    if (profileInfo.type === 'settings') {
+      // GLMT: 内嵌代理
       if (profileInfo.name === 'glmt') {
-        // GLMT FLOW: Settings-based with embedded proxy for thinking support
         await execClaudeWithProxy(claudeCli, profileInfo.name, remainingArgs);
       } else if (profileInfo.protocol === 'openai') {
-        // OPENAI FLOW: Settings-based profile targeting an OpenAI Chat Completions endpoint
-        // Spawn AnthropicToOpenAIProxy in Chat Completions mode (no Responses API)
+        // OpenAI 协议转换
         await execClaudeWithOpenAIProxy(claudeCli, profileInfo.name, remainingArgs);
       } else {
-        // Check if scenario router is enabled
-        const unifiedConfig = loadOrCreateUnifiedConfig();
-        const routerEnabled = unifiedConfig.router?.enabled ?? false;
+        // 普通 settings profile: 工具名清洗代理
+        const expandedSettingsPath = getSettingsPath(profileInfo.name);
+        const globalEnvConfig = getGlobalEnvConfig();
+        const globalEnv = globalEnvConfig.enabled ? globalEnvConfig.env : {};
 
-        if (routerEnabled) {
-          // SCENARIO ROUTING FLOW: Route sub-agents to different profiles
-          const globalEnvConfig = getGlobalEnvConfig();
-          const globalEnv = globalEnvConfig.enabled ? globalEnvConfig.env : {};
+        const settings = loadSettings(expandedSettingsPath);
+        const settingsEnv = settings.env || {};
 
-          const envOverrides: NodeJS.ProcessEnv = {
-            ...globalEnv,
-            CCS_PROFILE_TYPE: 'settings',
-          };
-
-          const exitCode = await execWithScenarioRouting(
-            claudeCli,
-            profileInfo.name,
-            remainingArgs,
-            envOverrides
-          );
-          process.exit(exitCode);
-        } else {
-          // EXISTING FLOW: Settings-based profile (glm, kimi)
-          // Use --settings flag (backward compatible)
-          const expandedSettingsPath = getSettingsPath(profileInfo.name);
-          // Get global env vars (DISABLE_TELEMETRY, etc.) for third-party profiles
-          const globalEnvConfig = getGlobalEnvConfig();
-          const globalEnv = globalEnvConfig.enabled ? globalEnvConfig.env : {};
-
-          // Log global env injection for visibility (debug mode only)
-          if (
-            globalEnvConfig.enabled &&
-            Object.keys(globalEnv).length > 0 &&
-            process.env.CCS_DEBUG
-          ) {
-            const envNames = Object.keys(globalEnv).join(', ');
-            console.error(info(`Global env: ${envNames}`));
-          }
-
-          // CRITICAL: Load settings and explicitly set ANTHROPIC_* env vars
-          // to prevent inheriting stale values from previous CLIProxy sessions.
-          // Environment variables take precedence over --settings file values,
-          // so we must explicitly set them here to ensure correct routing.
-          const settings = loadSettings(expandedSettingsPath);
-          const settingsEnv = settings.env || {};
-
-          const envVars: NodeJS.ProcessEnv = {
-            ...globalEnv,
-            ...settingsEnv, // Explicitly inject all settings env vars
-            CCS_PROFILE_TYPE: 'settings', // Signal to hooks this is a third-party provider
-          };
-          await execClaudeWithToolSanitizationProxy(
-            claudeCli,
-            expandedSettingsPath,
-            remainingArgs,
-            envVars
-          );
-        }
+        const envVars: NodeJS.ProcessEnv = {
+          ...globalEnv,
+          ...settingsEnv,
+          CCS_PROFILE_TYPE: 'settings',
+        };
+        await execClaudeWithToolSanitizationProxy(
+          claudeCli,
+          expandedSettingsPath,
+          remainingArgs,
+          envVars
+        );
       }
-    } else if (profileInfo.type === 'account') {
-      // NEW FLOW: Account-based profile (work, personal)
-      // All platforms: Use instance isolation with CLAUDE_CONFIG_DIR
-      const registry = new ProfileRegistry();
-      const instanceMgr = new InstanceManager();
-
-      // Ensure instance exists (lazy init if needed)
-      const instancePath = instanceMgr.ensureInstance(profileInfo.name);
-
-      // Update last_used timestamp (check unified config first, fallback to legacy)
-      if (registry.hasAccountUnified(profileInfo.name)) {
-        registry.touchAccountUnified(profileInfo.name);
-      } else {
-        registry.touchProfile(profileInfo.name);
-      }
-
-      // Execute Claude with instance isolation
-      // Skip Image Analyzer hook - account profiles have native vision support
-      const envVars: NodeJS.ProcessEnv = {
-        CLAUDE_CONFIG_DIR: instancePath,
-        CCS_PROFILE_TYPE: 'account',
-        CCS_IMAGE_ANALYSIS_SKIP: '1',
-      };
-      execClaude(claudeCli, remainingArgs, envVars);
     } else {
-      // DEFAULT: No profile configured, use Claude's own defaults
-      // Skip Image Analyzer hook - native Claude has native vision support
-      const envVars: NodeJS.ProcessEnv = {
-        CCS_PROFILE_TYPE: 'default',
-        CCS_IMAGE_ANALYSIS_SKIP: '1',
-      };
-      execClaude(claudeCli, remainingArgs, envVars);
+      // DEFAULT: 使用 Claude 原生认证
+      execClaude(claudeCli, remainingArgs, { CCS_PROFILE_TYPE: 'default' });
     }
   } catch (error) {
     const err = error as ProfileError;
-    // Check if this is a profile not found error with suggestions
     if (err.profileName && err.availableProfiles !== undefined) {
-      const allProfiles = err.availableProfiles.split('\n');
-      await ErrorManager.showProfileNotFound(err.profileName, allProfiles, err.suggestions);
+      // Profile 未找到 — 简单报错
+      await ErrorManager.showProfileNotFound(
+        err.profileName,
+        (err.availableProfiles || '').split('\n'),
+        err.suggestions
+      );
+      process.exit(1);
     } else {
       console.error(fail(err.message));
+      process.exit(1);
     }
-    process.exit(1);
   }
 }
 
 // ========== Global Error Handlers ==========
 
-// Handle uncaught exceptions
 process.on('uncaughtException', (error: Error) => {
   handleError(error);
 });
-
-// Handle unhandled promise rejections
 process.on('unhandledRejection', (reason: unknown) => {
   handleError(reason);
 });
-
-// Handle process termination signals for cleanup
 process.on('SIGTERM', () => {
   runCleanup();
   process.exit(0);
 });
-
 process.on('SIGINT', () => {
   runCleanup();
-  process.exit(130); // 128 + SIGINT(2)
+  process.exit(130);
 });
 
-// Run main
 main().catch(handleError);
