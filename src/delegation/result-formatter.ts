@@ -2,23 +2,12 @@
 
 /**
  * Formats delegation execution results for display
- * Creates styled box output with file change tracking
+ * Creates styled box output
  */
 
-import * as path from 'path';
-import { execSync } from 'child_process';
-import * as fs from 'fs';
 import { ui } from '../utils/ui';
 import { getModelDisplayName } from '../utils/config-manager';
 import type { ExecutionResult, ExecutionError, PermissionDenial } from './executor/types';
-
-// Alias for backward compatibility
-type ErrorInfo = ExecutionError;
-
-interface FileChanges {
-  created: string[];
-  modified: string[];
-}
 
 /**
  * Result Formatter Class
@@ -43,12 +32,7 @@ class ResultFormatter {
     } = result;
 
     // Handle timeout (graceful termination)
-    if (timedOut) {
-      return this.formatTimeoutError(result);
-    }
-
-    // Handle legacy max_turns error (Claude CLI might still return this)
-    if (subtype === 'error_max_turns') {
+    if (timedOut || subtype === 'error_max_turns') {
       return this.formatTimeoutError(result);
     }
 
@@ -106,122 +90,6 @@ class ResultFormatter {
   }
 
   /**
-   * Extract file changes from output
-   */
-  static extractFileChanges(output: string, cwd: string): FileChanges {
-    const created: string[] = [];
-    const modified: string[] = [];
-
-    // Patterns to match file operations (case-insensitive)
-    const createdPatterns = [
-      /created:\s*([^\n\r]+)/gi,
-      /create:\s*([^\n\r]+)/gi,
-      /wrote:\s*([^\n\r]+)/gi,
-      /write:\s*([^\n\r]+)/gi,
-      /new file:\s*([^\n\r]+)/gi,
-      /generated:\s*([^\n\r]+)/gi,
-      /added:\s*([^\n\r]+)/gi,
-    ];
-
-    const modifiedPatterns = [
-      /modified:\s*([^\n\r]+)/gi,
-      /update:\s*([^\n\r]+)/gi,
-      /updated:\s*([^\n\r]+)/gi,
-      /edit:\s*([^\n\r]+)/gi,
-      /edited:\s*([^\n\r]+)/gi,
-      /changed:\s*([^\n\r]+)/gi,
-    ];
-
-    // Helper to check if file is infrastructure (should be ignored)
-    const isInfrastructure = (filePath: string): boolean => {
-      return filePath.includes('/.claude/') || filePath.startsWith('.claude/');
-    };
-
-    // Extract created files
-    for (const pattern of createdPatterns) {
-      let match;
-      while ((match = pattern.exec(output)) !== null) {
-        const filePath = match[1].trim();
-        if (filePath && !created.includes(filePath) && !isInfrastructure(filePath)) {
-          created.push(filePath);
-        }
-      }
-    }
-
-    // Extract modified files
-    for (const pattern of modifiedPatterns) {
-      let match;
-      while ((match = pattern.exec(output)) !== null) {
-        const filePath = match[1].trim();
-        // Don't include if already in created list or is infrastructure
-        if (
-          filePath &&
-          !modified.includes(filePath) &&
-          !created.includes(filePath) &&
-          !isInfrastructure(filePath)
-        ) {
-          modified.push(filePath);
-        }
-      }
-    }
-
-    // Fallback: Scan filesystem for recently modified files (last 5 minutes)
-    if (created.length === 0 && modified.length === 0 && cwd) {
-      try {
-        // Use find command to get recently modified files (excluding infrastructure)
-        const findCmd = `find . -type f -mmin -5 -not -path "./.git/*" -not -path "./node_modules/*" -not -path "./.claude/*" 2>/dev/null | head -20`;
-        const result = execSync(findCmd, { cwd, encoding: 'utf8', timeout: 5000 });
-
-        const files = result.split('\n').filter((f) => f.trim());
-        files.forEach((file) => {
-          const fullPath = path.join(cwd, file);
-
-          // Double-check not infrastructure
-          if (isInfrastructure(fullPath)) {
-            return;
-          }
-
-          try {
-            const stats = fs.statSync(fullPath);
-            const now = Date.now();
-            const mtime = stats.mtimeMs;
-            const ctime = stats.ctimeMs;
-
-            // If both mtime and ctime are very recent (within 10 minutes), likely created
-            // ctime = inode change time, for new files this is close to creation time
-            const isVeryRecent = now - mtime < 600000 && now - ctime < 600000;
-            const timeDiff = Math.abs(mtime - ctime);
-
-            // If mtime and ctime are very close (< 1 second apart) and both recent, it's created
-            if (isVeryRecent && timeDiff < 1000) {
-              if (!created.includes(fullPath)) {
-                created.push(fullPath);
-              }
-            } else {
-              // Otherwise, it's modified
-              if (!modified.includes(fullPath)) {
-                modified.push(fullPath);
-              }
-            }
-          } catch (_statError) {
-            // If stat fails, default to created (since we're in fallback mode)
-            if (!created.includes(fullPath) && !modified.includes(fullPath)) {
-              created.push(fullPath);
-            }
-          }
-        });
-      } catch (scanError) {
-        // Silently fail if filesystem scan doesn't work
-        if (process.env.CCS_DEBUG) {
-          console.error(`[!] Filesystem scan failed: ${(scanError as Error).message}`);
-        }
-      }
-    }
-
-    return { created, modified };
-  }
-
-  /**
    * Format info as table
    */
   private static formatInfoTable(result: ExecutionResult): string {
@@ -254,57 +122,10 @@ class ResultFormatter {
     });
   }
 
-  /**
-   * Truncate string to max length
-   */
   private static truncate(str: string, maxLength: number): string {
-    if (str.length <= maxLength) {
-      return str;
-    }
+    if (str.length <= maxLength) return str;
     return str.substring(0, maxLength - 3) + '...';
   }
-
-  /**
-   * Format minimal result (for quick tasks)
-   */
-  static async formatMinimal(result: ExecutionResult): Promise<string> {
-    await ui.init();
-    const { profile, success, duration } = result;
-    const modelName = getModelDisplayName(profile);
-    const icon = success ? ui.ok('') : ui.fail('');
-    const durationSec = (duration / 1000).toFixed(1);
-
-    return `${icon} ${modelName} delegation ${success ? 'completed' : 'failed'} (${durationSec}s)\n`;
-  }
-
-  /**
-   * Format verbose result (with full details)
-   */
-  static async formatVerbose(result: ExecutionResult): Promise<string> {
-    const basic = await this.format(result);
-
-    // Add additional debug info
-    let verbose = basic;
-    verbose += '\n=== Debug Information ===\n';
-    verbose += `CWD: ${result.cwd}\n`;
-    verbose += `Profile: ${result.profile}\n`;
-    verbose += `Exit Code: ${result.exitCode}\n`;
-    verbose += `Duration: ${result.duration}ms\n`;
-    verbose += `Success: ${result.success}\n`;
-    verbose += `Stdout Length: ${result.stdout.length} chars\n`;
-    verbose += `Stderr Length: ${result.stderr.length} chars\n`;
-
-    return verbose;
-  }
-
-  /**
-   * Check if NO_COLOR environment variable is set - Currently unused
-   */
-  /*
-  private static shouldDisableColors(): boolean {
-    return process.env.NO_COLOR !== undefined;
-  }
-  */
 
   /**
    * Format timeout error (session exceeded time limit)
@@ -318,7 +139,6 @@ class ResultFormatter {
 
     let output = '';
 
-    // Error header
     output += ui.errorBox(
       `Execution Timeout\n\n` +
         `Delegation to ${modelName} exceeded time limit.\n` +
@@ -327,18 +147,15 @@ class ResultFormatter {
     );
     output += '\n';
 
-    // Info table
     output += this.formatInfoTable(result);
     output += '\n';
 
-    // Permission denials
     if (permissionDenials && permissionDenials.length > 0) {
       output += ui.warn('Permission denials may have caused delays:') + '\n';
       output += this.formatPermissionDenials(permissionDenials);
       output += '\n';
     }
 
-    // Suggestions
     output += ui.header('SUGGESTIONS') + '\n';
     output += `  Continue session:\n`;
     output += `    ${ui.color(`ccs ${profile}:continue "finish the task"`, 'command')}\n\n`;
@@ -346,7 +163,6 @@ class ResultFormatter {
     output += `    ${ui.color(`ccs ${profile} --timeout ${Math.round((duration * 2) / 1000)}`, 'command')}\n\n`;
     output += `  Break into smaller tasks\n\n`;
 
-    // Session info
     if (sessionId) {
       const shortId = sessionId.length > 8 ? sessionId.substring(0, 8) : sessionId;
       output += ui.dim(`Session persisted: ${shortId}`) + '\n';
@@ -358,9 +174,6 @@ class ResultFormatter {
     return output;
   }
 
-  /**
-   * Format permission denials
-   */
   private static formatPermissionDenials(denials: PermissionDenial[]): string {
     let output = ui.warn('Permission Denials:') + '\n';
 
@@ -374,10 +187,7 @@ class ResultFormatter {
     return output;
   }
 
-  /**
-   * Format errors array
-   */
-  private static formatErrors(errors: ErrorInfo[]): string {
+  private static formatErrors(errors: ExecutionError[]): string {
     let output = ui.fail('Errors:') + '\n';
 
     for (const error of errors) {

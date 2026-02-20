@@ -1,20 +1,5 @@
-import { initUI, header, color, dim, info, errorBox } from './ui';
+import { initUI, header, color, dim, errorBox } from './ui';
 import { ERROR_CODES, getErrorDocUrl, ErrorCode } from './error-codes';
-import { getPortCheckCommand, getKillPidCommand } from './platform-commands';
-
-/**
- * Error types with structured messages (Legacy - kept for compatibility)
- */
-export const ErrorTypes = {
-  NO_CLAUDE_CLI: 'NO_CLAUDE_CLI',
-  MISSING_SETTINGS: 'MISSING_SETTINGS',
-  INVALID_CONFIG: 'INVALID_CONFIG',
-  UNKNOWN_PROFILE: 'UNKNOWN_PROFILE',
-  PERMISSION_DENIED: 'PERMISSION_DENIED',
-  GENERIC: 'GENERIC',
-} as const;
-
-export type ErrorType = (typeof ErrorTypes)[keyof typeof ErrorTypes];
 
 /**
  * Enhanced error manager with context-aware messages
@@ -165,10 +150,8 @@ export class ErrorManager {
     console.error('  Use an existing profile:');
     console.error(`    ${color('ccs <profile> "your prompt"', 'command')}`);
     console.error('');
-    console.error('  Create a new account profile:');
-    console.error(`    ${color('ccs auth create <name>', 'command')}`);
-    console.error('');
-    console.error(info(`Tip: Use ${color('ccs config', 'command')} for web-based configuration`));
+    console.error('  Create a new API profile:');
+    console.error(`    ${color('ccs api create', 'command')}`);
     console.error('');
 
     this.showErrorCode(ERROR_CODES.PROFILE_NOT_FOUND);
@@ -197,110 +180,5 @@ export class ErrorManager {
     console.error('');
 
     this.showErrorCode(ERROR_CODES.FS_CANNOT_WRITE_FILE);
-  }
-
-  /**
-   * Show CLIProxy OAuth timeout error
-   */
-  static async showOAuthTimeout(provider: string): Promise<void> {
-    await initUI();
-
-    console.error('');
-    console.error(
-      errorBox('OAuth Timeout\n\n' + 'Authentication did not complete within 2 minutes.', 'ERROR')
-    );
-    console.error('');
-
-    console.error(header('TROUBLESHOOTING'));
-    console.error('  1. Check if browser opened (popup blocker?)');
-    console.error('  2. Complete login in browser, then return here');
-    console.error('  3. Try different browser');
-    console.error('  4. Disable browser extensions temporarily');
-    console.error('');
-
-    console.error(header('FOR HEADLESS/SSH ENVIRONMENTS'));
-    console.error(`  ${color(`ccs ${provider} --auth --headless`, 'command')}`);
-    console.error('');
-    console.error(dim('This displays manual authentication steps.'));
-    console.error('');
-    console.error(info(`Tip: Use ${color('ccs config', 'command')} for web-based configuration`));
-    console.error('');
-  }
-
-  /**
-   * Show CLIProxy port conflict error
-   */
-  static async showPortConflict(port: number): Promise<void> {
-    await initUI();
-    const isWindows = process.platform === 'win32';
-
-    console.error('');
-    console.error(
-      errorBox('Port Conflict\n\n' + `CLIProxy port ${port} is already in use.`, 'ERROR')
-    );
-    console.error('');
-
-    console.error(header('SOLUTIONS'));
-    console.error('');
-    console.error('  1. Find process using port:');
-    console.error(`     ${color(getPortCheckCommand(port), 'command')}`);
-    console.error('');
-    console.error('  2. Kill the process:');
-    if (isWindows) {
-      console.error(
-        `     ${color(`taskkill /F /PID <PID>`, 'command')}  (replace <PID> with actual ID)`
-      );
-    } else {
-      console.error(`     ${color(getKillPidCommand(12345).replace('12345', '<PID>'), 'command')}`);
-    }
-    console.error('');
-    console.error('  3. Auto-fix: Run:');
-    console.error(`     ${color('ccs doctor --fix', 'command')}`);
-    console.error('');
-  }
-
-  /**
-   * Show CLIProxy binary download failure error
-   */
-  static async showBinaryDownloadFailed(url: string, error: string): Promise<void> {
-    await initUI();
-
-    console.error('');
-    console.error(errorBox('Binary Download Failed\n\n' + `Error: ${error}`, 'ERROR'));
-    console.error('');
-
-    console.error(header('TROUBLESHOOTING'));
-    console.error('  1. Check internet connection');
-    console.error('  2. Check firewall/proxy settings');
-    console.error('  3. Try again in a few minutes');
-    console.error('');
-
-    console.error(header('MANUAL DOWNLOAD'));
-    console.error(`  URL: ${color(url, 'path')}`);
-    console.error(`  Save to: ${color('~/.ccs/bin/cliproxyapi', 'path')}`);
-    console.error(`  ${color('chmod +x ~/.ccs/bin/cliproxyapi', 'command')}`);
-    console.error('');
-  }
-
-  /**
-   * Show CLIProxy authentication required error
-   */
-  static async showAuthRequired(provider: string): Promise<void> {
-    await initUI();
-
-    const displayName = provider.charAt(0).toUpperCase() + provider.slice(1);
-
-    console.error('');
-    console.error(errorBox(`${displayName} authentication required`, 'ERROR'));
-    console.error('');
-
-    console.error(header('TO AUTHENTICATE'));
-    console.error(`  ${color(`ccs ${provider} --auth`, 'command')}`);
-    console.error('');
-    console.error(dim('This will open a browser for OAuth login.'));
-    console.error(dim('After login, you can use the profile normally.'));
-    console.error('');
-    console.error(info(`Tip: Use ${color('ccs config', 'command')} for web-based configuration`));
-    console.error('');
   }
 }

@@ -12,13 +12,8 @@ export * from './time';
 // Shell execution
 export { execClaude, escapeShellArg } from './shell-executor';
 
-// Claude detection and management
+// Claude detection
 export { getClaudeCliInfo } from './claude-detector';
 
-// Utilities
-export { ProgressIndicator } from './progress-indicator';
-export { getVersion } from './version';
+// Error management
 export { ErrorManager } from './error-manager';
-
-// Platform utilities
-export { default as getPlatformCommands } from './platform-commands';

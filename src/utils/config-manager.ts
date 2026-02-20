@@ -6,53 +6,16 @@ import { expandPath, error } from './helpers';
 import { info } from './ui';
 import { isUnifiedMode, loadOrCreateUnifiedConfig } from '../config/unified-config-loader';
 
-// TODO: Replace with proper imports after converting these files
-// const { ErrorManager } = require('./error-manager');
-// const RecoveryManager = require('./recovery-manager');
-
-/**
- * Get the CCS home directory (respects CCS_HOME env var for test isolation)
- * @returns Home directory path
- */
 export function getCcsHome(): string {
   return process.env.CCS_HOME || os.homedir();
 }
 
-/**
- * Get the CCS directory path (~/.ccs)
- * @returns Path to .ccs directory
- */
 export function getCcsDir(): string {
   return path.join(getCcsHome(), '.ccs');
 }
 
-/**
- * Get CCS hooks directory (respects CCS_HOME for test isolation)
- * @returns Path to hooks directory
- */
-export function getCcsHooksDir(): string {
-  return path.join(getCcsDir(), 'hooks');
-}
-
-/**
- * Get config file path (legacy JSON path)
- * @deprecated Use getActiveConfigPath() for mode-aware config path
- */
 export function getConfigPath(): string {
   return process.env.CCS_CONFIG || path.join(getCcsHome(), '.ccs', 'config.json');
-}
-
-/**
- * Get the active config file path based on current mode.
- * Returns config.yaml in unified mode, config.json in legacy mode.
- * @returns Path to the active config file
- */
-export function getActiveConfigPath(): string {
-  const ccsDir = getCcsDir();
-  if (isUnifiedMode()) {
-    return path.join(ccsDir, 'config.yaml');
-  }
-  return path.join(ccsDir, 'config.json');
 }
 
 /**
@@ -62,10 +25,6 @@ export function loadConfig(): Config {
   const configPath = getConfigPath();
 
   if (!fs.existsSync(configPath)) {
-    // TODO: Add recovery manager logic
-    // const recovery = new RecoveryManager();
-    // recovery.ensureConfigJson();
-
     error(`Config not found: ${configPath}`);
   }
 
@@ -95,13 +54,6 @@ export function loadSettings(settingsPath: string): Settings {
   }
 
   return parsed;
-}
-
-/**
- * Read and parse config (legacy compatibility)
- */
-export function readConfig(): Config {
-  return loadConfig();
 }
 
 /**
@@ -198,7 +150,7 @@ export function getSettingsPath(profile: string): string {
     }
   } else {
     // Legacy mode - read from config.json only
-    const config = readConfig();
+    const config = loadConfig();
     settingsPath = config.profiles[profile];
     availableProfiles = Object.keys(config.profiles);
   }
@@ -215,10 +167,6 @@ export function getSettingsPath(profile: string): string {
   if (!fs.existsSync(expandedPath)) {
     // Auto-create if it's ~/.claude/settings.json
     if (expandedPath.includes('.claude') && expandedPath.endsWith('settings.json')) {
-      // TODO: Add recovery manager logic
-      // const recovery = new RecoveryManager();
-      // recovery.ensureClaudeSettings();
-
       console.log(info('Auto-created missing settings file'));
     } else {
       error(`Settings file not found: ${expandedPath}`);
