@@ -7,6 +7,7 @@ import { getSettingsPath, loadSettings } from './utils/config-manager';
 import { ErrorManager } from './utils/error-manager';
 import { getGlobalEnvConfig } from './config/unified-config-loader';
 import { fail, info, initUI } from './utils/ui';
+import { ensureCliproxyIfNeeded } from './proxy/cliproxy-autostart';
 
 // 集中错误处理
 import { handleError, runCleanup } from './errors';
@@ -488,6 +489,10 @@ async function main(): Promise<void> {
 
         const settings = loadSettings(expandedSettingsPath);
         const settingsEnv = settings.env || {};
+
+        // 如果 BASE_URL 指向本地 cliproxy，确保它在运行
+        const verbose = remainingArgs.includes('--verbose') || remainingArgs.includes('-v');
+        await ensureCliproxyIfNeeded(settingsEnv, verbose);
 
         const envVars: NodeJS.ProcessEnv = {
           ...globalEnv,
