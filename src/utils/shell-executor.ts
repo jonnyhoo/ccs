@@ -15,9 +15,8 @@ export function escapeShellArg(arg: string): string {
   const isWindows = process.platform === 'win32';
 
   if (isWindows) {
-    // cmd.exe: Use double quotes, escape internal double quotes with backslash
-    // Also escape special cmd characters: & | < > ^ %
-    const escaped = String(arg).replace(/"/g, '\\"'); // Escape double quotes
+    // cmd.exe: 先用 ^ 转义特殊字符（包括 " ^ & | < > %），再用双引号包裹
+    const escaped = String(arg).replace(/(["%^&|<>!])/g, '^$1');
     return '"' + escaped + '"';
   } else {
     // Unix/macOS: Double quotes with escaped inner quotes

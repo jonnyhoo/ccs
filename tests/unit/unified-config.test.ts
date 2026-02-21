@@ -80,9 +80,8 @@ describe('unified-config-types', () => {
       expect(config.version).toBe(UNIFIED_CONFIG_VERSION);
     });
 
-    it('should have empty accounts and profiles', () => {
+    it('should have empty profiles', () => {
       const config = createEmptyUnifiedConfig();
-      expect(Object.keys(config.accounts)).toHaveLength(0);
       expect(Object.keys(config.profiles)).toHaveLength(0);
     });
 
@@ -91,12 +90,6 @@ describe('unified-config-types', () => {
       expect(config.preferences.theme).toBe('system');
       expect(config.preferences.telemetry).toBe(false);
       expect(config.preferences.auto_update).toBe(true);
-    });
-
-    it('should have CLIProxy providers list', () => {
-      const config = createEmptyUnifiedConfig();
-      expect(config.cliproxy.providers).toContain('gemini');
-      expect(config.cliproxy.providers).toContain('codex');
     });
   });
 
@@ -121,7 +114,7 @@ describe('unified-config-types', () => {
       // Fix for issue #82: Relaxed validation accepts partial configs
       // Missing sections are merged with defaults in loadOrCreateUnifiedConfig
       expect(isUnifiedConfig({ version: 2 })).toBe(true);
-      expect(isUnifiedConfig({ version: 2, accounts: {} })).toBe(true);
+      expect(isUnifiedConfig({ version: 2, profiles: {} })).toBe(true);
     });
 
     it('should return false for version < 1', () => {

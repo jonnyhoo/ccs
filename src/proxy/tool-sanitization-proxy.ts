@@ -275,8 +275,10 @@ export class ToolSanitizationProxy {
       this.log(`Error: ${err.message}`);
       if (!res.headersSent) {
         res.writeHead(502, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: err.message }));
+      } else if (!res.writableEnded) {
+        res.end();
       }
-      res.end(JSON.stringify({ error: err.message }));
     }
   }
 

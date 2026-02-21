@@ -112,16 +112,16 @@ export class BackgroundMonitor {
       return;
     }
 
-    // 文件存在性检查
-    if (!fs.existsSync(this.outputFile)) {
+    // 文件状态检查（合并 existsSync + statSync 避免竞态）
+    let currentSize: number;
+    try {
+      const stats = fs.statSync(this.outputFile);
+      currentSize = stats.size;
+    } catch {
       const status = this.buildStatus('pending', elapsed);
       this.options.onProgress(status);
       return;
     }
-
-    // 读取文件状态
-    const stats = fs.statSync(this.outputFile);
-    const currentSize = stats.size;
 
     // 文件大小变化检查
     if (currentSize !== this.lastSize) {
@@ -316,7 +316,9 @@ export class BackgroundMonitor {
    */
   getStatus(): TaskStatus {
     const elapsed = Date.now() - this.startTime;
-    if (!fs.existsSync(this.outputFile)) {
+    try {
+      fs.statSync(this.outputFile);
+    } catch {
       return this.buildStatus('pending', elapsed);
     }
     return this.analyzeOutput(elapsed);

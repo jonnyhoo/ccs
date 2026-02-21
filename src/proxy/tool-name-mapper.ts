@@ -73,10 +73,11 @@ export class ToolNameMapper {
       const result: SanitizeResult = sanitizeToolName(tool.name);
 
       if (result.changed) {
-        // Check for collision: sanitized name already maps to different original
-        const existingOriginal = this.mapping.get(result.sanitized);
+        // 碰撞时追加后缀去重，避免覆盖已有映射
+        let sanitized = result.sanitized;
+        const existingOriginal = this.mapping.get(sanitized);
         if (existingOriginal && existingOriginal !== tool.name) {
-          // Record collision
+          // 记录碰撞
           const existing = this.collisions.find((c) => c.sanitized === result.sanitized);
           if (existing) {
             if (!existing.originals.includes(tool.name)) {
@@ -88,13 +89,19 @@ export class ToolNameMapper {
               originals: [existingOriginal, tool.name],
             });
           }
+          // 追加数字后缀直到唯一（截断到64字符限制内）
+          let suffix = 1;
+          while (this.mapping.has(sanitized)) {
+            const candidate = `${result.sanitized}_${suffix}`;
+            sanitized = candidate.length > 64 ? candidate.slice(0, 64) : candidate;
+            suffix++;
+          }
         }
 
-        // Store mapping: sanitized → original
-        this.mapping.set(result.sanitized, tool.name);
+        this.mapping.set(sanitized, tool.name);
         this.changes.push({
           original: tool.name,
-          sanitized: result.sanitized,
+          sanitized,
         });
       }
 

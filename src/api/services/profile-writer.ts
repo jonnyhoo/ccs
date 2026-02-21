@@ -152,9 +152,13 @@ function removeApiProfileUnified(name: string): void {
   }
 
   // Delete the settings file if it exists.
-  // Uses expandPath() for cross-platform path handling.
+  // 安全检查：只允许删除 ~/.ccs 目录内的文件
   if (profile.settings) {
-    const settingsPath = expandPath(profile.settings);
+    const settingsPath = path.resolve(expandPath(profile.settings));
+    const ccsRoot = path.resolve(getCcsDir()) + path.sep;
+    if (!settingsPath.startsWith(ccsRoot)) {
+      throw new Error(`Refusing to delete file outside ${ccsRoot}: ${settingsPath}`);
+    }
     if (fs.existsSync(settingsPath)) {
       fs.unlinkSync(settingsPath);
     }

@@ -41,27 +41,34 @@ function acquireLock(): boolean {
   const lockData = `${process.pid}\n${Date.now()}`;
 
   try {
-    if (fs.existsSync(lockPath)) {
+    // 尝试原子创建锁文件（wx = 排他写入，文件已存在则失败）
+    const fd = fs.openSync(lockPath, 'wx', 0o600);
+    fs.writeSync(fd, lockData);
+    fs.closeSync(fd);
+    return true;
+  } catch (createError) {
+    // 文件已存在，检查是否过期
+    try {
       const content = fs.readFileSync(lockPath, 'utf8');
       const [pidStr, timestampStr] = content.trim().split('\n');
       const timestamp = parseInt(timestampStr, 10);
 
       if (Date.now() - timestamp > LOCK_STALE_MS) {
         fs.unlinkSync(lockPath);
-      } else {
-        try {
-          process.kill(parseInt(pidStr, 10), 0);
-          return false;
-        } catch {
-          fs.unlinkSync(lockPath);
-        }
+        return acquireLock();
       }
-    }
 
-    fs.writeFileSync(lockPath, lockData, { mode: 0o600 });
-    return true;
-  } catch {
-    return false;
+      // 检查持锁进程是否存活
+      try {
+        process.kill(parseInt(pidStr, 10), 0);
+        return false; // 进程存活，锁有效
+      } catch {
+        fs.unlinkSync(lockPath);
+        return acquireLock();
+      }
+    } catch {
+      return false;
+    }
   }
 }
 
@@ -256,7 +263,9 @@ export function saveUnifiedConfig(config: UnifiedConfig): void {
       lockAcquired = true;
       break;
     }
-    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, retryDelayMs);
+    // 同步忙等待，避免阻塞事件循环的 Atomics.wait
+    const waitUntil = Date.now() + retryDelayMs;
+    while (Date.now() < waitUntil) { /* spin */ }
   }
 
   if (!lockAcquired) {

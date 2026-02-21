@@ -167,6 +167,8 @@ export function getSettingsPath(profile: string): string {
   if (!fs.existsSync(expandedPath)) {
     // Auto-create if it's ~/.claude/settings.json
     if (expandedPath.includes('.claude') && expandedPath.endsWith('settings.json')) {
+      fs.mkdirSync(path.dirname(expandedPath), { recursive: true });
+      fs.writeFileSync(expandedPath, '{}\n', { encoding: 'utf8', mode: 0o600 });
       console.log(info('Auto-created missing settings file'));
     } else {
       error(`Settings file not found: ${expandedPath}`);
