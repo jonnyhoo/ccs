@@ -122,7 +122,9 @@ async function isCliproxyTrusted(port: number): Promise<boolean> {
   return new Promise((resolve) => {
     const req = http.get(`http://127.0.0.1:${port}/health`, { timeout: 2000 }, (res) => {
       let data = '';
-      res.on('data', (chunk) => { data += chunk; });
+      res.on('data', (chunk) => {
+        data += chunk;
+      });
       res.on('end', () => {
         try {
           const body = JSON.parse(data);
@@ -133,7 +135,10 @@ async function isCliproxyTrusted(port: number): Promise<boolean> {
       });
     });
     req.on('error', () => resolve(false));
-    req.on('timeout', () => { req.destroy(); resolve(false); });
+    req.on('timeout', () => {
+      req.destroy();
+      resolve(false);
+    });
   });
 }
 

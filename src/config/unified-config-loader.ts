@@ -46,7 +46,7 @@ function acquireLock(): boolean {
     fs.writeSync(fd, lockData);
     fs.closeSync(fd);
     return true;
-  } catch (createError) {
+  } catch (_createError) {
     // 文件已存在，检查是否过期
     try {
       const content = fs.readFileSync(lockPath, 'utf8');
@@ -265,7 +265,9 @@ export function saveUnifiedConfig(config: UnifiedConfig): void {
     }
     // 同步忙等待，避免阻塞事件循环的 Atomics.wait
     const waitUntil = Date.now() + retryDelayMs;
-    while (Date.now() < waitUntil) { /* spin */ }
+    while (Date.now() < waitUntil) {
+      /* spin */
+    }
   }
 
   if (!lockAcquired) {

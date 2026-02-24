@@ -77,7 +77,8 @@ else
 fi
 
 # Find the tarball
-TARBALL=$(ls -t kaitranntt-ccs-*.tgz 2>/dev/null | head -1)
+PACKAGE_NAME=$(node -p "require('./package.json').name.replace(/^@/, '').replace(/\//g, '-')")
+TARBALL=$(ls -t "${PACKAGE_NAME}"-*.tgz 2>/dev/null | head -1)
 
 if [ -z "$TARBALL" ]; then
     echo "[X] ERROR: No tarball found"
