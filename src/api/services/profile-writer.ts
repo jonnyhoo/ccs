@@ -77,7 +77,7 @@ function createApiProfileUnified(
   baseUrl: string,
   apiKey: string,
   models: ModelMapping,
-  protocol?: 'anthropic' | 'openai'
+  protocol?: 'anthropic' | 'openai' | 'openai-responses'
 ): void {
   const ccsDir = getCcsDir();
   const settingsFile = `${name}.settings.json`;
@@ -103,12 +103,16 @@ function createApiProfileUnified(
   fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2) + '\n', 'utf8');
 
   const config = loadOrCreateUnifiedConfig();
-  const profileConfig: { type: 'api'; settings: string; protocol?: 'anthropic' | 'openai' } = {
+  const profileConfig: {
+    type: 'api';
+    settings: string;
+    protocol?: 'anthropic' | 'openai' | 'openai-responses';
+  } = {
     type: 'api',
     settings: `~/.ccs/${settingsFile}`,
   };
-  if (protocol === 'openai') {
-    profileConfig.protocol = 'openai';
+  if (protocol === 'openai' || protocol === 'openai-responses') {
+    profileConfig.protocol = protocol;
   }
   config.profiles[name] = profileConfig;
   saveUnifiedConfig(config);
@@ -120,7 +124,7 @@ export function createApiProfile(
   baseUrl: string,
   apiKey: string,
   models: ModelMapping,
-  protocol?: 'anthropic' | 'openai'
+  protocol?: 'anthropic' | 'openai' | 'openai-responses'
 ): CreateApiProfileResult {
   try {
     const settingsFile = `~/.ccs/${name}.settings.json`;

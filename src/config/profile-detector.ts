@@ -22,8 +22,8 @@ export interface ProfileDetectionResult {
   message?: string;
   /** 从 unified config 或 settings 文件加载的 env vars */
   env?: Record<string, string>;
-  /** API profile 的端点协议 ('anthropic' 默认, 'openai' 用于 Chat Completions) */
-  protocol?: 'anthropic' | 'openai';
+  /** API profile 的端点协议 ('anthropic' 默认, 'openai' Chat Completions, 'openai-responses' Responses API) */
+  protocol?: 'anthropic' | 'openai' | 'openai-responses';
 }
 
 export interface AllProfiles {

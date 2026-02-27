@@ -17,8 +17,8 @@ export interface ProfileConfig {
   type: 'api';
   /** settings 文件路径 (e.g., "~/.ccs/glm.settings.json") */
   settings: string;
-  /** 端点协议: 'anthropic' (默认) 或 'openai' (Chat Completions) */
-  protocol?: 'anthropic' | 'openai';
+  /** 端点协议: 'anthropic' (默认), 'openai' (Chat Completions), 'openai-responses' (Responses API) */
+  protocol?: 'anthropic' | 'openai' | 'openai-responses';
 }
 
 /**

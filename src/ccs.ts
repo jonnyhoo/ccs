@@ -160,7 +160,8 @@ async function execClaudeWithProxy(
 async function execClaudeWithOpenAIProxy(
   claudeCli: string,
   profileName: string,
-  args: string[]
+  args: string[],
+  useResponsesApi: boolean = false
 ): Promise<void> {
   const settingsPath = getSettingsPath(profileName);
   const settings = JSON.parse(fs.readFileSync(settingsPath, 'utf8'));
@@ -182,15 +183,16 @@ async function execClaudeWithOpenAIProxy(
     apiKey,
     verbose,
     timeoutMs: 120000,
-    useResponsesApi: false,
+    useResponsesApi,
   });
 
   let proxyPort: number;
   try {
     proxyPort = await proxy.start();
     if (verbose) {
+      const modeName = useResponsesApi ? 'Responses API mode' : 'Chat Completions mode';
       console.error(`[openai-proxy] Translation proxy active on port ${proxyPort}`);
-      console.error(`[openai-proxy] Target: ${baseUrl} (Chat Completions mode)`);
+      console.error(`[openai-proxy] Target: ${baseUrl} (${modeName})`);
     }
   } catch (error) {
     const err = error as Error;
@@ -479,8 +481,9 @@ async function main(): Promise<void> {
       if (profileInfo.name === 'glmt') {
         await execClaudeWithProxy(claudeCli, profileInfo.name, remainingArgs);
       } else if (profileInfo.protocol === 'openai') {
-        // OpenAI 协议转换
-        await execClaudeWithOpenAIProxy(claudeCli, profileInfo.name, remainingArgs);
+        await execClaudeWithOpenAIProxy(claudeCli, profileInfo.name, remainingArgs, false);
+      } else if (profileInfo.protocol === 'openai-responses') {
+        await execClaudeWithOpenAIProxy(claudeCli, profileInfo.name, remainingArgs, true);
       } else {
         // 普通 settings profile: 工具名清洗代理
         const expandedSettingsPath = getSettingsPath(profileInfo.name);

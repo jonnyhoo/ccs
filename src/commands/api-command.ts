@@ -48,7 +48,8 @@ interface ApiCommandArgs {
   preset?: string;
   force?: boolean;
   yes?: boolean;
-  openai?: boolean;
+  openai?: boolean; // kept for backward compat, maps to protocol 'openai'
+  protocol?: string; // 'anthropic' | 'openai' | 'openai-responses'
 }
 
 /** Parse command line arguments for api commands */
@@ -70,6 +71,8 @@ function parseArgs(args: string[]): ApiCommandArgs {
       result.force = true;
     } else if (arg === '--openai') {
       result.openai = true;
+    } else if (arg === '--protocol' && args[i + 1]) {
+      result.protocol = args[++i];
     } else if (arg === '--yes' || arg === '-y') {
       result.yes = true;
     } else if (!arg.startsWith('-') && !result.name) {
@@ -119,7 +122,43 @@ async function handleCreate(args: string[]): Promise<void> {
     process.exit(1);
   }
 
-  // Step 2: Base URL (use preset if provided)
+  // Step 2: Endpoint protocol selection
+  // Determines how CCS connects to the endpoint (direct or via translation proxy)
+  type ProtocolValue = 'anthropic' | 'openai' | 'openai-responses';
+  let protocol: ProtocolValue | undefined;
+
+  if (parsedArgs.protocol) {
+    const validProtocols: string[] = ['anthropic', 'openai', 'openai-responses'];
+    if (!validProtocols.includes(parsedArgs.protocol)) {
+      console.log(fail(`Unknown protocol: ${parsedArgs.protocol}`));
+      console.log(`    Valid values: ${validProtocols.join(', ')}`);
+      process.exit(1);
+    }
+    const parsed = parsedArgs.protocol as ProtocolValue;
+    protocol = parsed === 'anthropic' ? undefined : parsed;
+  } else if (parsedArgs.openai) {
+    protocol = 'openai';
+  } else if (!preset && !parsedArgs.yes) {
+    console.log('');
+    const selectedProtocol = await InteractivePrompt.selectFromList(
+      'Endpoint protocol:',
+      [
+        {
+          id: 'anthropic',
+          label: 'Anthropic Messages API  — native Claude format (GLM, DeepSeek, Kimi, etc.)',
+        },
+        { id: 'openai', label: 'OpenAI Chat Completions — translates to /v1/chat/completions' },
+        {
+          id: 'openai-responses',
+          label: 'OpenAI Responses API    — translates to /v1/responses (Codex)',
+        },
+      ],
+      { defaultIndex: 0 }
+    );
+    protocol = selectedProtocol === 'anthropic' ? undefined : (selectedProtocol as ProtocolValue);
+  }
+
+  // Step 3: Base URL (use preset if provided)
   let baseUrl = parsedArgs.baseUrl || preset?.baseUrl;
   if (!baseUrl) {
     baseUrl = await InteractivePrompt.input(
@@ -268,24 +307,6 @@ async function handleCreate(args: string[]): Promise<void> {
     haiku: haikuModel,
   };
 
-  // Step 6: Endpoint protocol detection
-  // OpenAI endpoints need a translation proxy; Anthropic endpoints connect directly
-  let protocol: 'anthropic' | 'openai' | undefined;
-  if (parsedArgs.openai) {
-    protocol = 'openai';
-  } else if (!parsedArgs.yes && !preset) {
-    // Auto-suggest OpenAI if URL looks like it (contains /v1, doesn't contain anthropic/coding)
-    const looksLikeOpenAI = /\/v1(\/|$)/i.test(baseUrl) && !/anthropic|coding/i.test(baseUrl);
-    console.log('');
-    const isOpenAI = await InteractivePrompt.confirm(
-      'Is this an OpenAI-compatible endpoint (Chat Completions)?',
-      { default: looksLikeOpenAI }
-    );
-    if (isOpenAI) {
-      protocol = 'openai';
-    }
-  }
-
   // Create profile
   console.log('');
   console.log(info('Creating API profile...'));
@@ -305,7 +326,7 @@ async function handleCreate(args: string[]): Promise<void> {
     `Config:   ${isUsingUnifiedConfig() ? '~/.ccs/config.yaml' : '~/.ccs/config.json'}\n` +
     `Settings: ${result.settingsFile}\n` +
     `Base URL: ${baseUrl}\n` +
-    `Protocol: ${protocol === 'openai' ? 'OpenAI Chat Completions' : 'Anthropic Messages'}\n` +
+    `Protocol: ${protocol === 'openai-responses' ? 'OpenAI Responses API' : protocol === 'openai' ? 'OpenAI Chat Completions' : 'Anthropic Messages'}\n` +
     `Model:    ${model}`;
 
   if (hasCustomMapping) {
@@ -454,7 +475,7 @@ async function showHelp(): Promise<void> {
   console.log(`  ${color('--model <model>', 'command')}      Default model (create)`);
   console.log(`  ${color('--force', 'command')}              Overwrite existing (create)`);
   console.log(
-    `  ${color('--openai', 'command')}             Mark as OpenAI-compatible endpoint (create)`
+    `  ${color('--protocol <type>', 'command')}    Endpoint protocol: anthropic (default), openai, openai-responses (create)`
   );
   console.log(`  ${color('--yes, -y', 'command')}            Skip confirmation prompts`);
   console.log('');

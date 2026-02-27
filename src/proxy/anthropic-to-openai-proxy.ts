@@ -23,7 +23,25 @@
 
 import * as http from 'http';
 import * as https from 'https';
+import * as crypto from 'crypto';
+import * as fs from 'fs';
+import * as path from 'path';
+import * as os from 'os';
 import { URL } from 'url';
+
+const MAX_TOOL_NAME_LENGTH = 64;
+
+/**
+ * Shorten a tool name to fit within the upstream API's limit.
+ * If the name exceeds MAX_TOOL_NAME_LENGTH, truncate and append a short hash for uniqueness.
+ * Returns the original name if it's already short enough.
+ */
+function shortenToolName(name: string): string {
+  if (name.length <= MAX_TOOL_NAME_LENGTH) return name;
+  const hash = crypto.createHash('md5').update(name).digest('hex').slice(0, 8);
+  // Reserve 1 char for underscore + 8 for hash = 9 chars
+  return name.slice(0, MAX_TOOL_NAME_LENGTH - 9) + '_' + hash;
+}
 
 /** User agent matching Codex CLI for API compatibility */
 const CODEX_USER_AGENT = 'codex_cli_rs/0.104.0 (Windows 10.0.19044; x86_64) WindowsTerminal';
@@ -348,11 +366,15 @@ function translateRequestChat(anthropicReq: AnthropicRequest): OpenAIRequest {
   return openaiReq;
 }
 
-function toResponsesMessages(messages: OpenAIMessage[]): ResponsesMessage[] {
+function toResponsesMessages(
+  messages: OpenAIMessage[],
+  toolNameMap?: Map<string, string>,
+  hasChainedSession?: boolean
+): ResponsesMessage[] {
   const out: ResponsesMessage[] = [];
   const toolCallIds = new Set<string>();
 
-  // First pass: collect all tool call IDs
+  // First pass: collect all tool call IDs in current input
   for (const m of messages) {
     if (m.role === 'assistant' && m.tool_calls) {
       for (const tc of m.tool_calls) {
@@ -374,26 +396,31 @@ function toResponsesMessages(messages: OpenAIMessage[]): ResponsesMessage[] {
       // Add tool calls as function_call items
       if (m.tool_calls && m.tool_calls.length > 0) {
         for (const tc of m.tool_calls) {
+          const originalName = tc.function.name;
+          const shortName = shortenToolName(originalName);
+          if (shortName !== originalName && toolNameMap) {
+            toolNameMap.set(shortName, originalName);
+          }
           out.push({
             type: 'function_call',
             call_id: tc.id,
-            name: tc.function.name,
+            name: shortName,
             arguments: tc.function.arguments,
           } as any);
         }
       }
     } else if (m.role === 'tool') {
       // Tool results: use function_call_output format
-      // Only add if we have a valid call_id that matches a previous function_call
       const callId = m.tool_call_id || '';
-      if (callId && toolCallIds.has(callId)) {
+      if (callId && (toolCallIds.has(callId) || hasChainedSession)) {
+        // In chained sessions, the matching function_call lives in the upstream server's
+        // session state, not in the current input — so always include tool results.
         out.push({
           type: 'function_call_output',
           call_id: callId,
           output: m.content || '',
         } as any);
       } else if (callId) {
-        // Log warning but don't fail
         console.warn(`[cliproxy] Skipping tool result with unmatched call_id: ${callId}`);
       }
     } else {
@@ -408,7 +435,8 @@ function toResponsesMessages(messages: OpenAIMessage[]): ResponsesMessage[] {
 
 function translateChatToResponses(
   chat: OpenAIRequest,
-  previousResponseId?: string | null
+  previousResponseId?: string | null,
+  toolNameMap?: Map<string, string>
 ): ResponsesRequest {
   // Extract system messages → instructions field (enables prompt caching)
   const systemParts: string[] = [];
@@ -438,11 +466,8 @@ function translateChatToResponses(
 
   const req: ResponsesRequest = {
     model: chat.model,
-    input: toResponsesMessages(inputMessages),
+    input: toResponsesMessages(inputMessages, toolNameMap, !!previousResponseId),
     stream: chat.stream,
-    temperature: chat.temperature,
-    top_p: chat.top_p,
-    stop: chat.stop,
     store: false,
     prompt_cache_key: 'ccs-codex-stable',
     reasoning: {
@@ -461,21 +486,29 @@ function translateChatToResponses(
       (req as any).instructions = systemParts.join('\n');
     }
     if (chat.tools) {
-      req.tools = chat.tools.map((t: OpenAITool) => ({
-        type: 'function' as const,
-        name: t.function.name,
-        description: t.function.description,
-        parameters: t.function.parameters,
-      }));
+      req.tools = chat.tools.map((t: OpenAITool) => {
+        const originalName = t.function.name;
+        const shortName = shortenToolName(originalName);
+        if (shortName !== originalName && toolNameMap) {
+          toolNameMap.set(shortName, originalName);
+        }
+        return {
+          type: 'function' as const,
+          name: shortName,
+          description: t.function.description,
+          parameters: t.function.parameters,
+        };
+      });
     }
-    const responsesToolChoice = translateToolChoiceForResponses(chat.tool_choice);
+    const responsesToolChoice = translateToolChoiceForResponses(chat.tool_choice, toolNameMap);
     if (responsesToolChoice !== undefined) req.tool_choice = responsesToolChoice as any;
   }
   return req;
 }
 
 function translateToolChoiceForResponses(
-  toolChoice: OpenAIRequest['tool_choice']
+  toolChoice: OpenAIRequest['tool_choice'],
+  toolNameMap?: Map<string, string>
 ): string | { type: 'function'; name: string } | undefined {
   if (!toolChoice) return undefined;
   if (typeof toolChoice === 'string') return toolChoice;
@@ -483,7 +516,11 @@ function translateToolChoiceForResponses(
   if (toolChoice.type === 'function') {
     const name = toolChoice.function?.name?.trim();
     if (!name) return 'auto';
-    return { type: 'function', name };
+    const shortName = shortenToolName(name);
+    if (shortName !== name && toolNameMap) {
+      toolNameMap.set(shortName, name);
+    }
+    return { type: 'function', name: shortName };
   }
 
   return 'auto';
@@ -524,10 +561,12 @@ class StreamingResponseTranslator {
   private inputTokens = 0;
   private outputTokens = 0;
   private headersSent = false;
+  private toolNameMap: Map<string, string>;
 
-  constructor(model: string) {
+  constructor(model: string, toolNameMap?: Map<string, string>) {
     this.messageId = `msg_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
     this.model = model;
+    this.toolNameMap = toolNameMap || new Map();
   }
 
   private sse(event: string, data: unknown): string {
@@ -663,7 +702,8 @@ class StreamingResponseTranslator {
 
         // New tool call
         if (tc.id && tc.function?.name) {
-          tracked = { id: tc.id, name: tc.function.name, started: false };
+          const resolvedName = this.toolNameMap.get(tc.function.name) || tc.function.name;
+          tracked = { id: tc.id, name: resolvedName, started: false };
           this.inToolCallBlocks.set(tcIndex, tracked);
         }
 
@@ -938,6 +978,98 @@ export class AnthropicToOpenAIProxy {
   private readonly maxNetworkRetries = 2;
   /** Track last Responses API response ID for conversation chaining */
   private lastResponseId: string | null = null;
+  /** Maps shortened tool names (sent upstream) → original tool names (used by Claude CLI) */
+  private toolNameMap: Map<string, string> = new Map();
+
+  /**
+   * Detect context window overflow errors from upstream.
+   */
+  private isContextWindowError(body: string): boolean {
+    const lower = body.toLowerCase();
+    return (
+      lower.includes('exceeds the context window') ||
+      lower.includes('context_length_exceeded') ||
+      lower.includes('prompt is too long') ||
+      lower.includes('maximum context length') ||
+      lower.includes('input is too long')
+    );
+  }
+
+  /**
+   * Trim conversation messages to fit a smaller upstream context window.
+   * Uses a progressive strategy to preserve conversation quality:
+   *   Pass 1: Strip tool results from older messages (keep recent N turns intact)
+   *   Pass 2: Remove entire old tool call/result pairs
+   *   Pass 3: Drop oldest non-system messages (last resort)
+   * Also removes orphaned tool results whose tool_call is no longer present.
+   */
+  private trimMessages(messages: OpenAIMessage[]): boolean {
+    const originalCount = messages.length;
+    const systemMsgs = messages.filter((m) => m.role === 'system');
+    const nonSystem = messages.filter((m) => m.role !== 'system');
+    if (nonSystem.length <= 4) return false; // too few to trim
+
+    // How many recent messages to protect from trimming
+    const protectedTail = Math.min(10, Math.ceil(nonSystem.length * 0.3));
+    const olderMessages = nonSystem.slice(0, nonSystem.length - protectedTail);
+    const recentMessages = nonSystem.slice(nonSystem.length - protectedTail);
+
+    // Pass 1: Truncate tool result content in older messages (replace with summary)
+    let trimmed = false;
+    for (const m of olderMessages) {
+      if (m.role === 'tool' && m.content && m.content.length > 200) {
+        m.content = '[trimmed tool output]';
+        trimmed = true;
+      }
+      // Also truncate large assistant content in older turns
+      if (m.role === 'assistant' && typeof m.content === 'string' && m.content.length > 500) {
+        m.content = m.content.slice(0, 200) + '\n...[trimmed]';
+        trimmed = true;
+      }
+    }
+
+    // Pass 2: Remove old tool call/result pairs entirely (keep the conversation flow)
+    let filtered = olderMessages.filter((m) => {
+      if (m.role === 'tool') return false; // drop old tool results
+      if (m.role === 'assistant' && m.tool_calls && m.tool_calls.length > 0) {
+        // Keep the assistant message but strip tool_calls
+        delete m.tool_calls;
+        if (!m.content) m.content = '[tool calls removed]';
+        trimmed = true;
+      }
+      return true;
+    });
+
+    // Pass 3: If still too many, keep only the last few older messages
+    if (filtered.length > 10) {
+      filtered = filtered.slice(filtered.length - 6);
+      trimmed = true;
+    }
+
+    if (!trimmed) return false;
+
+    // Reassemble: system + trimmed older + protected recent
+    const result = [...systemMsgs, ...filtered, ...recentMessages];
+
+    // Clean up orphaned tool results in recent messages
+    const presentCallIds = new Set<string>();
+    for (const m of result) {
+      if (m.role === 'assistant' && m.tool_calls) {
+        for (const tc of m.tool_calls) presentCallIds.add(tc.id);
+      }
+    }
+    const cleaned = result.filter(
+      (m) => m.role !== 'tool' || (m.tool_call_id && presentCallIds.has(m.tool_call_id))
+    );
+
+    this.log(
+      `[context-trim] Trimmed messages from ${originalCount} to ${cleaned.length} (removed ${originalCount - cleaned.length} messages, truncated tool outputs)`
+    );
+    // Mutate in place
+    messages.length = 0;
+    messages.push(...cleaned);
+    return true;
+  }
 
   constructor(config: AnthropicToOpenAIProxyConfig) {
     // Normalize base URL: strip trailing slashes and /v1 suffix
@@ -966,7 +1098,15 @@ export class AnthropicToOpenAIProxy {
     });
   }
 
+  private readonly debugLogPath = path.join(os.tmpdir(), 'ccs-proxy-debug.log');
+
   private log(msg: string): void {
+    const line = `[${new Date().toISOString()}] ${msg}\n`;
+    try {
+      fs.appendFileSync(this.debugLogPath, line);
+    } catch {
+      /* ignore */
+    }
     if (this.config.verbose) {
       console.error(`[anthropic-to-openai] ${msg}`);
     }
@@ -1020,6 +1160,10 @@ export class AnthropicToOpenAIProxy {
       this.server.listen(0, '127.0.0.1', () => {
         const addr = this.server?.address();
         this.port = typeof addr === 'object' && addr ? addr.port : 0;
+        this.log(
+          `Proxy started on port ${this.port}, target=${this.config.targetBaseUrl}, responses=${this.config.useResponsesApi}`
+        );
+        console.error(`[ccs-proxy] Debug log: ${this.debugLogPath}`);
         resolve(this.port);
       });
 
@@ -1036,6 +1180,13 @@ export class AnthropicToOpenAIProxy {
 
     this.httpAgent.destroy();
     this.httpsAgent.destroy();
+
+    // Clean up debug log file
+    try {
+      fs.unlinkSync(this.debugLogPath);
+    } catch {
+      /* ignore if already removed */
+    }
   }
 
   private readBody(req: http.IncomingMessage): Promise<string> {
@@ -1249,6 +1400,8 @@ export class AnthropicToOpenAIProxy {
     model: string
   ): Promise<void> {
     let retried401 = false;
+    let retriedWithoutResponseId = false;
+    let retriedWithTrimmedContext = false;
     const networkRetryCount: Record<'chat' | 'responses', number> = { chat: 0, responses: 0 };
 
     const attempt = (mode: 'chat' | 'responses'): Promise<void> => {
@@ -1294,9 +1447,12 @@ export class AnthropicToOpenAIProxy {
             ? openaiReqChat
             : translateChatToResponses(
                 JSON.parse(JSON.stringify({ ...openaiReqChat, stream: true })) as any,
-                this.lastResponseId
+                this.lastResponseId,
+                this.toolNameMap
               );
         const bodyString = JSON.stringify(body);
+        this.log(`[DEBUG] Upstream ${mode} URL: ${targetUrl.href}`);
+        this.log(`[DEBUG] Upstream ${mode} request body (${bodyString.length}B):\n${bodyString}`);
         const requestFn = targetUrl.protocol === 'https:' ? https.request : http.request;
         // Build headers: include codex session headers only when using Responses API
         const upstreamHeaders: Record<string, string | number> = {
@@ -1331,7 +1487,7 @@ export class AnthropicToOpenAIProxy {
               upstreamRes.on('data', (c: Buffer) => chunks.push(c));
               upstreamRes.on('end', () => {
                 const bodyErr = Buffer.concat(chunks).toString('utf8');
-                this.log(`Upstream ${mode} error ${statusCode}: ${bodyErr.slice(0, 200)}`);
+                this.log(`Upstream ${mode} error ${statusCode}: ${bodyErr.slice(0, 1000)}`);
                 // Try fallback: chat→responses (only if Responses API is enabled)
                 if (mode === 'chat' && this.config.useResponsesApi) {
                   attempt('responses').then(resolveAttempt).catch(rejectAttempt);
@@ -1345,6 +1501,38 @@ export class AnthropicToOpenAIProxy {
                     attempt(mode).then(resolveAttempt).catch(rejectAttempt);
                   }, 500);
                   return;
+                }
+
+                // If using previous_response_id and got an error, clear it and retry with full request
+                if (
+                  mode === 'responses' &&
+                  this.lastResponseId &&
+                  !retriedWithoutResponseId &&
+                  !clientRes.headersSent
+                ) {
+                  retriedWithoutResponseId = true;
+                  this.log(
+                    `Clearing stale previous_response_id (${this.lastResponseId}) due to ${statusCode}, retrying with full request`
+                  );
+                  this.lastResponseId = null;
+                  networkRetryCount[mode] = 0; // Reset retry count for fresh attempt
+                  attempt(mode).then(resolveAttempt).catch(rejectAttempt);
+                  return;
+                }
+
+                // Context window overflow: trim old messages and retry once
+                if (
+                  this.isContextWindowError(bodyErr) &&
+                  !retriedWithTrimmedContext &&
+                  !clientRes.headersSent
+                ) {
+                  retriedWithTrimmedContext = true;
+                  this.lastResponseId = null; // chain is invalid after trimming
+                  if (this.trimMessages(openaiReqChat.messages)) {
+                    networkRetryCount[mode] = 0;
+                    attempt(mode).then(resolveAttempt).catch(rejectAttempt);
+                    return;
+                  }
                 }
 
                 if (this.isRetryableStatusCode(statusCode) && !clientRes.headersSent) {
@@ -1397,7 +1585,7 @@ export class AnthropicToOpenAIProxy {
               Connection: 'keep-alive',
             });
 
-            const translator = new StreamingResponseTranslator(model);
+            const translator = new StreamingResponseTranslator(model, this.toolNameMap);
             let buffer = '';
             let hasFinished = false;
             const activeToolCalls = new Map<number, { id: string; name: string }>();
@@ -1458,7 +1646,8 @@ export class AnthropicToOpenAIProxy {
                       if (parsed.item?.type === 'function_call') {
                         // Tool call start: emit as Anthropic tool_use via fake chunk
                         const tcId = parsed.item.call_id || parsed.item.id || `call_${Date.now()}`;
-                        const tcName = parsed.item.name || '';
+                        const tcName =
+                          this.toolNameMap.get(parsed.item.name || '') || parsed.item.name || '';
                         const outputIndex = parsed.output_index ?? 0;
                         activeToolCalls.set(outputIndex, { id: tcId, name: tcName });
                         const events = translator.translateChunk({
@@ -1775,6 +1964,8 @@ export class AnthropicToOpenAIProxy {
   ): Promise<void> {
     return new Promise((resolve, reject) => {
       let retried = false;
+      let retriedWithoutResponseId = false;
+      let retriedWithTrimmedContext = false;
       let networkRetryCount = 0;
 
       const doRequest = (): void => {
@@ -1816,10 +2007,13 @@ export class AnthropicToOpenAIProxy {
         const body = useResponses
           ? translateChatToResponses(
               JSON.parse(JSON.stringify({ ...openaiReqChat, stream: true })) as OpenAIRequest,
-              this.lastResponseId
+              this.lastResponseId,
+              this.toolNameMap
             )
           : { ...openaiReqChat, stream: true };
         const bodyString = JSON.stringify(body);
+        this.log(`[DEBUG] Upstream non-stream URL: ${targetUrl.href}`);
+        this.log(`[DEBUG] Upstream non-stream request body:\n${bodyString.slice(0, 2000)}`);
         const requestFn = targetUrl.protocol === 'https:' ? https.request : http.request;
 
         // Build headers: include codex session headers only when using Responses API
@@ -1855,13 +2049,40 @@ export class AnthropicToOpenAIProxy {
               upstreamRes.on('data', (c: Buffer) => chunks.push(c));
               upstreamRes.on('end', () => {
                 const bodyErr = Buffer.concat(chunks).toString('utf8');
-                this.log(`Upstream non-stream error ${statusCode}: ${bodyErr.slice(0, 200)}`);
+                this.log(`Upstream non-stream error ${statusCode}: ${bodyErr.slice(0, 1000)}`);
                 // Auto-retry once on 401
                 if (statusCode === 401 && !retried) {
                   retried = true;
                   this.log('401 received (non-stream), retrying once...');
                   setTimeout(() => doRequest(), 500);
                   return;
+                }
+
+                // If using previous_response_id and got an error, clear it and retry with full request
+                if (this.lastResponseId && !retriedWithoutResponseId && !clientRes.headersSent) {
+                  retriedWithoutResponseId = true;
+                  this.log(
+                    `Clearing stale previous_response_id (${this.lastResponseId}) due to ${statusCode} (non-stream), retrying with full request`
+                  );
+                  this.lastResponseId = null;
+                  networkRetryCount = 0;
+                  doRequest();
+                  return;
+                }
+
+                // Context window overflow: trim old messages and retry once
+                if (
+                  this.isContextWindowError(bodyErr) &&
+                  !retriedWithTrimmedContext &&
+                  !clientRes.headersSent
+                ) {
+                  retriedWithTrimmedContext = true;
+                  this.lastResponseId = null;
+                  if (this.trimMessages(openaiReqChat.messages)) {
+                    networkRetryCount = 0;
+                    doRequest();
+                    return;
+                  }
                 }
 
                 if (this.isRetryableStatusCode(statusCode) && !clientRes.headersSent) {
@@ -1926,7 +2147,10 @@ export class AnthropicToOpenAIProxy {
                         if (tc.id) {
                           activeToolCallsMap.set(idx, {
                             id: tc.id,
-                            name: tc.function?.name || '',
+                            name:
+                              this.toolNameMap.get(tc.function?.name || '') ||
+                              tc.function?.name ||
+                              '',
                             arguments: '',
                           });
                         }
@@ -1968,7 +2192,7 @@ export class AnthropicToOpenAIProxy {
                     const outputIndex = parsed.output_index ?? 0;
                     activeToolCallsMap.set(outputIndex, {
                       id: parsed.item.call_id || parsed.item.id || `call_${Date.now()}`,
-                      name: parsed.item.name || '',
+                      name: this.toolNameMap.get(parsed.item.name || '') || parsed.item.name || '',
                       arguments: '',
                     });
                   } else if (
@@ -2023,7 +2247,12 @@ export class AnthropicToOpenAIProxy {
                 } catch {
                   input = tc.arguments;
                 }
-                content.push({ type: 'tool_use', id: tc.id, name: tc.name, input });
+                content.push({
+                  type: 'tool_use',
+                  id: tc.id,
+                  name: this.toolNameMap.get(tc.name) || tc.name,
+                  input,
+                });
               }
 
               const stopReason = collectedToolCalls.length > 0 ? 'tool_use' : 'end_turn';

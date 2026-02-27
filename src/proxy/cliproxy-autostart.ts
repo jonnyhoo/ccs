@@ -11,12 +11,16 @@ import * as http from 'http';
 import * as net from 'net';
 import * as path from 'path';
 import * as fs from 'fs';
+import * as yaml from 'js-yaml';
 import { getCcsDir } from '../utils/config-manager';
 import { info, fail } from '../utils/ui';
 
 const CLIPROXY_DEFAULT_PORT = 8317;
 const STARTUP_TIMEOUT = 8000;
 const POLL_INTERVAL = 150;
+
+// 可信代理服务名称列表（cliproxy 或自定义代理均可）
+const TRUSTED_SERVICES = ['cliproxy', 'cache-keepalive'];
 
 /**
  * Extract localhost port from a URL like http://127.0.0.1:8317/...
@@ -100,6 +104,42 @@ function getConfigForPort(port: number): string | null {
 }
 
 /**
+ * 自定义代理配置（type: custom），用于非 CLIProxy 的本地代理。
+ */
+interface CustomProxyConfig {
+  type: 'custom';
+  port: number;
+  command: string;
+  args?: string[];
+  env?: Record<string, string>;
+}
+
+/**
+ * 读取并解析 config-{port}.yaml，若为 type: custom 则返回配置，否则返回 null。
+ */
+function readCustomConfig(configPath: string): CustomProxyConfig | null {
+  try {
+    const raw = fs.readFileSync(configPath, 'utf8');
+    const parsed = yaml.load(raw) as Record<string, unknown>;
+    if (parsed?.type === 'custom' && typeof parsed.command === 'string') {
+      return {
+        type: 'custom',
+        port: typeof parsed.port === 'number' ? parsed.port : 0,
+        command: parsed.command,
+        args: Array.isArray(parsed.args) ? (parsed.args as string[]) : [],
+        env:
+          typeof parsed.env === 'object' && parsed.env !== null
+            ? (parsed.env as Record<string, string>)
+            : {},
+      };
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Spawn the CLIProxy binary with the given config.
  * The process is detached and unref'd so it survives ccs exit.
  */
@@ -116,7 +156,20 @@ function spawnCliproxy(binaryPath: string, configPath: string): void {
 }
 
 /**
- * 验证端口上运行的是否为可信的 CLIProxy 实例（通过 /health 端点）
+ * Spawn a custom proxy defined by type: custom config.
+ */
+function spawnCustomProxy(config: CustomProxyConfig): void {
+  const child = spawn(config.command, config.args ?? [], {
+    stdio: ['ignore', 'ignore', 'ignore'],
+    detached: true,
+    windowsHide: true,
+    env: { ...process.env, ...(config.env ?? {}) },
+  });
+  child.unref();
+}
+
+/**
+ * 验证端口上运行的是否为可信的代理实例（通过 /health 端点）
  */
 async function isCliproxyTrusted(port: number): Promise<boolean> {
   return new Promise((resolve) => {
@@ -128,7 +181,7 @@ async function isCliproxyTrusted(port: number): Promise<boolean> {
       res.on('end', () => {
         try {
           const body = JSON.parse(data);
-          resolve(res.statusCode === 200 && body?.service === 'cliproxy');
+          resolve(res.statusCode === 200 && TRUSTED_SERVICES.includes(body?.service));
         } catch {
           resolve(false);
         }
@@ -143,30 +196,23 @@ async function isCliproxyTrusted(port: number): Promise<boolean> {
 }
 
 /**
- * Ensure CLIProxy is running on the given port.
+ * Ensure CLIProxy (or custom proxy) is running on the given port.
  * If already running and trusted, returns immediately.
- * If not, spawns the binary and waits for readiness.
+ * If not, spawns the binary/custom command and waits for readiness.
  *
- * @param port The port to ensure CLIProxy is running on
+ * @param port The port to ensure proxy is running on
  * @param verbose Enable verbose logging
  */
 export async function ensureCliproxy(port: number, verbose: boolean = false): Promise<void> {
-  // 端口有监听时，验证是否为可信的 CLIProxy
+  // 端口有监听时，验证是否为可信代理
   if (await isPortListening(port)) {
     if (await isCliproxyTrusted(port)) {
-      if (verbose) console.error(info(`CLIProxy already running on port ${port}`));
+      if (verbose) console.error(info(`Proxy already running on port ${port}`));
       return;
     }
-    // 端口被占用但不是 CLIProxy，警告并继续尝试启动
-    console.error(fail(`Port ${port} is in use by an untrusted process, cannot start CLIProxy`));
+    // 端口被占用但不是可信代理，警告并继续尝试启动
+    console.error(fail(`Port ${port} is in use by an untrusted process, cannot start proxy`));
     throw new Error(`Port ${port} occupied by untrusted process`);
-  }
-
-  // Find binary
-  const binaryPath = getCliproxyBinary();
-  if (!binaryPath) {
-    console.error(fail('CLIProxy binary not found. Please reinstall CCS.'));
-    throw new Error('CLIProxy binary not found');
   }
 
   // Find config
@@ -176,25 +222,41 @@ export async function ensureCliproxy(port: number, verbose: boolean = false): Pr
     throw new Error(`No CLIProxy config for port ${port}`);
   }
 
-  if (verbose) {
-    console.error(info(`Starting CLIProxy on port ${port}...`));
-    console.error(info(`Binary: ${binaryPath}`));
-    console.error(info(`Config: ${configPath}`));
+  // Check if custom proxy config (type: custom)
+  const customConfig = readCustomConfig(configPath);
+  if (customConfig) {
+    if (verbose) {
+      console.error(info(`Starting custom proxy on port ${port}...`));
+      console.error(
+        info(`Command: ${customConfig.command} ${(customConfig.args ?? []).join(' ')}`)
+      );
+    }
+    spawnCustomProxy(customConfig);
+  } else {
+    // Standard CLIProxy binary
+    const binaryPath = getCliproxyBinary();
+    if (!binaryPath) {
+      console.error(fail('CLIProxy binary not found. Please reinstall CCS.'));
+      throw new Error('CLIProxy binary not found');
+    }
+    if (verbose) {
+      console.error(info(`Starting CLIProxy on port ${port}...`));
+      console.error(info(`Binary: ${binaryPath}`));
+      console.error(info(`Config: ${configPath}`));
+    }
+    spawnCliproxy(binaryPath, configPath);
   }
-
-  // Spawn
-  spawnCliproxy(binaryPath, configPath);
 
   // Wait for readiness
   const { ProgressIndicator } = await import('../utils/progress-indicator');
-  const spinner = new ProgressIndicator(`Starting CLIProxy on port ${port}`);
+  const spinner = new ProgressIndicator(`Starting proxy on port ${port}`);
   spinner.start();
 
   try {
     await waitForPortReady(port);
-    spinner.succeed(`CLIProxy ready on port ${port}`);
+    spinner.succeed(`Proxy ready on port ${port}`);
   } catch (error) {
-    spinner.fail(`CLIProxy failed to start on port ${port}`);
+    spinner.fail(`Proxy failed to start on port ${port}`);
     throw error;
   }
 }
