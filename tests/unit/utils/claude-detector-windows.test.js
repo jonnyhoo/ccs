@@ -5,6 +5,7 @@
 
 import { describe, it, expect, beforeEach, afterEach, mock, spyOn } from 'bun:test';
 import * as fs from 'fs';
+import * as path from 'path';
 import * as childProcess from 'child_process';
 
 // We need to test the module with mocked dependencies
@@ -42,17 +43,18 @@ describe('Windows Claude CLI Detection', () => {
   describe('detectClaudeCli priority order', () => {
     it('should prioritize CCS_CLAUDE_PATH over other methods', async () => {
       const testPath = '/tmp/test-claude-cli';
+      const normalizedTestPath = path.normalize(testPath);
       process.env.CCS_CLAUDE_PATH = testPath;
 
-      // Mock fs.existsSync to return true for our test path
+      // Mock fs.existsSync to return true for our test path (normalize for Windows path sep)
       const existsSyncSpy = spyOn(fs, 'existsSync').mockImplementation((p) => {
-        return p === testPath;
+        return path.normalize(String(p)) === normalizedTestPath;
       });
 
       const { detectClaudeCli } = await import('../../../src/utils/claude-detector');
       const result = detectClaudeCli();
 
-      expect(result).toBe(testPath);
+      expect(result).toBe(normalizedTestPath);
       existsSyncSpy.mockRestore();
     });
 

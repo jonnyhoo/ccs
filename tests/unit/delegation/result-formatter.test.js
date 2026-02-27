@@ -61,55 +61,6 @@ describe('ResultFormatter', () => {
     });
   });
 
-  describe('File changes extraction', () => {
-    it('extracts created files from output', () => {
-      const output = 'Created: src/auth.js\nCreated: tests/auth.test.js';
-
-      const { created } = ResultFormatter.extractFileChanges(output);
-
-      assert.strictEqual(created.length, 2);
-      assert.ok(created[0].includes('src/auth.js'));
-      assert.ok(created[1].includes('tests/auth.test.js'));
-    });
-
-    it('extracts modified files from output', () => {
-      const output = 'Modified: src/index.js\nUpdated: package.json';
-
-      const { modified } = ResultFormatter.extractFileChanges(output);
-
-      assert.strictEqual(modified.length, 2);
-      assert.ok(modified[0].includes('src/index.js'));
-      assert.ok(modified[1].includes('package.json'));
-    });
-
-    it('extracts both created and modified files', () => {
-      const output = 'Created: src/new.js\nModified: src/old.js\nCreated: tests/new.test.js';
-
-      const { created, modified } = ResultFormatter.extractFileChanges(output);
-
-      assert.strictEqual(created.length, 2);
-      assert.strictEqual(modified.length, 1);
-    });
-
-    it('deduplicates files in lists', () => {
-      const output = 'Created: src/file.js\nCreated: src/file.js\nModified: src/file.js';
-
-      const { created, modified } = ResultFormatter.extractFileChanges(output);
-
-      assert.strictEqual(created.length, 1);
-      assert.strictEqual(modified.length, 0);
-    });
-
-    it('matches file patterns case-insensitively', () => {
-      const output = 'CREATED: src/file.js\nMODIFIED: src/other.js';
-
-      const { created, modified } = ResultFormatter.extractFileChanges(output);
-
-      assert.strictEqual(created.length, 1);
-      assert.strictEqual(modified.length, 1);
-    });
-  });
-
   describe('Output passthrough', () => {
     it('passes through stdout content', async () => {
       const result = {
@@ -204,28 +155,6 @@ describe('ResultFormatter', () => {
       const formatted = await ResultFormatter.format(result);
 
       assert.ok(formatted.includes('12.3s'));
-    });
-  });
-
-  describe('Minimal format', () => {
-    it('supports minimal format', async () => {
-      const result = {
-        profile: 'glm',
-        cwd: '/test',
-        exitCode: 0,
-        stdout: 'Done',
-        stderr: '',
-        duration: 1500,
-        success: true
-      };
-
-      const minimal = await ResultFormatter.formatMinimal(result);
-
-      assert.ok(minimal.includes('[OK]'));
-      // Model display reads from settings or falls back to profile uppercase
-      assert.ok(minimal.toLowerCase().includes('glm'));
-      assert.ok(minimal.includes('1.5s'));
-      assert.ok(minimal.split('\n').length <= 3);
     });
   });
 

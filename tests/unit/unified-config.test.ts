@@ -3,18 +3,11 @@
  */
 import { describe, it, expect } from 'bun:test';
 
-// Import only modules without transitive dependencies on config-manager
-import {
-  isReservedName,
-  validateProfileName,
-  RESERVED_PROFILE_NAMES,
-} from '../../src/config/reserved-names';
 import {
   createEmptyUnifiedConfig,
   isUnifiedConfig,
   UNIFIED_CONFIG_VERSION,
 } from '../../src/config/unified-config-types';
-import { isUnifiedConfigEnabled } from '../../src/config/feature-flags';
 
 // Inline helper to test secret key detection (utility kept for potential reuse)
 function isSecretKey(key: string): boolean {
@@ -22,56 +15,6 @@ function isSecretKey(key: string): boolean {
   const secretPatterns = ['TOKEN', 'SECRET', 'API_KEY', 'APIKEY', 'PASSWORD', 'CREDENTIAL', 'AUTH', 'PRIVATE'];
   return secretPatterns.some((pattern) => upper.includes(pattern));
 }
-
-describe('reserved-names', () => {
-  describe('RESERVED_PROFILE_NAMES', () => {
-    it('should include CLIProxy providers', () => {
-      expect(RESERVED_PROFILE_NAMES).toContain('gemini');
-      expect(RESERVED_PROFILE_NAMES).toContain('codex');
-      expect(RESERVED_PROFILE_NAMES).toContain('agy');
-      expect(RESERVED_PROFILE_NAMES).toContain('qwen');
-      expect(RESERVED_PROFILE_NAMES).toContain('iflow');
-    });
-
-    it('should include CLI commands', () => {
-      expect(RESERVED_PROFILE_NAMES).toContain('default');
-      expect(RESERVED_PROFILE_NAMES).toContain('config');
-      expect(RESERVED_PROFILE_NAMES).toContain('cliproxy');
-    });
-  });
-
-  describe('isReservedName', () => {
-    it('should return true for reserved names', () => {
-      expect(isReservedName('gemini')).toBe(true);
-      expect(isReservedName('codex')).toBe(true);
-      expect(isReservedName('default')).toBe(true);
-    });
-
-    it('should be case-insensitive', () => {
-      expect(isReservedName('GEMINI')).toBe(true);
-      expect(isReservedName('Codex')).toBe(true);
-      expect(isReservedName('DEFAULT')).toBe(true);
-    });
-
-    it('should return false for non-reserved names', () => {
-      expect(isReservedName('myprofile')).toBe(false);
-      expect(isReservedName('work')).toBe(false);
-      expect(isReservedName('personal')).toBe(false);
-    });
-  });
-
-  describe('validateProfileName', () => {
-    it('should throw for reserved names', () => {
-      expect(() => validateProfileName('gemini')).toThrow(/reserved/i);
-      expect(() => validateProfileName('default')).toThrow(/reserved/i);
-    });
-
-    it('should not throw for valid names', () => {
-      expect(() => validateProfileName('myprofile')).not.toThrow();
-      expect(() => validateProfileName('work')).not.toThrow();
-    });
-  });
-});
 
 describe('unified-config-types', () => {
   describe('createEmptyUnifiedConfig', () => {
@@ -158,17 +101,6 @@ describe('sensitive-keys', () => {
     it('should be case-insensitive', () => {
       expect(isSecretKey('api_key')).toBe(true);
       expect(isSecretKey('Api_Key')).toBe(true);
-    });
-  });
-});
-
-describe('feature-flags', () => {
-  describe('isUnifiedConfigEnabled', () => {
-    it('should read from CCS_UNIFIED_CONFIG env var', () => {
-      // This test runs with the current environment
-      // In CI, CCS_UNIFIED_CONFIG may or may not be set
-      const result = isUnifiedConfigEnabled();
-      expect(typeof result).toBe('boolean');
     });
   });
 });

@@ -174,9 +174,14 @@ export class DelegationHandler {
    * @returns profile name
    */
   _extractProfile(args: string[]): string {
-    // Find first arg that doesn't start with '-'
+    // Find first non-flag arg, skipping flag values (e.g. -p <value>)
     for (let i = 0; i < args.length; i++) {
-      if (!args[i].startsWith('-')) {
+      if (args[i].startsWith('-')) {
+        // If flag doesn't embed its value (no '='), the next arg is the flag value — skip it
+        if (!args[i].includes('=')) {
+          i++; // skip flag value
+        }
+      } else {
         return args[i];
       }
     }

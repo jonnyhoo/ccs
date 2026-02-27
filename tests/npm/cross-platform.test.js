@@ -40,7 +40,7 @@ describe('cross-platform', () => {
     it('handles relative paths without expansion', () => {
       const relativePath = 'relative/path';
       const expanded = expandPath(relativePath);
-      assert.strictEqual(expanded, relativePath);
+      assert.strictEqual(expanded, path.normalize(relativePath));
     });
 
     it('handles empty string', () => {
