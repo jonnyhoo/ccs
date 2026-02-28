@@ -6,7 +6,7 @@ import { detectClaudeCli } from './utils/claude-detector';
 import { getSettingsPath, loadSettings } from './utils/config-manager';
 import { ErrorManager } from './utils/error-manager';
 import { getGlobalEnvConfig } from './config/unified-config-loader';
-import { fail, info, initUI } from './utils/ui';
+import { fail, info, ok, dim, bold, box, initUI } from './utils/ui';
 import { ensureCliproxyIfNeeded } from './proxy/cliproxy-autostart';
 
 // 集中错误处理
@@ -94,6 +94,48 @@ async function ensureCacheKeepalive(upstreamUrl: string, verbose: boolean): Prom
 
   if (verbose) console.error(fail('Cache keepalive failed to start, continuing without it'));
   return null;
+}
+
+/**
+ * 优雅停止 cache-keepalive daemon（通过 HTTP /_stop 端点）。
+ * 静默失败，不阻塞退出流程。
+ */
+function stopCacheKeepalive(port: number): void {
+  const http = require('http') as typeof import('http');
+  const req = http.get(`http://127.0.0.1:${port}/_stop`, () => {
+    req.destroy();
+  });
+  req.on('error', () => {});
+  req.setTimeout(2000, () => req.destroy());
+}
+
+interface ProxyMeta {
+  profileName: string;
+  upstreamUrl: string;
+}
+
+/**
+ * 打印代理链仪表盘（Claude 启动前显示）
+ */
+function printProxyDashboard(
+  meta: ProxyMeta,
+  keepalivePort: number | null | undefined,
+  sanitizerPort: number | null
+): void {
+  const lines: string[] = [];
+  const label = (k: string, v: string) => `  ${dim(k.padEnd(12))}${v}`;
+
+  lines.push(label('Profile', bold(meta.profileName)));
+  lines.push(label('Upstream', meta.upstreamUrl));
+
+  if (keepalivePort) {
+    lines.push(label('Cache', `${ok(':' + keepalivePort)} keepalive`));
+  }
+  if (sanitizerPort) {
+    lines.push(label('Sanitizer', `${ok(':' + sanitizerPort)} tool-name fix`));
+  }
+
+  console.error(box(lines.join('\n'), { title: 'CCS Proxy', padding: 0 }));
 }
 
 // ========== Profile Detection ==========
@@ -381,12 +423,15 @@ async function execClaudeWithToolSanitizationProxy(
   claudeCli: string,
   settingsPath: string,
   args: string[],
-  envVars: NodeJS.ProcessEnv
+  envVars: NodeJS.ProcessEnv,
+  keepalivePort?: number | null,
+  meta?: ProxyMeta
 ): Promise<void> {
   const verbose = args.includes('--verbose') || args.includes('-v');
 
   let toolSanitizationProxy: { start: () => Promise<number>; stop: () => void } | null = null;
   let effectiveBaseUrl = envVars.ANTHROPIC_BASE_URL;
+  let sanitizerPort: number | null = null;
 
   if (effectiveBaseUrl) {
     try {
@@ -396,8 +441,8 @@ async function execClaudeWithToolSanitizationProxy(
         verbose,
         warnOnSanitize: true,
       });
-      const toolSanitizationPort = await toolSanitizationProxy.start();
-      effectiveBaseUrl = `http://127.0.0.1:${toolSanitizationPort}`;
+      sanitizerPort = await toolSanitizationProxy.start();
+      effectiveBaseUrl = `http://127.0.0.1:${sanitizerPort}`;
     } catch (error) {
       const err = error as Error;
       if (verbose) {
@@ -459,6 +504,11 @@ async function execClaudeWithToolSanitizationProxy(
     }
   };
 
+  // 代理仪表盘
+  if (meta) {
+    printProxyDashboard(meta, keepalivePort, sanitizerPort);
+  }
+
   const isWindows = process.platform === 'win32';
   const needsShell = isWindows && /\.(cmd|bat|ps1)$/i.test(claudeCli);
 
@@ -478,6 +528,7 @@ async function execClaudeWithToolSanitizationProxy(
 
   const stopProxy = (): void => {
     if (toolSanitizationProxy) toolSanitizationProxy.stop();
+    if (keepalivePort) stopCacheKeepalive(keepalivePort);
   };
 
   claude.on('exit', (code, signal) => {
@@ -576,8 +627,10 @@ async function main(): Promise<void> {
 
         // 缓存保活：自动起 daemon，重写 BASE_URL 到本地代理
         const verbose = remainingArgs.includes('--verbose') || remainingArgs.includes('-v');
+        const upstreamUrl = settingsEnv.ANTHROPIC_BASE_URL || '';
+        let keepalivePort: number | null = null;
         if (profileInfo.cacheKeepalive && settingsEnv.ANTHROPIC_BASE_URL) {
-          const keepalivePort = await ensureCacheKeepalive(settingsEnv.ANTHROPIC_BASE_URL, verbose);
+          keepalivePort = await ensureCacheKeepalive(settingsEnv.ANTHROPIC_BASE_URL, verbose);
           if (keepalivePort) {
             settingsEnv.ANTHROPIC_BASE_URL = `http://127.0.0.1:${keepalivePort}`;
           }
@@ -595,7 +648,9 @@ async function main(): Promise<void> {
           claudeCli,
           expandedSettingsPath,
           remainingArgs,
-          envVars
+          envVars,
+          keepalivePort,
+          { profileName: profileInfo.name, upstreamUrl }
         );
       }
     } else {
