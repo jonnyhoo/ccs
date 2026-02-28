@@ -77,7 +77,8 @@ function createApiProfileUnified(
   baseUrl: string,
   apiKey: string,
   models: ModelMapping,
-  protocol?: 'anthropic' | 'openai' | 'openai-responses'
+  protocol?: 'anthropic' | 'openai' | 'openai-responses',
+  cacheKeepalive?: boolean
 ): void {
   const ccsDir = getCcsDir();
   const settingsFile = `${name}.settings.json`;
@@ -107,12 +108,16 @@ function createApiProfileUnified(
     type: 'api';
     settings: string;
     protocol?: 'anthropic' | 'openai' | 'openai-responses';
+    cacheKeepalive?: boolean;
   } = {
     type: 'api',
     settings: `~/.ccs/${settingsFile}`,
   };
   if (protocol === 'openai' || protocol === 'openai-responses') {
     profileConfig.protocol = protocol;
+  }
+  if (cacheKeepalive) {
+    profileConfig.cacheKeepalive = true;
   }
   config.profiles[name] = profileConfig;
   saveUnifiedConfig(config);
@@ -124,13 +129,14 @@ export function createApiProfile(
   baseUrl: string,
   apiKey: string,
   models: ModelMapping,
-  protocol?: 'anthropic' | 'openai' | 'openai-responses'
+  protocol?: 'anthropic' | 'openai' | 'openai-responses',
+  cacheKeepalive?: boolean
 ): CreateApiProfileResult {
   try {
     const settingsFile = `~/.ccs/${name}.settings.json`;
 
     if (isUnifiedMode()) {
-      createApiProfileUnified(name, baseUrl, apiKey, models, protocol);
+      createApiProfileUnified(name, baseUrl, apiKey, models, protocol, cacheKeepalive);
     } else {
       createSettingsFile(name, baseUrl, apiKey, models);
       updateLegacyConfig(name);

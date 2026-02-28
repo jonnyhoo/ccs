@@ -307,11 +307,22 @@ async function handleCreate(args: string[]): Promise<void> {
     haiku: haikuModel,
   };
 
+  // Step 6: Cache keepalive (only for Anthropic protocol)
+  let cacheKeepalive = false;
+  if (!protocol && !parsedArgs.yes && !preset) {
+    console.log('');
+    console.log(dim('Cache keepalive keeps Anthropic prompt cache warm via idle pings,'));
+    console.log(dim('reducing cache_write costs on supported relays (e.g., codeflow.asia).'));
+    cacheKeepalive = await InteractivePrompt.confirm('Enable cache keepalive?', {
+      default: false,
+    });
+  }
+
   // Create profile
   console.log('');
   console.log(info('Creating API profile...'));
 
-  const result = createApiProfile(name, baseUrl, apiKey, models, protocol);
+  const result = createApiProfile(name, baseUrl, apiKey, models, protocol, cacheKeepalive);
 
   if (!result.success) {
     console.log(fail(`Failed to create API profile: ${result.error}`));
@@ -327,7 +338,8 @@ async function handleCreate(args: string[]): Promise<void> {
     `Settings: ${result.settingsFile}\n` +
     `Base URL: ${baseUrl}\n` +
     `Protocol: ${protocol === 'openai-responses' ? 'OpenAI Responses API' : protocol === 'openai' ? 'OpenAI Chat Completions' : 'Anthropic Messages'}\n` +
-    `Model:    ${model}`;
+    `Model:    ${model}` +
+    (cacheKeepalive ? `\nCache:    keepalive enabled` : '');
 
   if (hasCustomMapping) {
     infoMsg +=

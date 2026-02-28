@@ -19,6 +19,8 @@ export interface ProfileConfig {
   settings: string;
   /** 端点协议: 'anthropic' (默认), 'openai' (Chat Completions), 'openai-responses' (Responses API) */
   protocol?: 'anthropic' | 'openai' | 'openai-responses';
+  /** 启用缓存保活代理（透传 + 空闲 ping 维持 prompt cache 热度） */
+  cacheKeepalive?: boolean;
 }
 
 /**

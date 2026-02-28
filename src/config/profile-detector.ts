@@ -24,6 +24,8 @@ export interface ProfileDetectionResult {
   env?: Record<string, string>;
   /** API profile 的端点协议 ('anthropic' 默认, 'openai' Chat Completions, 'openai-responses' Responses API) */
   protocol?: 'anthropic' | 'openai' | 'openai-responses';
+  /** 是否启用缓存保活代理 */
+  cacheKeepalive?: boolean;
 }
 
 export interface AllProfiles {
@@ -80,6 +82,7 @@ class ProfileDetector {
         name: profileName,
         env: settingsEnv,
         protocol: profile.protocol,
+        cacheKeepalive: profile.cacheKeepalive,
       };
     }
     return null;
