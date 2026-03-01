@@ -50,6 +50,7 @@ interface ApiCommandArgs {
   yes?: boolean;
   openai?: boolean; // kept for backward compat, maps to protocol 'openai'
   protocol?: string; // 'anthropic' | 'openai' | 'openai-responses'
+  authScheme?: 'bearer';
 }
 
 /** Parse command line arguments for api commands */
@@ -73,6 +74,9 @@ function parseArgs(args: string[]): ApiCommandArgs {
       result.openai = true;
     } else if (arg === '--protocol' && args[i + 1]) {
       result.protocol = args[++i];
+    } else if (arg === '--auth-scheme' && args[i + 1]) {
+      const scheme = args[++i];
+      if (scheme === 'bearer') result.authScheme = 'bearer';
     } else if (arg === '--yes' || arg === '-y') {
       result.yes = true;
     } else if (!arg.startsWith('-') && !result.name) {
@@ -318,11 +322,31 @@ async function handleCreate(args: string[]): Promise<void> {
     });
   }
 
+  // Step 7: Auth scheme (only for Anthropic protocol)
+  let authScheme: 'bearer' | undefined = parsedArgs.authScheme;
+  if (!protocol && !authScheme && !parsedArgs.yes && !preset) {
+    console.log('');
+    console.log(dim('Some relays require "Authorization: Bearer <key>" instead of "x-api-key".'));
+    const usesBearer = await InteractivePrompt.confirm(
+      'Does this endpoint require Bearer authorization?',
+      { default: false }
+    );
+    if (usesBearer) authScheme = 'bearer';
+  }
+
   // Create profile
   console.log('');
   console.log(info('Creating API profile...'));
 
-  const result = createApiProfile(name, baseUrl, apiKey, models, protocol, cacheKeepalive);
+  const result = createApiProfile(
+    name,
+    baseUrl,
+    apiKey,
+    models,
+    protocol,
+    cacheKeepalive,
+    authScheme
+  );
 
   if (!result.success) {
     console.log(fail(`Failed to create API profile: ${result.error}`));
@@ -339,7 +363,8 @@ async function handleCreate(args: string[]): Promise<void> {
     `Base URL: ${baseUrl}\n` +
     `Protocol: ${protocol === 'openai-responses' ? 'OpenAI Responses API' : protocol === 'openai' ? 'OpenAI Chat Completions' : 'Anthropic Messages'}\n` +
     `Model:    ${model}` +
-    (cacheKeepalive ? `\nCache:    keepalive enabled` : '');
+    (cacheKeepalive ? `\nCache:    keepalive enabled` : '') +
+    (authScheme === 'bearer' ? `\nAuth:     Bearer token` : '');
 
   if (hasCustomMapping) {
     infoMsg +=
@@ -490,6 +515,9 @@ async function showHelp(): Promise<void> {
     `  ${color('--protocol <type>', 'command')}    Endpoint protocol: anthropic (default), openai, openai-responses (create)`
   );
   console.log(`  ${color('--yes, -y', 'command')}            Skip confirmation prompts`);
+  console.log(
+    `  ${color('--auth-scheme bearer', 'command')}  Use Bearer token auth (for endpoints requiring Authorization: Bearer)`
+  );
   console.log('');
   console.log(subheader('Provider Presets'));
   console.log(

@@ -78,7 +78,8 @@ function createApiProfileUnified(
   apiKey: string,
   models: ModelMapping,
   protocol?: 'anthropic' | 'openai' | 'openai-responses',
-  cacheKeepalive?: boolean
+  cacheKeepalive?: boolean,
+  authScheme?: 'bearer'
 ): void {
   const ccsDir = getCcsDir();
   const settingsFile = `${name}.settings.json`;
@@ -109,6 +110,7 @@ function createApiProfileUnified(
     settings: string;
     protocol?: 'anthropic' | 'openai' | 'openai-responses';
     cacheKeepalive?: boolean;
+    authScheme?: 'bearer';
   } = {
     type: 'api',
     settings: `~/.ccs/${settingsFile}`,
@@ -118,6 +120,9 @@ function createApiProfileUnified(
   }
   if (cacheKeepalive) {
     profileConfig.cacheKeepalive = true;
+  }
+  if (authScheme === 'bearer') {
+    profileConfig.authScheme = 'bearer';
   }
   config.profiles[name] = profileConfig;
   saveUnifiedConfig(config);
@@ -130,13 +135,14 @@ export function createApiProfile(
   apiKey: string,
   models: ModelMapping,
   protocol?: 'anthropic' | 'openai' | 'openai-responses',
-  cacheKeepalive?: boolean
+  cacheKeepalive?: boolean,
+  authScheme?: 'bearer'
 ): CreateApiProfileResult {
   try {
     const settingsFile = `~/.ccs/${name}.settings.json`;
 
     if (isUnifiedMode()) {
-      createApiProfileUnified(name, baseUrl, apiKey, models, protocol, cacheKeepalive);
+      createApiProfileUnified(name, baseUrl, apiKey, models, protocol, cacheKeepalive, authScheme);
     } else {
       createSettingsFile(name, baseUrl, apiKey, models);
       updateLegacyConfig(name);
