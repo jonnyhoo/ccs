@@ -238,11 +238,7 @@ export class CacheKeepaliveProxy {
 
   // ─── 前缀捕获 ────────────────────────────────────────────────────────────────
 
-  private computePrefixHash(
-    model: string,
-    system: unknown,
-    tools: unknown
-  ): string {
+  private computePrefixHash(model: string, system: unknown, tools: unknown): string {
     const content = JSON.stringify({ model, system: system ?? null, tools: tools ?? null });
     return crypto.createHash('md5').update(content).digest('hex').slice(0, 12);
   }
@@ -337,7 +333,7 @@ export class CacheKeepaliveProxy {
           reqs: 0,
         } satisfies ModelStats;
       }
-      const modelStats = this.stats.byModel[modelKey]!;
+      const modelStats = this.stats.byModel[modelKey];
       modelStats.cacheReadTokens += cacheRead;
       modelStats.cacheWriteTokens += cacheWrite;
       modelStats.inputTokens += input;
@@ -381,8 +377,7 @@ export class CacheKeepaliveProxy {
   }
 
   private computeCacheHitRate(): number {
-    const total =
-      this.stats.cacheReadTokens + this.stats.cacheWriteTokens + this.stats.inputTokens;
+    const total = this.stats.cacheReadTokens + this.stats.cacheWriteTokens + this.stats.inputTokens;
     if (total === 0) return 0;
     return parseFloat(((this.stats.cacheReadTokens / total) * 100).toFixed(2));
   }
@@ -565,8 +560,7 @@ export class CacheKeepaliveProxy {
     cRes: http.ServerResponse,
     requestModel: string | null
   ): void {
-    const targetPath =
-      this.upstream.pathname.replace(/\/$/, '') + (cReq.url ?? '/');
+    const targetPath = this.upstream.pathname.replace(/\/$/, '') + (cReq.url ?? '/');
     const fwdHeaders: http.OutgoingHttpHeaders = { ...cReq.headers, host: this.upstream.host };
     delete fwdHeaders['connection'];
 
@@ -666,7 +660,9 @@ if (require.main === module) {
 
     new CacheKeepaliveProxy(config).start();
   } else {
-    process.stderr.write('Usage: CACHE_PROXY_UPSTREAM=<url> node cache-keepalive-proxy.js --daemon\n');
+    process.stderr.write(
+      'Usage: CACHE_PROXY_UPSTREAM=<url> node cache-keepalive-proxy.js --daemon\n'
+    );
     process.exit(1);
   }
 }

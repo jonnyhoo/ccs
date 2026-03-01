@@ -44,7 +44,9 @@ export class CacheKeepaliveManager {
       // upstream 不匹配，重启
       const actual = health?.upstream ?? 'unknown';
       if (verbose) {
-        console.error(`[keepalive] upstream mismatch (was ${actual}, need ${upstreamUrl}), restarting`);
+        console.error(
+          `[keepalive] upstream mismatch (was ${actual}, need ${upstreamUrl}), restarting`
+        );
       }
       await this.stop();
       await new Promise<void>((resolve) => setTimeout(resolve, 500));
@@ -84,23 +86,19 @@ export class CacheKeepaliveManager {
 
   private fetchHealth(): Promise<HealthResponse | null> {
     return new Promise((resolve) => {
-      const req = http.get(
-        `http://127.0.0.1:${this.port}/health`,
-        { timeout: 2000 },
-        (res) => {
-          let data = '';
-          res.on('data', (chunk: Buffer) => {
-            data += chunk.toString();
-          });
-          res.on('end', () => {
-            try {
-              resolve(JSON.parse(data) as HealthResponse);
-            } catch {
-              resolve(null);
-            }
-          });
-        }
-      );
+      const req = http.get(`http://127.0.0.1:${this.port}/health`, { timeout: 2000 }, (res) => {
+        let data = '';
+        res.on('data', (chunk: Buffer) => {
+          data += chunk.toString();
+        });
+        res.on('end', () => {
+          try {
+            resolve(JSON.parse(data) as HealthResponse);
+          } catch {
+            resolve(null);
+          }
+        });
+      });
       req.on('error', () => resolve(null));
       req.on('timeout', () => {
         req.destroy();

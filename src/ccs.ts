@@ -538,7 +538,10 @@ async function main(): Promise<void> {
         let keepalivePort: number | null = null;
         if (profileInfo.cacheKeepalive && settingsEnv.ANTHROPIC_BASE_URL) {
           const keepaliveManager = new CacheKeepaliveManager();
-          keepalivePort = await keepaliveManager.ensureRunning(settingsEnv.ANTHROPIC_BASE_URL, verbose);
+          keepalivePort = await keepaliveManager.ensureRunning(
+            settingsEnv.ANTHROPIC_BASE_URL,
+            verbose
+          );
           if (keepalivePort) {
             settingsEnv.ANTHROPIC_BASE_URL = `http://127.0.0.1:${keepalivePort}`;
           }
