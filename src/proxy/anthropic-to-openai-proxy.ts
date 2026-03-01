@@ -347,6 +347,8 @@ function translateRequestChat(anthropicReq: AnthropicRequest): OpenAIRequest {
 
   if (anthropicReq.tools && anthropicReq.tools.length > 0) {
     openaiReq.tools = translateTools(anthropicReq.tools);
+    // 禁止上游模型使用 multi_tool_use.parallel 伪工具，避免产生乱码
+    (openaiReq as any).parallel_tool_calls = false;
   }
 
   if (anthropicReq.tool_choice) {
@@ -502,6 +504,10 @@ function translateChatToResponses(
     }
     const responsesToolChoice = translateToolChoiceForResponses(chat.tool_choice, toolNameMap);
     if (responsesToolChoice !== undefined) req.tool_choice = responsesToolChoice as any;
+    // 禁止上游模型使用 multi_tool_use.parallel 伪工具
+    if (req.tools && req.tools.length > 0) {
+      (req as any).parallel_tool_calls = false;
+    }
   }
   return req;
 }
@@ -546,6 +552,31 @@ function extractSSEDataPayload(event: string): string | null {
 
   if (dataLines.length === 0) return null;
   return dataLines.join('\n');
+}
+
+// ─── Ad-injection / spam content detection ──────────────────────────────────
+
+// 上游端点或中间代理可能在 SSE 流中注入垃圾广告文本，污染模型输出。
+// 检测策略：结构特征优先，关键词兜底。
+//
+// 结构特征：CJK 字符与工具调用关键 token 直接粘连（无空格），
+// 例如 "变态另类assistant"、"天天彩票中奖json"、"彩神争霸是不是json"
+// 正常模型输出不会出现这种粘连。
+const AD_STRUCTURAL_PATTERNS = [
+  // CJK 字符直接粘在工具调用关键 token 前面
+  /[\u3000-\u9fff\uf900-\ufaff](?:assistant|json|commentary)\b/i,
+  // multi_tool_use 出现在文本内容中（应只存在于结构化 tool_calls 字段）
+  /multi_tool_use/,
+  // tool_uses JSON 结构出现在文本流中
+  /recipient_name.*?functions\./,
+];
+
+// 高置信度垃圾关键词兜底（博彩/色情类）
+const AD_KEYWORD_PATTERN = /彩票|博彩|赌场|棋牌|六合彩|时时彩|幸运飞艇|彩神|变态另类|约炮|一夜情/;
+
+/** 检测文本是否包含广告注入特征 */
+function containsAdInjection(text: string): boolean {
+  return AD_STRUCTURAL_PATTERNS.some((re) => re.test(text)) || AD_KEYWORD_PATTERN.test(text);
 }
 
 // ─── Streaming Response Translation ──────────────────────────────────────────
@@ -676,11 +707,16 @@ class StreamingResponseTranslator {
         this.inTextBlock = true;
       }
       if (delta.content) {
-        events += this.sse('content_block_delta', {
-          type: 'content_block_delta',
-          index: this.contentBlockIndex,
-          delta: { type: 'text_delta', text: delta.content },
-        });
+        // 检测并丢弃被广告注入污染的文本 chunk
+        if (containsAdInjection(delta.content)) {
+          // 不转发被污染的内容，静默丢弃
+        } else {
+          events += this.sse('content_block_delta', {
+            type: 'content_block_delta',
+            index: this.contentBlockIndex,
+            delta: { type: 'text_delta', text: delta.content },
+          });
+        }
       }
     }
 
@@ -702,6 +738,10 @@ class StreamingResponseTranslator {
 
         // New tool call
         if (tc.id && tc.function?.name) {
+          // 拦截 multi_tool_use.parallel 伪工具，上游模型不应使用此内部机制
+          if (tc.function.name === 'multi_tool_use.parallel') {
+            continue;
+          }
           const resolvedName = this.toolNameMap.get(tc.function.name) || tc.function.name;
           tracked = { id: tc.id, name: resolvedName, started: false };
           this.inToolCallBlocks.set(tcIndex, tracked);
@@ -991,7 +1031,9 @@ export class AnthropicToOpenAIProxy {
       lower.includes('context_length_exceeded') ||
       lower.includes('prompt is too long') ||
       lower.includes('maximum context length') ||
-      lower.includes('input is too long')
+      lower.includes('input is too long') ||
+      // OpenResty/Nginx 返回 HTML 400，通常是请求体超过 client_max_body_size
+      (lower.includes('400 bad request') && lower.includes('openresty'))
     );
   }
 
@@ -1311,9 +1353,10 @@ export class AnthropicToOpenAIProxy {
       try {
         const rawBody = await this.readBody(req);
         const body = rawBody.length ? JSON.parse(rawBody) : {};
-        // Rough estimate: ~4 chars per token
+        // Rough estimate: ~4 chars per token, scaled 2x for Codex 128K window
+        // (Claude Code compacts at ~160K tokens for 200K models; Codex needs earlier trigger)
         const textLen = JSON.stringify(body.messages || body).length;
-        const estimate = Math.ceil(textLen / 4);
+        const estimate = Math.ceil((textLen / 4) * 2);
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ input_tokens: estimate }));
       } catch {
@@ -1644,6 +1687,11 @@ export class AnthropicToOpenAIProxy {
                     } else if (evtType === 'response.output_item.added') {
                       // Output item added: handle function_call, ignore message type (content comes via output_text.delta)
                       if (parsed.item?.type === 'function_call') {
+                        // 拦截 multi_tool_use.parallel 伪工具
+                        if (parsed.item.name === 'multi_tool_use.parallel') {
+                          this.log('Blocked multi_tool_use.parallel pseudo-tool from upstream');
+                          continue;
+                        }
                         // Tool call start: emit as Anthropic tool_use via fake chunk
                         const tcId = parsed.item.call_id || parsed.item.id || `call_${Date.now()}`;
                         const tcName =
@@ -1742,7 +1790,7 @@ export class AnthropicToOpenAIProxy {
                     } else if (evtType === 'response.completed') {
                       // Extract usage info and emit final events
                       if (parsed.response?.usage) {
-                        translator['inputTokens'] = parsed.response.usage.input_tokens ?? 0;
+                        translator['inputTokens'] = (parsed.response.usage.input_tokens ?? 0) * 2;
                         translator['outputTokens'] = parsed.response.usage.output_tokens ?? 0;
                       }
                       // Track response ID for conversation chaining
@@ -2216,7 +2264,7 @@ export class AnthropicToOpenAIProxy {
                     }
                   } else if (evtType === 'response.completed') {
                     if (parsed.response?.usage) {
-                      inputTokens = parsed.response.usage.input_tokens ?? 0;
+                      inputTokens = (parsed.response.usage.input_tokens ?? 0) * 2;
                       outputTokens = parsed.response.usage.output_tokens ?? 0;
                     }
                     if (parsed.response?.id) {

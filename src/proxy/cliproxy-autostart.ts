@@ -169,30 +169,52 @@ function spawnCustomProxy(config: CustomProxyConfig): void {
 }
 
 /**
- * 验证端口上运行的是否为可信的代理实例（通过 /health 端点）
+ * 验证端口上运行的是否为可信的代理实例。
+ * 优先检查 /health 端点（新版 cliproxy），
+ * 若返回 404 则 fallback 到根路径（旧版 cli-proxy-api-plus）。
  */
 async function isCliproxyTrusted(port: number): Promise<boolean> {
-  return new Promise((resolve) => {
-    const req = http.get(`http://127.0.0.1:${port}/health`, { timeout: 2000 }, (res) => {
-      let data = '';
-      res.on('data', (chunk) => {
-        data += chunk;
+  const fetchJson = (url: string): Promise<{ status: number; body: unknown }> =>
+    new Promise((resolve) => {
+      const req = http.get(url, { timeout: 2000 }, (res) => {
+        let data = '';
+        res.on('data', (chunk) => {
+          data += chunk;
+        });
+        res.on('end', () => {
+          try {
+            resolve({ status: res.statusCode ?? 0, body: JSON.parse(data) });
+          } catch {
+            resolve({ status: res.statusCode ?? 0, body: null });
+          }
+        });
       });
-      res.on('end', () => {
-        try {
-          const body = JSON.parse(data);
-          resolve(res.statusCode === 200 && TRUSTED_SERVICES.includes(body?.service));
-        } catch {
-          resolve(false);
-        }
+      req.on('error', () => resolve({ status: 0, body: null }));
+      req.on('timeout', () => {
+        req.destroy();
+        resolve({ status: 0, body: null });
       });
     });
-    req.on('error', () => resolve(false));
-    req.on('timeout', () => {
-      req.destroy();
-      resolve(false);
-    });
-  });
+
+  const base = `http://127.0.0.1:${port}`;
+
+  // 新版：/health 返回 {"service": "cliproxy"} 或 {"service": "cache-keepalive"}
+  const health = await fetchJson(`${base}/health`);
+  if (health.status === 200) {
+    const svc = (health.body as Record<string, unknown>)?.service;
+    return TRUSTED_SERVICES.includes(svc as string);
+  }
+
+  // 旧版（如 cli-proxy-api-plus 6.x）：根路径返回 {"message": "CLI Proxy API Server"}
+  if (health.status === 404) {
+    const root = await fetchJson(base);
+    if (root.status === 200) {
+      const msg = (root.body as Record<string, unknown>)?.message;
+      return typeof msg === 'string' && msg.includes('CLI Proxy API');
+    }
+  }
+
+  return false;
 }
 
 /**
