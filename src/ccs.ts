@@ -332,7 +332,8 @@ async function execClaudeWithToolSanitizationProxy(
   args: string[],
   envVars: NodeJS.ProcessEnv,
   keepalivePort?: number | null,
-  meta?: ProxyMeta
+  meta?: ProxyMeta,
+  authScheme?: 'bearer'
 ): Promise<void> {
   const verbose = args.includes('--verbose') || args.includes('-v');
 
@@ -347,6 +348,7 @@ async function execClaudeWithToolSanitizationProxy(
         upstreamBaseUrl: effectiveBaseUrl,
         verbose,
         warnOnSanitize: true,
+        authScheme,
       });
       sanitizerPort = await toolSanitizationProxy.start();
       effectiveBaseUrl = `http://127.0.0.1:${sanitizerPort}`;
@@ -561,7 +563,8 @@ async function main(): Promise<void> {
           remainingArgs,
           envVars,
           keepalivePort,
-          { profileName: profileInfo.name, upstreamUrl }
+          { profileName: profileInfo.name, upstreamUrl },
+          profileInfo.authScheme
         );
       }
     } else {

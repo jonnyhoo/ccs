@@ -21,6 +21,8 @@ export interface ProfileConfig {
   protocol?: 'anthropic' | 'openai' | 'openai-responses';
   /** 启用缓存保活代理（透传 + 空闲 ping 维持 prompt cache 热度） */
   cacheKeepalive?: boolean;
+  /** 认证头格式: 'bearer' 将 x-api-key 转为 Authorization: Bearer（适用于只接受 Bearer 的中转） */
+  authScheme?: 'bearer';
 }
 
 /**

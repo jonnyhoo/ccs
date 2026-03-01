@@ -27,6 +27,8 @@ export interface ToolSanitizationProxyConfig {
   warnOnSanitize?: boolean;
   /** Request timeout in milliseconds */
   timeoutMs?: number;
+  /** 认证头格式: 'bearer' 将 x-api-key 转为 Authorization: Bearer */
+  authScheme?: 'bearer';
 }
 
 /**
@@ -40,7 +42,8 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 export class ToolSanitizationProxy {
   private server: http.Server | null = null;
   private port: number | null = null;
-  private readonly config: Required<ToolSanitizationProxyConfig>;
+  private readonly config: Required<Omit<ToolSanitizationProxyConfig, 'authScheme'>>;
+  private readonly authScheme: 'bearer' | undefined;
   private readonly logFilePath: string;
   private readonly debugMode: boolean;
 
@@ -51,6 +54,7 @@ export class ToolSanitizationProxy {
       warnOnSanitize: config.warnOnSanitize ?? true,
       timeoutMs: config.timeoutMs ?? 120000,
     };
+    this.authScheme = config.authScheme;
     this.debugMode = process.env.CCS_DEBUG === '1';
     this.logFilePath = this.initLogFile();
   }
@@ -306,6 +310,11 @@ export class ToolSanitizationProxy {
       if (!value) continue;
       const lower = key.toLowerCase();
       if (hopByHop.has(lower)) continue;
+      // authScheme: bearer — 将 x-api-key 转为 Authorization: Bearer
+      if (this.authScheme === 'bearer' && lower === 'x-api-key') {
+        headers['Authorization'] = `Bearer ${String(value)}`;
+        continue;
+      }
       headers[key] = value;
     }
 

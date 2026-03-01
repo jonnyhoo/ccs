@@ -26,6 +26,8 @@ export interface ProfileDetectionResult {
   protocol?: 'anthropic' | 'openai' | 'openai-responses';
   /** 是否启用缓存保活代理 */
   cacheKeepalive?: boolean;
+  /** 认证头格式: 'bearer' 将 x-api-key 转为 Authorization: Bearer */
+  authScheme?: 'bearer';
 }
 
 export interface AllProfiles {
@@ -83,6 +85,7 @@ class ProfileDetector {
         env: settingsEnv,
         protocol: profile.protocol,
         cacheKeepalive: profile.cacheKeepalive,
+        authScheme: profile.authScheme,
       };
     }
     return null;
