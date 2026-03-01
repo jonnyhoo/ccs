@@ -8,106 +8,13 @@ import { ErrorManager } from './utils/error-manager';
 import { getGlobalEnvConfig } from './config/unified-config-loader';
 import { fail, info, ok, dim, bold, box, initUI } from './utils/ui';
 import { ensureCliproxyIfNeeded } from './proxy/cliproxy-autostart';
+import { CacheKeepaliveManager } from './proxy/cache-keepalive-manager';
 
 // 集中错误处理
 import { handleError, runCleanup } from './errors';
 
 // Shell 执行工具
 import { execClaude, escapeShellArg } from './utils/shell-executor';
-
-// ========== Cache Keepalive ==========
-
-const KEEPALIVE_PORT = 18621;
-const KEEPALIVE_SCRIPT = path.join(os.homedir(), '.claude', 'hooks', 'cache-keepalive.cjs');
-
-/**
- * 启动 cache-keepalive daemon（如果尚未运行）。
- * 返回本地代理端口，失败时返回 null（静默降级，不阻塞启动）。
- */
-async function ensureCacheKeepalive(upstreamUrl: string, verbose: boolean): Promise<number | null> {
-  if (!fs.existsSync(KEEPALIVE_SCRIPT)) {
-    if (verbose) console.error(info('cache-keepalive.cjs not found, skipping'));
-    return null;
-  }
-
-  const net = await import('net');
-
-  // 检查端口是否已在监听
-  const isListening = await new Promise<boolean>((resolve) => {
-    const socket = net.createConnection({ port: KEEPALIVE_PORT, host: '127.0.0.1' }, () => {
-      socket.destroy();
-      resolve(true);
-    });
-    socket.on('error', () => {
-      socket.destroy();
-      resolve(false);
-    });
-    socket.setTimeout(1000, () => {
-      socket.destroy();
-      resolve(false);
-    });
-  });
-
-  if (isListening) {
-    if (verbose) console.error(info(`Cache keepalive already running on port ${KEEPALIVE_PORT}`));
-    return KEEPALIVE_PORT;
-  }
-
-  // 启动 daemon
-  if (verbose) console.error(info(`Starting cache keepalive → ${upstreamUrl}`));
-
-  const child = spawn(process.execPath, [KEEPALIVE_SCRIPT, '--daemon'], {
-    env: {
-      ...process.env,
-      CACHE_PROXY_UPSTREAM: upstreamUrl,
-      CACHE_PROXY_PORT: String(KEEPALIVE_PORT),
-    },
-    detached: true,
-    stdio: 'ignore',
-    windowsHide: true,
-  });
-  child.unref();
-
-  // 等待端口就绪（最多 5 秒）
-  const start = Date.now();
-  while (Date.now() - start < 5000) {
-    const ready = await new Promise<boolean>((resolve) => {
-      const s = net.createConnection({ port: KEEPALIVE_PORT, host: '127.0.0.1' }, () => {
-        s.destroy();
-        resolve(true);
-      });
-      s.on('error', () => {
-        s.destroy();
-        resolve(false);
-      });
-      s.setTimeout(500, () => {
-        s.destroy();
-        resolve(false);
-      });
-    });
-    if (ready) {
-      if (verbose) console.error(info(`Cache keepalive ready on port ${KEEPALIVE_PORT}`));
-      return KEEPALIVE_PORT;
-    }
-    await new Promise((r) => setTimeout(r, 200));
-  }
-
-  if (verbose) console.error(fail('Cache keepalive failed to start, continuing without it'));
-  return null;
-}
-
-/**
- * 优雅停止 cache-keepalive daemon（通过 HTTP /_stop 端点）。
- * 静默失败，不阻塞退出流程。
- */
-function stopCacheKeepalive(port: number): void {
-  const http = require('http') as typeof import('http');
-  const req = http.get(`http://127.0.0.1:${port}/_stop`, () => {
-    req.destroy();
-  });
-  req.on('error', () => {});
-  req.setTimeout(2000, () => req.destroy());
-}
 
 interface ProxyMeta {
   profileName: string;
@@ -528,7 +435,7 @@ async function execClaudeWithToolSanitizationProxy(
 
   const stopProxy = (): void => {
     if (toolSanitizationProxy) toolSanitizationProxy.stop();
-    if (keepalivePort) stopCacheKeepalive(keepalivePort);
+    // keepalive daemon 设计为跨会话存活，不在 Claude 退出时停止
   };
 
   claude.on('exit', (code, signal) => {
@@ -625,12 +532,13 @@ async function main(): Promise<void> {
         const settings = loadSettings(expandedSettingsPath);
         const settingsEnv = settings.env || {};
 
-        // 缓存保活：自动起 daemon，重写 BASE_URL 到本地代理
+        // 缓存保活：确保 daemon 以正确 upstream 运行，重写 BASE_URL 到本地代理
         const verbose = remainingArgs.includes('--verbose') || remainingArgs.includes('-v');
         const upstreamUrl = settingsEnv.ANTHROPIC_BASE_URL || '';
         let keepalivePort: number | null = null;
         if (profileInfo.cacheKeepalive && settingsEnv.ANTHROPIC_BASE_URL) {
-          keepalivePort = await ensureCacheKeepalive(settingsEnv.ANTHROPIC_BASE_URL, verbose);
+          const keepaliveManager = new CacheKeepaliveManager();
+          keepalivePort = await keepaliveManager.ensureRunning(settingsEnv.ANTHROPIC_BASE_URL, verbose);
           if (keepalivePort) {
             settingsEnv.ANTHROPIC_BASE_URL = `http://127.0.0.1:${keepalivePort}`;
           }
