@@ -1,5 +1,6 @@
 # Run quick checks before commit (typecheck + lint + format only)
 # Tests are run by CI - no need to duplicate locally
+export PATH="$HOME/.bun/bin:$PATH"
 bun run typecheck && bun run lint:fix && bun run format:check
 
 # Validate UI if changes detected (typecheck + lint only)

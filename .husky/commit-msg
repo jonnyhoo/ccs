@@ -1,1 +1,2 @@
+export PATH="$HOME/.bun/bin:$PATH"
 bunx --no-install commitlint --edit "$1"
