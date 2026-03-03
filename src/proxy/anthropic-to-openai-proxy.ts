@@ -1032,6 +1032,8 @@ export class AnthropicToOpenAIProxy {
   private readonly maxNetworkRetries = 2;
   /** Track last Responses API response ID for conversation chaining */
   private lastResponseId: string | null = null;
+  /** Disable previous_response_id when upstream endpoint does not support it */
+  private previousResponseIdEnabled = true;
   /** Maps shortened tool names (sent upstream) → original tool names (used by Claude CLI) */
   private toolNameMap: Map<string, string> = new Map();
 
@@ -1065,6 +1067,24 @@ export class AnthropicToOpenAIProxy {
       lower.includes('an error occurred while processing your request') ||
       (lower.includes('request id') && lower.includes('help.openai.com'))
     );
+  }
+
+  private isUnsupportedPreviousResponseIdError(body: string): boolean {
+    const lower = body.toLowerCase();
+    return (
+      lower.includes('unsupported parameter') &&
+      (lower.includes('previous_response_id') || lower.includes('previous response id'))
+    );
+  }
+
+  private disablePreviousResponseId(reason: string): void {
+    if (!this.previousResponseIdEnabled) {
+      return;
+    }
+
+    this.previousResponseIdEnabled = false;
+    this.lastResponseId = null;
+    this.log(`Disabled previous_response_id chaining: ${reason}`);
   }
 
   private trimMessages(messages: OpenAIMessage[]): boolean {
@@ -1217,7 +1237,7 @@ export class AnthropicToOpenAIProxy {
       if (mode === 'chat') return openaiReqChat;
       return translateChatToResponses(
         JSON.parse(JSON.stringify({ ...openaiReqChat, stream: true })) as any,
-        this.lastResponseId,
+        mode === 'responses' && this.previousResponseIdEnabled ? this.lastResponseId : null,
         this.toolNameMap
       );
     };
@@ -1688,6 +1708,14 @@ export class AnthropicToOpenAIProxy {
                   return;
                 }
 
+                if (this.isUnsupportedPreviousResponseIdError(bodyErr)) {
+                  this.disablePreviousResponseId(`HTTP ${statusCode}`);
+                  retriedWithoutResponseId = true;
+                  networkRetryCount[mode] = 0;
+                  attempt(mode).then(resolveAttempt).catch(rejectAttempt);
+                  return;
+                }
+
                 if (
                   mode === 'responses' &&
                   this.lastResponseId &&
@@ -1905,6 +1933,19 @@ export class AnthropicToOpenAIProxy {
                     } else if (evtType === 'error') {
                       const errorMsg = parsed.error?.message || parsed.message || 'Unknown error';
                       this.log(`Upstream SSE error event: ${errorMsg}`);
+
+                      if (this.isUnsupportedPreviousResponseIdError(errorMsg)) {
+                        this.disablePreviousResponseId('SSE error event');
+                        retriedWithoutResponseId = true;
+                        networkRetryCount[mode] = 0;
+                        hasFinished = true;
+                        if (!clientRes.writableEnded) {
+                          clientRes.end();
+                        }
+                        attempt(mode).then(resolveAttempt).catch(rejectAttempt);
+                        return;
+                      }
+
                       if (!hasFinished) {
                         const safeMessage = this.getSafeUpstreamErrorMessage(errorMsg);
                         const errorDelta = translator.translateChunk({
@@ -2216,6 +2257,14 @@ export class AnthropicToOpenAIProxy {
                   retried = true;
                   this.log('401 received (non-stream), retrying once...');
                   setTimeout(() => doRequest(), 500);
+                  return;
+                }
+
+                if (this.isUnsupportedPreviousResponseIdError(bodyErr)) {
+                  this.disablePreviousResponseId(`HTTP ${statusCode} (non-stream)`);
+                  retriedWithoutResponseId = true;
+                  networkRetryCount = 0;
+                  doRequest();
                   return;
                 }
 
