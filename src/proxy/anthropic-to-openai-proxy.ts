@@ -30,6 +30,20 @@ import * as os from 'os';
 import { URL } from 'url';
 
 const MAX_TOOL_NAME_LENGTH = 64;
+const MAX_CONTEXT_RETRIES = 2;
+const MAX_RESPONSE_BODY_BYTES = 1_800_000;
+const MAX_TRIM_ROUNDS = 6;
+const MIN_NON_SYSTEM_MESSAGES = 4;
+const STREAM_READ_ERROR_PATTERNS = [
+  'stream_read_error',
+  'stream read error',
+  'unexpected end of json input',
+  'premature close',
+  'socket hang up',
+  'connection reset',
+  'stream closed',
+  'stream ended unexpectedly',
+];
 
 /**
  * Shorten a tool name to fit within the upstream API's limit.
@@ -1032,85 +1046,219 @@ export class AnthropicToOpenAIProxy {
       lower.includes('prompt is too long') ||
       lower.includes('maximum context length') ||
       lower.includes('input is too long') ||
+      lower.includes('request body too large') ||
+      lower.includes('payload too large') ||
+      lower.includes('413 request entity too large') ||
       // OpenResty/Nginx 返回 HTML 400，通常是请求体超过 client_max_body_size
       (lower.includes('400 bad request') && lower.includes('openresty'))
     );
   }
 
-  /**
-   * Trim conversation messages to fit a smaller upstream context window.
-   * Uses a progressive strategy to preserve conversation quality:
-   *   Pass 1: Strip tool results from older messages (keep recent N turns intact)
-   *   Pass 2: Remove entire old tool call/result pairs
-   *   Pass 3: Drop oldest non-system messages (last resort)
-   * Also removes orphaned tool results whose tool_call is no longer present.
-   */
+  private isStreamReadError(body: string): boolean {
+    const lower = body.toLowerCase();
+    return STREAM_READ_ERROR_PATTERNS.some((pattern) => lower.includes(pattern));
+  }
+
+  private isTransientUpstreamProcessingError(body: string): boolean {
+    const lower = body.toLowerCase();
+    return (
+      lower.includes('an error occurred while processing your request') ||
+      (lower.includes('request id') && lower.includes('help.openai.com'))
+    );
+  }
+
   private trimMessages(messages: OpenAIMessage[]): boolean {
     const originalCount = messages.length;
-    const systemMsgs = messages.filter((m) => m.role === 'system');
-    const nonSystem = messages.filter((m) => m.role !== 'system');
-    if (nonSystem.length <= 4) return false; // too few to trim
+    const systemMsgs = messages.filter((msg) => msg.role === 'system');
+    const nonSystemMessages = messages.filter((msg) => msg.role !== 'system');
+    if (nonSystemMessages.length <= MIN_NON_SYSTEM_MESSAGES) return false;
 
-    // How many recent messages to protect from trimming
-    const protectedTail = Math.min(10, Math.ceil(nonSystem.length * 0.3));
-    const olderMessages = nonSystem.slice(0, nonSystem.length - protectedTail);
-    const recentMessages = nonSystem.slice(nonSystem.length - protectedTail);
+    const protectedTailCount = Math.max(
+      4,
+      Math.min(12, Math.ceil(nonSystemMessages.length * 0.35))
+    );
+    const protectedTail = nonSystemMessages.slice(-protectedTailCount);
+    const olderMessages = nonSystemMessages.slice(0, -protectedTailCount);
 
-    // Pass 1: Truncate tool result content in older messages (replace with summary)
-    let trimmed = false;
-    for (const m of olderMessages) {
-      if (m.role === 'tool' && m.content && m.content.length > 200) {
-        m.content = '[trimmed tool output]';
-        trimmed = true;
+    let trimmedAny = false;
+
+    const aggressivelyTrimMessageContent = (message: OpenAIMessage): boolean => {
+      let changed = false;
+
+      if (
+        message.role === 'tool' &&
+        typeof message.content === 'string' &&
+        message.content.length > 80
+      ) {
+        message.content = '[trimmed tool output]';
+        changed = true;
       }
-      // Also truncate large assistant content in older turns
-      if (m.role === 'assistant' && typeof m.content === 'string' && m.content.length > 500) {
-        m.content = m.content.slice(0, 200) + '\n...[trimmed]';
-        trimmed = true;
+
+      if (
+        message.role === 'assistant' &&
+        typeof message.content === 'string' &&
+        message.content.length > 320
+      ) {
+        message.content = `${message.content.slice(0, 120)}\n...[trimmed]`;
+        changed = true;
+      }
+
+      if (
+        message.role === 'user' &&
+        typeof message.content === 'string' &&
+        message.content.length > 1200
+      ) {
+        message.content = `${message.content.slice(0, 500)}\n...[trimmed]`;
+        changed = true;
+      }
+
+      if (message.role === 'assistant' && message.tool_calls && message.tool_calls.length > 0) {
+        let toolArgumentsTrimmed = false;
+        message.tool_calls = message.tool_calls.map((toolCall) => {
+          const originalArguments = toolCall.function.arguments;
+          const shouldTrimArguments =
+            typeof originalArguments === 'string' && originalArguments.length > 200;
+          if (shouldTrimArguments) {
+            toolArgumentsTrimmed = true;
+          }
+          return {
+            ...toolCall,
+            function: {
+              ...toolCall.function,
+              arguments: shouldTrimArguments
+                ? `${originalArguments.slice(0, 80)}...[trimmed]`
+                : originalArguments,
+            },
+          };
+        });
+        if (toolArgumentsTrimmed) {
+          changed = true;
+        }
+      }
+
+      return changed;
+    };
+
+    for (const message of olderMessages) {
+      if (aggressivelyTrimMessageContent(message)) {
+        trimmedAny = true;
       }
     }
 
-    // Pass 2: Remove old tool call/result pairs entirely (keep the conversation flow)
-    let filtered = olderMessages.filter((m) => {
-      if (m.role === 'tool') return false; // drop old tool results
-      if (m.role === 'assistant' && m.tool_calls && m.tool_calls.length > 0) {
-        // Keep the assistant message but strip tool_calls
-        delete m.tool_calls;
-        if (!m.content) m.content = '[tool calls removed]';
-        trimmed = true;
+    let filteredOlderMessages = olderMessages.filter((message) => {
+      if (message.role === 'tool') {
+        trimmedAny = true;
+        return false;
       }
       return true;
     });
 
-    // Pass 3: If still too many, keep only the last few older messages
-    if (filtered.length > 10) {
-      filtered = filtered.slice(filtered.length - 6);
-      trimmed = true;
+    // If still too many old messages, keep only the most recent subset of old history.
+    if (filteredOlderMessages.length > 8) {
+      filteredOlderMessages = filteredOlderMessages.slice(filteredOlderMessages.length - 8);
+      trimmedAny = true;
     }
 
-    if (!trimmed) return false;
+    if (!trimmedAny) return false;
 
-    // Reassemble: system + trimmed older + protected recent
-    const result = [...systemMsgs, ...filtered, ...recentMessages];
+    const mergedMessages = [...systemMsgs, ...filteredOlderMessages, ...protectedTail];
 
-    // Clean up orphaned tool results in recent messages
-    const presentCallIds = new Set<string>();
-    for (const m of result) {
-      if (m.role === 'assistant' && m.tool_calls) {
-        for (const tc of m.tool_calls) presentCallIds.add(tc.id);
+    // Remove orphan tool results with missing tool_call_id references.
+    const activeToolCallIds = new Set<string>();
+    for (const message of mergedMessages) {
+      if (message.role === 'assistant' && message.tool_calls) {
+        for (const toolCall of message.tool_calls) {
+          if (toolCall.id) activeToolCallIds.add(toolCall.id);
+        }
       }
     }
-    const cleaned = result.filter(
-      (m) => m.role !== 'tool' || (m.tool_call_id && presentCallIds.has(m.tool_call_id))
-    );
+
+    const cleanedMessages = mergedMessages.filter((message) => {
+      if (message.role !== 'tool') return true;
+      return Boolean(message.tool_call_id && activeToolCallIds.has(message.tool_call_id));
+    });
+
+    messages.length = 0;
+    messages.push(...cleanedMessages);
 
     this.log(
-      `[context-trim] Trimmed messages from ${originalCount} to ${cleaned.length} (removed ${originalCount - cleaned.length} messages, truncated tool outputs)`
+      `[context-trim] messages ${originalCount} -> ${cleanedMessages.length} (removed ${originalCount - cleanedMessages.length})`
     );
-    // Mutate in place
-    messages.length = 0;
-    messages.push(...cleaned);
+
     return true;
+  }
+
+  private trimMessagesToFitBudget(messages: OpenAIMessage[], maxBytes: number): boolean {
+    const estimateBodyBytes = (): number => {
+      const estimatedRequest = JSON.stringify({ messages });
+      return Buffer.byteLength(estimatedRequest, 'utf8');
+    };
+
+    let currentBytes = estimateBodyBytes();
+    if (currentBytes <= maxBytes) return false;
+
+    let changed = false;
+    for (let round = 0; round < MAX_TRIM_ROUNDS && currentBytes > maxBytes; round++) {
+      const didTrim = this.trimMessages(messages);
+      if (!didTrim) break;
+      changed = true;
+      currentBytes = estimateBodyBytes();
+      this.log(`[context-trim] round ${round + 1}, estimated messages bytes=${currentBytes}`);
+    }
+
+    return changed;
+  }
+
+  private tryBuildRequestWithinBudget(
+    mode: 'chat' | 'responses',
+    openaiReqChat: OpenAIRequest
+  ): { requestBody: unknown; requestBodyString: string; trimmed: boolean } {
+    const buildBody = (): unknown => {
+      if (mode === 'chat') return openaiReqChat;
+      return translateChatToResponses(
+        JSON.parse(JSON.stringify({ ...openaiReqChat, stream: true })) as any,
+        this.lastResponseId,
+        this.toolNameMap
+      );
+    };
+
+    let requestBody = buildBody();
+    let requestBodyString = JSON.stringify(requestBody);
+    let trimmed = false;
+
+    if (Buffer.byteLength(requestBodyString, 'utf8') <= MAX_RESPONSE_BODY_BYTES) {
+      return { requestBody, requestBodyString, trimmed };
+    }
+
+    const didTrim = this.trimMessagesToFitBudget(openaiReqChat.messages, MAX_RESPONSE_BODY_BYTES);
+    if (!didTrim) {
+      return { requestBody, requestBodyString, trimmed };
+    }
+
+    trimmed = true;
+    this.lastResponseId = null;
+    requestBody = buildBody();
+    requestBodyString = JSON.stringify(requestBody);
+
+    return { requestBody, requestBodyString, trimmed };
+  }
+
+  private getSafeUpstreamErrorMessage(errorMessage: string): string {
+    const trimmedError = errorMessage.trim();
+
+    if (this.isContextWindowError(trimmedError)) {
+      return 'Request exceeded upstream context window. The proxy trimmed older history but the request is still too large. Please run /compact or start a new session.';
+    }
+
+    if (this.isStreamReadError(trimmedError)) {
+      return 'Upstream stream read failed. Please retry once; if it repeats, switch endpoint or start a new session.';
+    }
+
+    if (this.isTransientUpstreamProcessingError(trimmedError)) {
+      return 'Upstream processing error. Please retry once; if it persists, check provider status and endpoint stability.';
+    }
+
+    return trimmedError.slice(0, 500);
   }
 
   constructor(config: AnthropicToOpenAIProxyConfig) {
@@ -1444,7 +1592,7 @@ export class AnthropicToOpenAIProxy {
   ): Promise<void> {
     let retried401 = false;
     let retriedWithoutResponseId = false;
-    let retriedWithTrimmedContext = false;
+    let contextRetryCount = 0;
     const networkRetryCount: Record<'chat' | 'responses', number> = { chat: 0, responses: 0 };
 
     const attempt = (mode: 'chat' | 'responses'): Promise<void> => {
@@ -1485,19 +1633,15 @@ export class AnthropicToOpenAIProxy {
         const targetUrl = new URL(
           `${targetBase}${mode === 'chat' ? '/v1/chat/completions' : '/v1/responses'}`
         );
-        const body =
-          mode === 'chat'
-            ? openaiReqChat
-            : translateChatToResponses(
-                JSON.parse(JSON.stringify({ ...openaiReqChat, stream: true })) as any,
-                this.lastResponseId,
-                this.toolNameMap
-              );
-        const bodyString = JSON.stringify(body);
+
+        const builtRequest = this.tryBuildRequestWithinBudget(mode, openaiReqChat);
+        const bodyString = builtRequest.requestBodyString;
         this.log(`[DEBUG] Upstream ${mode} URL: ${targetUrl.href}`);
-        this.log(`[DEBUG] Upstream ${mode} request body (${bodyString.length}B):\n${bodyString}`);
+        this.log(
+          `[DEBUG] Upstream ${mode} request body (${bodyString.length}B)${builtRequest.trimmed ? ' [trimmed-before-send]' : ''}:\n${bodyString}`
+        );
         const requestFn = targetUrl.protocol === 'https:' ? https.request : http.request;
-        // Build headers: include codex session headers only when using Responses API
+
         const upstreamHeaders: Record<string, string | number> = {
           'Content-Type': 'application/json',
           'Content-Length': Buffer.byteLength(bodyString),
@@ -1531,12 +1675,10 @@ export class AnthropicToOpenAIProxy {
               upstreamRes.on('end', () => {
                 const bodyErr = Buffer.concat(chunks).toString('utf8');
                 this.log(`Upstream ${mode} error ${statusCode}: ${bodyErr.slice(0, 1000)}`);
-                // Try fallback: chat→responses (only if Responses API is enabled)
                 if (mode === 'chat' && this.config.useResponsesApi) {
                   attempt('responses').then(resolveAttempt).catch(rejectAttempt);
                   return;
                 }
-                // Auto-retry once on 401 (backend intermittently returns token_revoked)
                 if (statusCode === 401 && !retried401) {
                   retried401 = true;
                   this.log('401 received, retrying once...');
@@ -1546,7 +1688,6 @@ export class AnthropicToOpenAIProxy {
                   return;
                 }
 
-                // If using previous_response_id and got an error, clear it and retry with full request
                 if (
                   mode === 'responses' &&
                   this.lastResponseId &&
@@ -1558,23 +1699,27 @@ export class AnthropicToOpenAIProxy {
                     `Clearing stale previous_response_id (${this.lastResponseId}) due to ${statusCode}, retrying with full request`
                   );
                   this.lastResponseId = null;
-                  networkRetryCount[mode] = 0; // Reset retry count for fresh attempt
+                  networkRetryCount[mode] = 0;
                   attempt(mode).then(resolveAttempt).catch(rejectAttempt);
                   return;
                 }
 
-                // Context window overflow: trim old messages and retry once
-                if (
-                  this.isContextWindowError(bodyErr) &&
-                  !retriedWithTrimmedContext &&
-                  !clientRes.headersSent
-                ) {
-                  retriedWithTrimmedContext = true;
-                  this.lastResponseId = null; // chain is invalid after trimming
-                  if (this.trimMessages(openaiReqChat.messages)) {
-                    networkRetryCount[mode] = 0;
-                    attempt(mode).then(resolveAttempt).catch(rejectAttempt);
-                    return;
+                if (this.isContextWindowError(bodyErr) && !clientRes.headersSent) {
+                  if (contextRetryCount < MAX_CONTEXT_RETRIES) {
+                    const trimmed = this.trimMessagesToFitBudget(
+                      openaiReqChat.messages,
+                      MAX_RESPONSE_BODY_BYTES
+                    );
+                    if (trimmed) {
+                      contextRetryCount += 1;
+                      this.lastResponseId = null;
+                      networkRetryCount[mode] = 0;
+                      this.log(
+                        `[context-trim] Retry ${contextRetryCount}/${MAX_CONTEXT_RETRIES} after upstream context overflow`
+                      );
+                      attempt(mode).then(resolveAttempt).catch(rejectAttempt);
+                      return;
+                    }
                   }
                 }
 
@@ -1593,18 +1738,21 @@ export class AnthropicToOpenAIProxy {
                     return;
                   }
                 }
-                // No fallback left: return error
+
                 if (!clientRes.headersSent) {
                   clientRes.writeHead(statusCode, { 'Content-Type': 'application/json' });
                 }
                 try {
                   const parsed = JSON.parse(bodyErr);
+                  const safeMessage = this.getSafeUpstreamErrorMessage(
+                    String(parsed?.error?.message || bodyErr)
+                  );
                   clientRes.end(
                     JSON.stringify({
                       type: 'error',
                       error: {
                         type: 'api_error',
-                        message: parsed?.error?.message || bodyErr.slice(0, 500),
+                        message: safeMessage,
                       },
                     })
                   );
@@ -1612,7 +1760,10 @@ export class AnthropicToOpenAIProxy {
                   clientRes.end(
                     JSON.stringify({
                       type: 'error',
-                      error: { type: 'api_error', message: bodyErr.slice(0, 500) },
+                      error: {
+                        type: 'api_error',
+                        message: this.getSafeUpstreamErrorMessage(bodyErr),
+                      },
                     })
                   );
                 }
@@ -1621,7 +1772,6 @@ export class AnthropicToOpenAIProxy {
               return;
             }
 
-            // Set up Anthropic SSE response
             clientRes.writeHead(200, {
               'Content-Type': 'text/event-stream',
               'Cache-Control': 'no-cache',
@@ -1656,24 +1806,18 @@ export class AnthropicToOpenAIProxy {
                 }
 
                 try {
-                  // Try Chat Completions chunk first
                   const parsed = JSON.parse(jsonStr);
                   if (parsed && parsed.type) {
-                    // Responses API event
                     const evtType: string = parsed.type;
                     if (evtType === 'keepalive') {
-                      // Keepalive event: silently ignore (connection heartbeat)
                     } else if (
                       evtType === 'response.created' ||
                       evtType === 'response.in_progress'
                     ) {
-                      // Response lifecycle events: silently ignore (informational only)
-                      // These indicate the response has started/is processing
                     } else if (
                       evtType.endsWith('.output_text.delta') &&
                       typeof parsed.delta === 'string'
                     ) {
-                      // Start block if needed, then stream text
                       const start = translator.translateChunk({
                         choices: [{ delta: { content: '' } }],
                       } as any);
@@ -1683,16 +1827,12 @@ export class AnthropicToOpenAIProxy {
                       if (start) clientRes.write(start);
                       if (textDelta) clientRes.write(textDelta);
                     } else if (evtType === 'response.output_text.done') {
-                      // output_text.done is informational; block close is handled by finish_reason/completed.
                     } else if (evtType === 'response.output_item.added') {
-                      // Output item added: handle function_call, ignore message type (content comes via output_text.delta)
                       if (parsed.item?.type === 'function_call') {
-                        // 拦截 multi_tool_use.parallel 伪工具
                         if (parsed.item.name === 'multi_tool_use.parallel') {
                           this.log('Blocked multi_tool_use.parallel pseudo-tool from upstream');
                           continue;
                         }
-                        // Tool call start: emit as Anthropic tool_use via fake chunk
                         const tcId = parsed.item.call_id || parsed.item.id || `call_${Date.now()}`;
                         const tcName =
                           this.toolNameMap.get(parsed.item.name || '') || parsed.item.name || '';
@@ -1715,18 +1855,14 @@ export class AnthropicToOpenAIProxy {
                         } as any);
                         if (events) clientRes.write(events);
                       }
-                      // Silently ignore message type - content is handled by output_text.delta
                     } else if (
                       evtType === 'response.content_part.added' ||
                       evtType === 'response.content_part.done'
                     ) {
-                      // Content part events: silently ignore (content is handled by output_text.delta)
-                      // These events indicate text/refusal content blocks but actual content comes via delta events
                     } else if (
                       evtType === 'response.function_call_arguments.delta' &&
                       typeof parsed.delta === 'string'
                     ) {
-                      // Tool call arguments delta
                       const outputIndex = parsed.output_index ?? 0;
                       const events = translator.translateChunk({
                         choices: [
@@ -1741,20 +1877,15 @@ export class AnthropicToOpenAIProxy {
                       } as any);
                       if (events) clientRes.write(events);
                     } else if (evtType === 'response.function_call_arguments.done') {
-                      // Tool call arguments complete: mark as done (translator will handle on finish_reason)
                       this.log('Tool call arguments completed');
                     } else if (evtType === 'response.output_item.done') {
-                      // Output item done: handle function_call, ignore message type
                       if (parsed.item?.type === 'function_call') {
-                        // Tool call item done: just log, don't finish yet (wait for response.completed)
                         this.log('Tool call item completed');
                       }
-                      // Silently ignore message type
                     } else if (
                       evtType === 'response.refusal.delta' &&
                       typeof parsed.delta === 'string'
                     ) {
-                      // Refusal text delta: add [refusal] prefix only on first delta
                       const start = translator.translateChunk({
                         choices: [{ delta: { content: '' } }],
                       } as any);
@@ -1766,19 +1897,18 @@ export class AnthropicToOpenAIProxy {
                       if (textDelta) clientRes.write(textDelta);
                       refusalStarted = true;
                     } else if (evtType === 'response.refusal.done') {
-                      // Refusal complete: close block and finish
                       const events = translator.translateChunk({
                         choices: [{ finish_reason: 'end_turn' }],
                       } as any);
                       if (events) clientRes.write(events);
                       hasFinished = true;
                     } else if (evtType === 'error') {
-                      // Keep SSE protocol shape stable: emit error as assistant text, then finish.
                       const errorMsg = parsed.error?.message || parsed.message || 'Unknown error';
                       this.log(`Upstream SSE error event: ${errorMsg}`);
                       if (!hasFinished) {
+                        const safeMessage = this.getSafeUpstreamErrorMessage(errorMsg);
                         const errorDelta = translator.translateChunk({
-                          choices: [{ delta: { content: `[upstream_error] ${errorMsg}` } }],
+                          choices: [{ delta: { content: `[upstream_error] ${safeMessage}` } }],
                         } as any);
                         if (errorDelta) clientRes.write(errorDelta);
                         const finishEvent = translator.translateChunk({
@@ -1788,34 +1918,28 @@ export class AnthropicToOpenAIProxy {
                         hasFinished = true;
                       }
                     } else if (evtType === 'response.completed') {
-                      // Extract usage info and emit final events
                       if (parsed.response?.usage) {
                         translator['inputTokens'] = (parsed.response.usage.input_tokens ?? 0) * 2;
                         translator['outputTokens'] = parsed.response.usage.output_tokens ?? 0;
                       }
-                      // Track response ID for conversation chaining
                       if (parsed.response?.id) {
                         this.lastResponseId = parsed.response.id;
                         this.log(`Stored response ID: ${this.lastResponseId}`);
                       }
                       if (!hasFinished) {
                         hasFinished = true;
-                        // If we have active tool calls, emit tool_calls finish_reason
                         if (activeToolCalls.size > 0) {
                           const finishEvent = translator.translateChunk({
                             choices: [{ finish_reason: 'tool_calls' }],
                           } as any);
                           if (finishEvent) clientRes.write(finishEvent);
                         } else {
-                          // Only emit final if no tool calls (translateChunk already emitted terminal events)
                           const final = translator.emitFinalIfNeeded();
                           if (final) clientRes.write(final);
                         }
                       }
                     } else if (evtType.startsWith('response.web_search.')) {
-                      // Web search events: log for debugging, treat as informational
                       this.log(`Web search event: ${evtType}`);
-                      // Could emit as text delta if needed: "[Searching web...]"
                       if (evtType === 'response.web_search.started') {
                         const searchDelta = translator.translateChunk({
                           choices: [{ delta: { content: '[Searching web...]\n' } }],
@@ -1823,7 +1947,6 @@ export class AnthropicToOpenAIProxy {
                         if (searchDelta) clientRes.write(searchDelta);
                       }
                     } else if (evtType.startsWith('response.file_search.')) {
-                      // File search events: log for debugging
                       this.log(`File search event: ${evtType}`);
                       if (evtType === 'response.file_search.started') {
                         const searchDelta = translator.translateChunk({
@@ -1832,7 +1955,6 @@ export class AnthropicToOpenAIProxy {
                         if (searchDelta) clientRes.write(searchDelta);
                       }
                     } else if (evtType.startsWith('response.code_interpreter.')) {
-                      // Code interpreter events: log for debugging
                       this.log(`Code interpreter event: ${evtType}`);
                       if (evtType === 'response.code_interpreter.started') {
                         const codeDelta = translator.translateChunk({
@@ -1840,14 +1962,12 @@ export class AnthropicToOpenAIProxy {
                         } as any);
                         if (codeDelta) clientRes.write(codeDelta);
                       } else if (evtType === 'response.code_interpreter.output' && parsed.output) {
-                        // Code output: emit as text
                         const outputDelta = translator.translateChunk({
                           choices: [{ delta: { content: `\`\`\`\n${parsed.output}\n\`\`\`\n` } }],
                         } as any);
                         if (outputDelta) clientRes.write(outputDelta);
                       }
                     } else if (evtType.startsWith('response.mcp.')) {
-                      // MCP tool events: log for debugging
                       this.log(`MCP event: ${evtType}`);
                       if (evtType === 'response.mcp.started') {
                         const mcpDelta = translator.translateChunk({
@@ -1856,27 +1976,22 @@ export class AnthropicToOpenAIProxy {
                         if (mcpDelta) clientRes.write(mcpDelta);
                       }
                     } else if (evtType === 'response.reasoning_summary_part.added') {
-                      // Reasoning block start → Anthropic thinking block
                       const events = translator.emitThinkingStart();
                       if (events) clientRes.write(events);
                     } else if (
                       evtType === 'response.reasoning_summary_text.delta' &&
                       typeof parsed.delta === 'string'
                     ) {
-                      // Reasoning text delta → thinking_delta
                       const events = translator.emitThinkingDelta(parsed.delta);
                       if (events) clientRes.write(events);
                     } else if (evtType === 'response.reasoning_summary_part.done') {
-                      // Reasoning block done → close thinking block
                       const events = translator.emitThinkingStop();
                       if (events) clientRes.write(events);
                     } else if (evtType.includes('reasoning')) {
-                      // Log other reasoning events for debugging
                       this.log(
                         `[REASONING EVENT] ${evtType}: ${JSON.stringify(parsed).slice(0, 200)}`
                       );
                     } else {
-                      // Log unknown event types for debugging
                       if (this.config.verbose) {
                         this.log(`Unknown Responses API event type: ${evtType}`);
                       }
@@ -1943,8 +2058,9 @@ export class AnthropicToOpenAIProxy {
               this.log(`Upstream response stream error (${mode}): ${err.message}`);
 
               if (clientRes.headersSent) {
+                const safeMessage = this.getSafeUpstreamErrorMessage(err.message);
                 const errorDelta = translator.translateChunk({
-                  choices: [{ delta: { content: `[upstream_error] ${err.message}` } }],
+                  choices: [{ delta: { content: `[upstream_error] ${safeMessage}` } }],
                 } as any);
                 if (errorDelta) clientRes.write(errorDelta);
 
@@ -1970,7 +2086,6 @@ export class AnthropicToOpenAIProxy {
           upstreamReq.destroy(new Error('Upstream request timeout'));
         });
         upstreamReq.on('error', (err) => {
-          // On network error for chat attempt, fallback to responses (only if Responses API enabled)
           if (mode === 'chat' && this.config.useResponsesApi && !clientRes.headersSent) {
             attempt('responses').then(resolveAttempt).catch(rejectAttempt);
             return;
@@ -1986,7 +2101,10 @@ export class AnthropicToOpenAIProxy {
             clientRes.end(
               JSON.stringify({
                 type: 'error',
-                error: { type: 'api_error', message: err.message },
+                error: {
+                  type: 'api_error',
+                  message: this.getSafeUpstreamErrorMessage(err.message),
+                },
               })
             );
           }
@@ -1998,7 +2116,6 @@ export class AnthropicToOpenAIProxy {
       });
     };
 
-    // Start with Responses API for codex, Chat Completions for generic OpenAI endpoints
     await attempt(this.config.useResponsesApi ? 'responses' : 'chat');
   }
 
@@ -2013,7 +2130,7 @@ export class AnthropicToOpenAIProxy {
     return new Promise((resolve, reject) => {
       let retried = false;
       let retriedWithoutResponseId = false;
-      let retriedWithTrimmedContext = false;
+      let contextRetryCount = 0;
       let networkRetryCount = 0;
 
       const doRequest = (): void => {
@@ -2047,24 +2164,21 @@ export class AnthropicToOpenAIProxy {
           setTimeout(() => doRequest(), delay);
           return true;
         };
-        // Use Responses API for codex, Chat Completions for generic OpenAI endpoints
+
         const useResponses = this.config.useResponsesApi;
+        const mode: 'chat' | 'responses' = useResponses ? 'responses' : 'chat';
         const targetUrl = new URL(
           `${targetBase}${useResponses ? '/v1/responses' : '/v1/chat/completions'}`
         );
-        const body = useResponses
-          ? translateChatToResponses(
-              JSON.parse(JSON.stringify({ ...openaiReqChat, stream: true })) as OpenAIRequest,
-              this.lastResponseId,
-              this.toolNameMap
-            )
-          : { ...openaiReqChat, stream: true };
-        const bodyString = JSON.stringify(body);
+
+        const builtRequest = this.tryBuildRequestWithinBudget(mode, openaiReqChat);
+        const bodyString = builtRequest.requestBodyString;
         this.log(`[DEBUG] Upstream non-stream URL: ${targetUrl.href}`);
-        this.log(`[DEBUG] Upstream non-stream request body:\n${bodyString.slice(0, 2000)}`);
+        this.log(
+          `[DEBUG] Upstream non-stream request body (${bodyString.length}B)${builtRequest.trimmed ? ' [trimmed-before-send]' : ''}:\n${bodyString.slice(0, 2000)}`
+        );
         const requestFn = targetUrl.protocol === 'https:' ? https.request : http.request;
 
-        // Build headers: include codex session headers only when using Responses API
         const nonStreamHeaders: Record<string, string | number> = {
           'Content-Type': 'application/json',
           'Content-Length': Buffer.byteLength(bodyString),
@@ -2098,7 +2212,6 @@ export class AnthropicToOpenAIProxy {
               upstreamRes.on('end', () => {
                 const bodyErr = Buffer.concat(chunks).toString('utf8');
                 this.log(`Upstream non-stream error ${statusCode}: ${bodyErr.slice(0, 1000)}`);
-                // Auto-retry once on 401
                 if (statusCode === 401 && !retried) {
                   retried = true;
                   this.log('401 received (non-stream), retrying once...');
@@ -2106,7 +2219,6 @@ export class AnthropicToOpenAIProxy {
                   return;
                 }
 
-                // If using previous_response_id and got an error, clear it and retry with full request
                 if (this.lastResponseId && !retriedWithoutResponseId && !clientRes.headersSent) {
                   retriedWithoutResponseId = true;
                   this.log(
@@ -2118,18 +2230,22 @@ export class AnthropicToOpenAIProxy {
                   return;
                 }
 
-                // Context window overflow: trim old messages and retry once
-                if (
-                  this.isContextWindowError(bodyErr) &&
-                  !retriedWithTrimmedContext &&
-                  !clientRes.headersSent
-                ) {
-                  retriedWithTrimmedContext = true;
-                  this.lastResponseId = null;
-                  if (this.trimMessages(openaiReqChat.messages)) {
-                    networkRetryCount = 0;
-                    doRequest();
-                    return;
+                if (this.isContextWindowError(bodyErr) && !clientRes.headersSent) {
+                  if (contextRetryCount < MAX_CONTEXT_RETRIES) {
+                    const trimmed = this.trimMessagesToFitBudget(
+                      openaiReqChat.messages,
+                      MAX_RESPONSE_BODY_BYTES
+                    );
+                    if (trimmed) {
+                      contextRetryCount += 1;
+                      this.lastResponseId = null;
+                      networkRetryCount = 0;
+                      this.log(
+                        `[context-trim] Non-stream retry ${contextRetryCount}/${MAX_CONTEXT_RETRIES} after upstream context overflow`
+                      );
+                      doRequest();
+                      return;
+                    }
                   }
                 }
 
@@ -2151,7 +2267,10 @@ export class AnthropicToOpenAIProxy {
                 clientRes.end(
                   JSON.stringify({
                     type: 'error',
-                    error: { type: 'api_error', message: bodyErr.slice(0, 500) },
+                    error: {
+                      type: 'api_error',
+                      message: this.getSafeUpstreamErrorMessage(bodyErr),
+                    },
                   })
                 );
                 resolve();
@@ -2159,7 +2278,6 @@ export class AnthropicToOpenAIProxy {
               return;
             }
 
-            // Collect text, thinking, and tool calls from streaming events
             let buffer = '';
             let collectedText = '';
             let collectedThinking = '';
@@ -2183,12 +2301,12 @@ export class AnthropicToOpenAIProxy {
                 try {
                   const parsed = JSON.parse(payload);
 
-                  // Chat Completions format (no .type field, has .choices)
                   if (!parsed?.type && parsed?.choices) {
                     const choice = parsed.choices[0];
                     if (choice?.delta?.content) collectedText += choice.delta.content;
-                    if (choice?.delta?.reasoning_content)
+                    if (choice?.delta?.reasoning_content) {
                       collectedThinking += choice.delta.reasoning_content;
+                    }
                     if (choice?.delta?.tool_calls) {
                       for (const tc of choice.delta.tool_calls) {
                         const idx = tc.index ?? 0;
@@ -2209,7 +2327,6 @@ export class AnthropicToOpenAIProxy {
                       }
                     }
                     if (choice?.finish_reason && choice.finish_reason !== 'stop') {
-                      // Tool calls finished
                       for (const [idx, tc] of activeToolCallsMap) {
                         collectedToolCalls.push(tc);
                         activeToolCallsMap.delete(idx);
@@ -2222,7 +2339,6 @@ export class AnthropicToOpenAIProxy {
                     continue;
                   }
 
-                  // Responses API format (has .type field)
                   if (!parsed?.type) continue;
                   const evtType: string = parsed.type;
 
@@ -2280,7 +2396,6 @@ export class AnthropicToOpenAIProxy {
             });
 
             upstreamRes.on('end', () => {
-              // Build Anthropic Messages API response
               const content: unknown[] = [];
               if (collectedThinking) {
                 content.push({ type: 'thinking', thinking: collectedThinking, signature: '' });
@@ -2339,7 +2454,13 @@ export class AnthropicToOpenAIProxy {
           if (!clientRes.headersSent) {
             clientRes.writeHead(502, { 'Content-Type': 'application/json' });
             clientRes.end(
-              JSON.stringify({ type: 'error', error: { type: 'api_error', message: err.message } })
+              JSON.stringify({
+                type: 'error',
+                error: {
+                  type: 'api_error',
+                  message: this.getSafeUpstreamErrorMessage(err.message),
+                },
+              })
             );
           }
           reject(err);
@@ -2347,7 +2468,7 @@ export class AnthropicToOpenAIProxy {
 
         upstreamReq.write(bodyString);
         upstreamReq.end();
-      }; // end doRequest
+      };
 
       doRequest();
     });
