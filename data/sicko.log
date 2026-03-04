@@ -1,0 +1,32 @@
+2026-03-03 18:03:40,247 | INFO | reverse_mcp.tools | 后台服务已启动
+2026-03-03 18:03:40,336 | INFO | docket.worker | Starting worker 'DESKTOP-85CQ36M#18764' with the following tasks:
+2026-03-03 18:03:40,336 | INFO | docket.worker | * trace(message: str, ...)
+2026-03-03 18:03:40,336 | INFO | docket.worker | * fail(message: str, ...)
+2026-03-03 18:03:40,336 | INFO | docket.worker | * sleep(seconds: float, ...)
+2026-03-03 18:03:40,346 | INFO | mcp.server.lowlevel.server | Processing request of type ListToolsRequest
+2026-03-03 18:03:40,348 | INFO | mcp.server.lowlevel.server | Processing request of type ListPromptsRequest
+2026-03-03 18:03:40,349 | INFO | mcp.server.lowlevel.server | Processing request of type ListResourcesRequest
+2026-03-03 18:03:43,586 | INFO | reverse_mcp.tools | 后台服务已启动
+2026-03-03 18:03:43,663 | INFO | docket.worker | Starting worker 'DESKTOP-85CQ36M#8372' with the following tasks:
+2026-03-03 18:03:43,663 | INFO | docket.worker | * trace(message: str, ...)
+2026-03-03 18:03:43,663 | INFO | docket.worker | * fail(message: str, ...)
+2026-03-03 18:03:43,663 | INFO | docket.worker | * sleep(seconds: float, ...)
+2026-03-03 18:03:43,683 | INFO | mcp.server.lowlevel.server | Processing request of type ListToolsRequest
+2026-03-03 18:03:43,686 | INFO | mcp.server.lowlevel.server | Processing request of type ListPromptsRequest
+2026-03-03 18:03:43,687 | INFO | mcp.server.lowlevel.server | Processing request of type ListResourcesRequest
+2026-03-03 18:03:46,734 | INFO | reverse_mcp.tools | 后台服务已启动
+2026-03-03 18:03:46,838 | INFO | docket.worker | Starting worker 'DESKTOP-85CQ36M#16472' with the following tasks:
+2026-03-03 18:03:46,838 | INFO | docket.worker | * trace(message: str, ...)
+2026-03-03 18:03:46,838 | INFO | docket.worker | * fail(message: str, ...)
+2026-03-03 18:03:46,839 | INFO | docket.worker | * sleep(seconds: float, ...)
+2026-03-03 18:03:46,867 | INFO | mcp.server.lowlevel.server | Processing request of type ListToolsRequest
+2026-03-03 18:03:46,870 | INFO | mcp.server.lowlevel.server | Processing request of type ListPromptsRequest
+2026-03-03 18:03:46,871 | INFO | mcp.server.lowlevel.server | Processing request of type ListResourcesRequest
+2026-03-03 18:03:52,191 | INFO | reverse_mcp.tools | 后台服务已启动
+2026-03-03 18:03:52,291 | INFO | docket.worker | Starting worker 'DESKTOP-85CQ36M#15504' with the following tasks:
+2026-03-03 18:03:52,291 | INFO | docket.worker | * trace(message: str, ...)
+2026-03-03 18:03:52,292 | INFO | docket.worker | * fail(message: str, ...)
+2026-03-03 18:03:52,292 | INFO | docket.worker | * sleep(seconds: float, ...)
+2026-03-03 18:03:52,311 | INFO | mcp.server.lowlevel.server | Processing request of type ListToolsRequest
+2026-03-03 18:03:52,313 | INFO | mcp.server.lowlevel.server | Processing request of type ListPromptsRequest
+2026-03-03 18:03:52,314 | INFO | mcp.server.lowlevel.server | Processing request of type ListResourcesRequest

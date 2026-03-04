@@ -500,33 +500,35 @@ function translateChatToResponses(
   } as any;
   if (previousResponseId) {
     (req as any).previous_response_id = previousResponseId;
-    // Server already has instructions + tools from the chain, skip to save tokens
-  } else {
-    // First request: send instructions and tools
-    if (systemParts.length > 0) {
-      (req as any).instructions = systemParts.join('\n');
-    }
-    if (chat.tools) {
-      req.tools = chat.tools.map((t: OpenAITool) => {
-        const originalName = t.function.name;
-        const shortName = shortenToolName(originalName);
-        if (shortName !== originalName && toolNameMap) {
-          toolNameMap.set(shortName, originalName);
-        }
-        return {
-          type: 'function' as const,
-          name: shortName,
-          description: t.function.description,
-          parameters: t.function.parameters,
-        };
-      });
-    }
-    const responsesToolChoice = translateToolChoiceForResponses(chat.tool_choice, toolNameMap);
-    if (responsesToolChoice !== undefined) req.tool_choice = responsesToolChoice as any;
-    // Disable model-level parallel tool calls for broader endpoint compatibility.
-    if (req.tools && req.tools.length > 0) {
-      (req as any).parallel_tool_calls = false;
-    }
+  }
+
+  // Keep instructions on first request only to reduce repeated prompt tokens.
+  if (!previousResponseId && systemParts.length > 0) {
+    (req as any).instructions = systemParts.join('\n');
+  }
+
+  // Always send tools/tool_choice, even on chained requests.
+  // Some OpenAI-compatible backends accept previous_response_id but do not persist tool definitions.
+  if (chat.tools) {
+    req.tools = chat.tools.map((t: OpenAITool) => {
+      const originalName = t.function.name;
+      const shortName = shortenToolName(originalName);
+      if (shortName !== originalName && toolNameMap) {
+        toolNameMap.set(shortName, originalName);
+      }
+      return {
+        type: 'function' as const,
+        name: shortName,
+        description: t.function.description,
+        parameters: t.function.parameters,
+      };
+    });
+  }
+  const responsesToolChoice = translateToolChoiceForResponses(chat.tool_choice, toolNameMap);
+  if (responsesToolChoice !== undefined) req.tool_choice = responsesToolChoice as any;
+  // Disable model-level parallel tool calls for broader endpoint compatibility.
+  if (req.tools && req.tools.length > 0) {
+    (req as any).parallel_tool_calls = false;
   }
   return req;
 }
