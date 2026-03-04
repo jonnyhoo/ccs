@@ -1021,7 +1021,12 @@ export class AnthropicToOpenAIProxy {
   private readonly config: Required<
     Pick<
       AnthropicToOpenAIProxyConfig,
-      'targetBaseUrl' | 'apiKey' | 'verbose' | 'timeoutMs' | 'useResponsesApi' | 'passThroughThinking'
+      | 'targetBaseUrl'
+      | 'apiKey'
+      | 'verbose'
+      | 'timeoutMs'
+      | 'useResponsesApi'
+      | 'passThroughThinking'
     >
   >;
   private readonly httpAgent: http.Agent;
