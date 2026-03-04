@@ -199,6 +199,7 @@ async function execClaudeWithOpenAIProxy(
   const baseUrl = envData['ANTHROPIC_BASE_URL'];
   const apiKey = envData['ANTHROPIC_AUTH_TOKEN'] || '';
   const model = envData['ANTHROPIC_MODEL'] || 'default';
+  const passThroughThinking = true;
 
   if (!baseUrl) {
     console.error(fail(`Profile '${profileName}' has no ANTHROPIC_BASE_URL configured`));
@@ -214,6 +215,7 @@ async function execClaudeWithOpenAIProxy(
     verbose,
     timeoutMs: 120000,
     useResponsesApi,
+    passThroughThinking,
   });
 
   let proxyPort: number;
@@ -223,6 +225,7 @@ async function execClaudeWithOpenAIProxy(
       const modeName = useResponsesApi ? 'Responses API mode' : 'Chat Completions mode';
       console.error(`[openai-proxy] Translation proxy active on port ${proxyPort}`);
       console.error(`[openai-proxy] Target: ${baseUrl} (${modeName})`);
+      console.error('[openai-proxy] Thinking pass-through: enabled (default)');
     }
   } catch (error) {
     const err = error as Error;

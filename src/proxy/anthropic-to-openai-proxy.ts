@@ -77,6 +77,11 @@ export interface AnthropicToOpenAIProxyConfig {
    * When false: uses /v1/chat/completions only (generic OpenAI-compatible endpoints).
    */
   useResponsesApi?: boolean;
+  /**
+   * Pass upstream reasoning summary through Anthropic thinking blocks.
+   * Enabled by default.
+   */
+  passThroughThinking?: boolean;
 }
 
 // Anthropic types (incoming from Claude CLI)
@@ -361,7 +366,7 @@ function translateRequestChat(anthropicReq: AnthropicRequest): OpenAIRequest {
 
   if (anthropicReq.tools && anthropicReq.tools.length > 0) {
     openaiReq.tools = translateTools(anthropicReq.tools);
-    // 禁止上游模型使用 multi_tool_use.parallel 伪工具，避免产生乱码
+    // Disable model-level parallel tool calls for broader endpoint compatibility.
     (openaiReq as any).parallel_tool_calls = false;
   }
 
@@ -518,7 +523,7 @@ function translateChatToResponses(
     }
     const responsesToolChoice = translateToolChoiceForResponses(chat.tool_choice, toolNameMap);
     if (responsesToolChoice !== undefined) req.tool_choice = responsesToolChoice as any;
-    // 禁止上游模型使用 multi_tool_use.parallel 伪工具
+    // Disable model-level parallel tool calls for broader endpoint compatibility.
     if (req.tools && req.tools.length > 0) {
       (req as any).parallel_tool_calls = false;
     }
@@ -579,10 +584,6 @@ function extractSSEDataPayload(event: string): string | null {
 const AD_STRUCTURAL_PATTERNS = [
   // CJK 字符直接粘在工具调用关键 token 前面
   /[\u3000-\u9fff\uf900-\ufaff](?:assistant|json|commentary)\b/i,
-  // multi_tool_use 出现在文本内容中（应只存在于结构化 tool_calls 字段）
-  /multi_tool_use/,
-  // tool_uses JSON 结构出现在文本流中
-  /recipient_name.*?functions\./,
 ];
 
 // 高置信度垃圾关键词兜底（博彩/色情类）
@@ -752,10 +753,6 @@ class StreamingResponseTranslator {
 
         // New tool call
         if (tc.id && tc.function?.name) {
-          // 拦截 multi_tool_use.parallel 伪工具，上游模型不应使用此内部机制
-          if (tc.function.name === 'multi_tool_use.parallel') {
-            continue;
-          }
           const resolvedName = this.toolNameMap.get(tc.function.name) || tc.function.name;
           tracked = { id: tc.id, name: resolvedName, started: false };
           this.inToolCallBlocks.set(tcIndex, tracked);
@@ -1024,7 +1021,7 @@ export class AnthropicToOpenAIProxy {
   private readonly config: Required<
     Pick<
       AnthropicToOpenAIProxyConfig,
-      'targetBaseUrl' | 'apiKey' | 'verbose' | 'timeoutMs' | 'useResponsesApi'
+      'targetBaseUrl' | 'apiKey' | 'verbose' | 'timeoutMs' | 'useResponsesApi' | 'passThroughThinking'
     >
   >;
   private readonly httpAgent: http.Agent;
@@ -1292,6 +1289,7 @@ export class AnthropicToOpenAIProxy {
       verbose: config.verbose ?? false,
       timeoutMs: config.timeoutMs ?? 120000,
       useResponsesApi: config.useResponsesApi ?? true,
+      passThroughThinking: config.passThroughThinking ?? true,
     };
 
     this.httpAgent = new http.Agent({
@@ -1857,10 +1855,6 @@ export class AnthropicToOpenAIProxy {
                     } else if (evtType === 'response.output_text.done') {
                     } else if (evtType === 'response.output_item.added') {
                       if (parsed.item?.type === 'function_call') {
-                        if (parsed.item.name === 'multi_tool_use.parallel') {
-                          this.log('Blocked multi_tool_use.parallel pseudo-tool from upstream');
-                          continue;
-                        }
                         const tcId = parsed.item.call_id || parsed.item.id || `call_${Date.now()}`;
                         const tcName =
                           this.toolNameMap.get(parsed.item.name || '') || parsed.item.name || '';
@@ -2016,18 +2010,27 @@ export class AnthropicToOpenAIProxy {
                         } as any);
                         if (mcpDelta) clientRes.write(mcpDelta);
                       }
-                    } else if (evtType === 'response.reasoning_summary_part.added') {
-                      const events = translator.emitThinkingStart();
-                      if (events) clientRes.write(events);
                     } else if (
-                      evtType === 'response.reasoning_summary_text.delta' &&
-                      typeof parsed.delta === 'string'
+                      evtType === 'response.reasoning_summary_part.added' ||
+                      evtType === 'response.reasoning_summary_text.delta' ||
+                      evtType === 'response.reasoning_summary_text.done' ||
+                      evtType === 'response.reasoning_summary_part.done'
                     ) {
-                      const events = translator.emitThinkingDelta(parsed.delta);
-                      if (events) clientRes.write(events);
-                    } else if (evtType === 'response.reasoning_summary_part.done') {
-                      const events = translator.emitThinkingStop();
-                      if (events) clientRes.write(events);
+                      if (this.config.passThroughThinking) {
+                        if (evtType === 'response.reasoning_summary_part.added') {
+                          const events = translator.emitThinkingStart();
+                          if (events) clientRes.write(events);
+                        } else if (
+                          evtType === 'response.reasoning_summary_text.delta' &&
+                          typeof parsed.delta === 'string'
+                        ) {
+                          const events = translator.emitThinkingDelta(parsed.delta);
+                          if (events) clientRes.write(events);
+                        } else if (evtType === 'response.reasoning_summary_part.done') {
+                          const events = translator.emitThinkingStop();
+                          if (events) clientRes.write(events);
+                        }
+                      }
                     } else if (evtType.includes('reasoning')) {
                       this.log(
                         `[REASONING EVENT] ${evtType}: ${JSON.stringify(parsed).slice(0, 200)}`
@@ -2353,7 +2356,7 @@ export class AnthropicToOpenAIProxy {
                   if (!parsed?.type && parsed?.choices) {
                     const choice = parsed.choices[0];
                     if (choice?.delta?.content) collectedText += choice.delta.content;
-                    if (choice?.delta?.reasoning_content) {
+                    if (this.config.passThroughThinking && choice?.delta?.reasoning_content) {
                       collectedThinking += choice.delta.reasoning_content;
                     }
                     if (choice?.delta?.tool_calls) {
@@ -2394,6 +2397,7 @@ export class AnthropicToOpenAIProxy {
                   if (evtType.endsWith('.output_text.delta') && typeof parsed.delta === 'string') {
                     collectedText += parsed.delta;
                   } else if (
+                    this.config.passThroughThinking &&
                     evtType === 'response.reasoning_summary_text.delta' &&
                     typeof parsed.delta === 'string'
                   ) {
@@ -2446,7 +2450,7 @@ export class AnthropicToOpenAIProxy {
 
             upstreamRes.on('end', () => {
               const content: unknown[] = [];
-              if (collectedThinking) {
+              if (this.config.passThroughThinking && collectedThinking) {
                 content.push({ type: 'thinking', thinking: collectedThinking, signature: '' });
               }
               if (collectedText) {
