@@ -2,6 +2,7 @@ import { spawn, ChildProcess } from 'child_process';
 import * as path from 'path';
 import * as fs from 'fs';
 import * as os from 'os';
+import * as http from 'http';
 import { detectClaudeCli } from './utils/claude-detector';
 import { getSettingsPath, loadSettings } from './utils/config-manager';
 import { ErrorManager } from './utils/error-manager';
@@ -21,13 +22,112 @@ interface ProxyMeta {
   upstreamUrl: string;
 }
 
+interface KeepaliveSnapshot {
+  cacheHitRate: number;
+  netSavedUsd: number;
+  reqs: number;
+  pings: number;
+  errs: number;
+  pingOkRate: number;
+}
+
+function getKeepaliveLogPath(port: number): string {
+  return path.join(os.tmpdir(), `cache-keepalive-${port}.log`);
+}
+
+async function fetchKeepaliveSnapshot(port: number): Promise<KeepaliveSnapshot | null> {
+  return new Promise((resolve) => {
+    const req = http.get(`http://127.0.0.1:${port}/_health`, { timeout: 1500 }, (res) => {
+      let data = '';
+      res.on('data', (chunk: Buffer) => {
+        data += chunk.toString();
+      });
+      res.on('end', () => {
+        try {
+          const parsed = JSON.parse(data) as {
+            cacheHitRate?: number;
+            costEstimate?: { netSaved?: number };
+            stats?: { reqs?: number; pings?: number; ok?: number; errs?: number };
+          };
+          const reqs = parsed.stats?.reqs ?? 0;
+          const pings = parsed.stats?.pings ?? 0;
+          const okPings = parsed.stats?.ok ?? 0;
+          resolve({
+            cacheHitRate: parsed.cacheHitRate ?? 0,
+            netSavedUsd: parsed.costEstimate?.netSaved ?? 0,
+            reqs,
+            pings,
+            errs: parsed.stats?.errs ?? 0,
+            pingOkRate: pings > 0 ? parseFloat(((okPings / pings) * 100).toFixed(2)) : 0,
+          });
+        } catch {
+          resolve(null);
+        }
+      });
+    });
+    req.on('error', () => resolve(null));
+    req.on('timeout', () => {
+      req.destroy();
+      resolve(null);
+    });
+  });
+}
+
+function startKeepaliveLogRelay(port: number, enabled: boolean): (() => void) | null {
+  if (!enabled) return null;
+  const logPath = getKeepaliveLogPath(port);
+  let offset = 0;
+
+  try {
+    if (fs.existsSync(logPath)) {
+      offset = fs.statSync(logPath).size;
+    }
+  } catch {
+    offset = 0;
+  }
+
+  console.error(info(`Keepalive relay enabled: ${logPath}`));
+
+  const timer = setInterval(() => {
+    try {
+      if (!fs.existsSync(logPath)) return;
+      const size = fs.statSync(logPath).size;
+      if (size < offset) offset = 0;
+      if (size === offset) return;
+
+      const length = size - offset;
+      if (length <= 0) return;
+
+      const fd = fs.openSync(logPath, 'r');
+      try {
+        const buffer = Buffer.alloc(length);
+        fs.readSync(fd, buffer, 0, length, offset);
+        offset = size;
+        const chunk = buffer.toString('utf8');
+        const lines = chunk.split(/\r?\n/).filter((line) => line.trim().length > 0);
+        for (const line of lines) {
+          console.error(dim(`[keepalive] ${line}`));
+        }
+      } finally {
+        fs.closeSync(fd);
+      }
+    } catch {
+      // 忽略 relay 错误，避免影响主流程
+    }
+  }, 1200);
+
+  timer.unref();
+  return () => clearInterval(timer);
+}
+
 /**
  * 打印代理链仪表盘（Claude 启动前显示）
  */
 function printProxyDashboard(
   meta: ProxyMeta,
   keepalivePort: number | null | undefined,
-  sanitizerPort: number | null
+  sanitizerPort: number | null,
+  keepaliveSnapshot: KeepaliveSnapshot | null = null
 ): void {
   const lines: string[] = [];
   const label = (k: string, v: string) => `  ${dim(k.padEnd(12))}${v}`;
@@ -37,6 +137,17 @@ function printProxyDashboard(
 
   if (keepalivePort) {
     lines.push(label('Cache', `${ok(':' + keepalivePort)} keepalive`));
+    lines.push(label('Cache API', `http://127.0.0.1:${keepalivePort}/_health`));
+    lines.push(label('Cache Stats', `http://127.0.0.1:${keepalivePort}/_stats`));
+    lines.push(label('Cache Log', getKeepaliveLogPath(keepalivePort)));
+    if (keepaliveSnapshot) {
+      lines.push(
+        label(
+          'Cache Live',
+          `hit ${keepaliveSnapshot.cacheHitRate.toFixed(2)}% | net $${keepaliveSnapshot.netSavedUsd.toFixed(2)} | req ${keepaliveSnapshot.reqs} | ping ${keepaliveSnapshot.pings} (${keepaliveSnapshot.pingOkRate.toFixed(1)}% ok) | err ${keepaliveSnapshot.errs}`
+        )
+      );
+    }
   }
   if (sanitizerPort) {
     lines.push(label('Sanitizer', `${ok(':' + sanitizerPort)} tool-name fix`));
@@ -336,13 +447,15 @@ async function execClaudeWithToolSanitizationProxy(
   envVars: NodeJS.ProcessEnv,
   keepalivePort?: number | null,
   meta?: ProxyMeta,
-  authScheme?: 'bearer'
+  authScheme?: 'bearer',
+  keepaliveSnapshot?: KeepaliveSnapshot | null
 ): Promise<void> {
   const verbose = args.includes('--verbose') || args.includes('-v');
 
   let toolSanitizationProxy: { start: () => Promise<number>; stop: () => void } | null = null;
   let effectiveBaseUrl = envVars.ANTHROPIC_BASE_URL;
   let sanitizerPort: number | null = null;
+  let stopKeepaliveRelay: (() => void) | null = null;
 
   if (effectiveBaseUrl) {
     try {
@@ -418,7 +531,12 @@ async function execClaudeWithToolSanitizationProxy(
 
   // 代理仪表盘
   if (meta) {
-    printProxyDashboard(meta, keepalivePort, sanitizerPort);
+    printProxyDashboard(meta, keepalivePort, sanitizerPort, keepaliveSnapshot ?? null);
+  }
+
+  if (keepalivePort) {
+    const relayEnabled = verbose || process.env.CCS_KEEPALIVE_LOG === '1';
+    stopKeepaliveRelay = startKeepaliveLogRelay(keepalivePort, relayEnabled);
   }
 
   const isWindows = process.platform === 'win32';
@@ -440,6 +558,7 @@ async function execClaudeWithToolSanitizationProxy(
 
   const stopProxy = (): void => {
     if (toolSanitizationProxy) toolSanitizationProxy.stop();
+    if (stopKeepaliveRelay) stopKeepaliveRelay();
     // keepalive daemon 设计为跨会话存活，不在 Claude 退出时停止
   };
 
@@ -486,10 +605,15 @@ async function main(): Promise<void> {
     await initUI();
   }
 
-  // 子命令路由：只保留 api
+  // 子命令路由
   if (firstArg === 'api') {
     const { handleApiCommand } = await import('./commands/api-command');
     await handleApiCommand(args.slice(1));
+    return;
+  }
+  if (firstArg === 'keepalive') {
+    const { handleKeepaliveCommand } = await import('./commands/keepalive-command');
+    await handleKeepaliveCommand(args.slice(1));
     return;
   }
 
@@ -541,6 +665,7 @@ async function main(): Promise<void> {
         const verbose = remainingArgs.includes('--verbose') || remainingArgs.includes('-v');
         const upstreamUrl = settingsEnv.ANTHROPIC_BASE_URL || '';
         let keepalivePort: number | null = null;
+        let keepaliveSnapshot: KeepaliveSnapshot | null = null;
         if (profileInfo.cacheKeepalive && settingsEnv.ANTHROPIC_BASE_URL) {
           const keepaliveManager = new CacheKeepaliveManager();
           keepalivePort = await keepaliveManager.ensureRunning(
@@ -549,6 +674,12 @@ async function main(): Promise<void> {
           );
           if (keepalivePort) {
             settingsEnv.ANTHROPIC_BASE_URL = `http://127.0.0.1:${keepalivePort}`;
+            keepaliveSnapshot = await fetchKeepaliveSnapshot(keepalivePort);
+            if (!keepaliveSnapshot && verbose) {
+              console.error(
+                info('[keepalive] health probe failed, daemon may still be warming up')
+              );
+            }
           }
         }
 
@@ -567,7 +698,8 @@ async function main(): Promise<void> {
           envVars,
           keepalivePort,
           { profileName: profileInfo.name, upstreamUrl },
-          profileInfo.authScheme
+          profileInfo.authScheme,
+          keepaliveSnapshot
         );
       }
     } else {

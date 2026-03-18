@@ -39,6 +39,9 @@ const PRICING: PricingModel = {
 
 const STATS_SAVE_INTERVAL_MS = 30000;
 const MAX_PREFIX_CHANGES = 20;
+const REQUEST_SUMMARY_EVERY = 25;
+const PREFIX_CHANGE_WARN_EVERY = 10;
+const PREFIX_CHANGE_WARN_THRESHOLD = 0.35;
 
 // ─── CacheKeepaliveProxy ──────────────────────────────────────────────────────
 
@@ -57,6 +60,8 @@ export class CacheKeepaliveProxy {
   private statsDirty = false;
   private statsSaveTimer: NodeJS.Timeout | null = null;
   private sessionStartTime = Date.now();
+  private lastRequestAt: number | null = null;
+  private lastPingLatencyMs: number | null = null;
   private stats: KeepaliveStats;
 
   constructor(config: DaemonConfig) {
@@ -110,6 +115,7 @@ export class CacheKeepaliveProxy {
       cReq.on('data', (chunk: Buffer) => chunks.push(chunk));
       cReq.on('end', () => {
         this.stats.reqs++;
+        this.lastRequestAt = Date.now();
         const raw = Buffer.concat(chunks);
         let requestModel: string | null = null;
         const contentType = cReq.headers['content-type'] ?? '';
@@ -131,6 +137,7 @@ export class CacheKeepaliveProxy {
       this.log(
         `proxy listening on 127.0.0.1:${this.config.port} → ${this.config.upstreamUrl} (pid ${process.pid})`
       );
+      this.log(`files: log=${this.logFile}, stats=${this.statsFile}, pid=${this.pidFile}`);
       this.resetAutoExit();
     });
 
@@ -250,7 +257,12 @@ export class CacheKeepaliveProxy {
       if (typeof model !== 'string') return;
 
       const newHash = this.computePrefixHash(model, parsed['system'], parsed['tools']);
+      const isFirstPrefix = this.lastPrefixHash === null;
       const prefixChanged = this.lastPrefixHash !== null && newHash !== this.lastPrefixHash;
+
+      if (isFirstPrefix) {
+        this.log(`prefix captured: ${newHash} (${model})`);
+      }
 
       if (prefixChanged) {
         this.stats.prefixChanges++;
@@ -265,6 +277,14 @@ export class CacheKeepaliveProxy {
           this.stats.recentPrefixChanges.shift();
         }
         this.log(`prefix changed: ${this.lastPrefixHash} → ${newHash}`);
+        if (
+          this.stats.prefixChanges % PREFIX_CHANGE_WARN_EVERY === 0 &&
+          this.computePrefixChangesPerReq() >= PREFIX_CHANGE_WARN_THRESHOLD
+        ) {
+          this.log(
+            `prefix churn high: ${this.computePrefixChangesPerReq().toFixed(3)} changes/req; cache stability may degrade`
+          );
+        }
         this.markStatsDirty();
       }
 
@@ -340,7 +360,14 @@ export class CacheKeepaliveProxy {
       modelStats.reqs++;
 
       if (cacheRead > 0) {
-        this.log(`cache hit: ${cacheRead} read, ${cacheWrite} write, ${input} input`);
+        this.log(`cache hit (${modelKey}): ${cacheRead} read, ${cacheWrite} write, ${input} input`);
+      } else if (cacheWrite > 0) {
+        this.log(
+          `cache warmup (${modelKey}): ${cacheRead} read, ${cacheWrite} write, ${input} input`
+        );
+      }
+      if (this.stats.reqs === 1 || this.stats.reqs % REQUEST_SUMMARY_EVERY === 0) {
+        this.logSummary(`req#${this.stats.reqs}`);
       }
       this.markStatsDirty();
     }
@@ -382,6 +409,23 @@ export class CacheKeepaliveProxy {
     return parseFloat(((this.stats.cacheReadTokens / total) * 100).toFixed(2));
   }
 
+  private computePingOkRate(): number {
+    if (this.stats.pings === 0) return 0;
+    return parseFloat(((this.stats.ok / this.stats.pings) * 100).toFixed(2));
+  }
+
+  private computePrefixChangesPerReq(): number {
+    if (this.stats.reqs === 0) return 0;
+    return this.stats.prefixChanges / this.stats.reqs;
+  }
+
+  private logSummary(reason: string): void {
+    const netSaved = this.computeCostEstimate().netSaved.toFixed(2);
+    this.log(
+      `summary(${reason}): req=${this.stats.reqs}, pings=${this.stats.pings}, hit=${this.computeCacheHitRate().toFixed(2)}%, pingOk=${this.computePingOkRate().toFixed(2)}%, prefixChurn=${this.computePrefixChangesPerReq().toFixed(3)}, netSaved=$${netSaved}`
+    );
+  }
+
   // ─── 定时器 ──────────────────────────────────────────────────────────────────
 
   private resetKeepalive(): void {
@@ -410,6 +454,8 @@ export class CacheKeepaliveProxy {
     if (!this.lastPrefix) return;
 
     const prefix = this.lastPrefix;
+    const pingStart = Date.now();
+    this.log(`ping start: model=${prefix.model}, prefix=${this.lastPrefixHash ?? 'none'}`);
     const body: Record<string, unknown> = {
       model: prefix.model,
       max_tokens: 1,
@@ -446,15 +492,20 @@ export class CacheKeepaliveProxy {
       (res) => {
         this.parseSSETokenUsage(res, prefix.model);
         res.on('end', () => {
+          const latencyMs = Date.now() - pingStart;
+          this.lastPingLatencyMs = latencyMs;
           if (res.statusCode === 200) {
             this.stats.ok++;
-            this.log('ping ok');
+            this.log(`ping ok (${latencyMs}ms)`);
             this.resetAutoExit();
           } else {
             this.stats.errs++;
-            this.log(`ping ${res.statusCode ?? 'unknown'}`);
+            this.log(`ping ${res.statusCode ?? 'unknown'} (${latencyMs}ms)`);
           }
           this.markStatsDirty();
+          if (this.stats.pings % 5 === 0) {
+            this.logSummary(`ping#${this.stats.pings}`);
+          }
           this.resetKeepalive();
         });
         res.resume();
@@ -462,8 +513,10 @@ export class CacheKeepaliveProxy {
     );
 
     req.on('error', (err: Error) => {
+      const latencyMs = Date.now() - pingStart;
+      this.lastPingLatencyMs = latencyMs;
       this.stats.errs++;
-      this.log(`ping err: ${err.message} → upstream ${this.upstream.host}`);
+      this.log(`ping err: ${err.message} (${latencyMs}ms) → upstream ${this.upstream.host}`);
       this.markStatsDirty();
       this.resetKeepalive();
     });
@@ -497,7 +550,16 @@ export class CacheKeepaliveProxy {
           output: this.stats.outputTokens,
         },
         cacheHitRate: this.computeCacheHitRate(),
+        pingOkRate: this.computePingOkRate(),
+        prefixChangesPerReq: parseFloat(this.computePrefixChangesPerReq().toFixed(3)),
         costEstimate: this.computeCostEstimate(),
+        lastRequestAt: this.lastRequestAt ? new Date(this.lastRequestAt).toISOString() : null,
+        lastPingLatencyMs: this.lastPingLatencyMs,
+        paths: {
+          logFile: this.logFile,
+          statsFile: this.statsFile,
+          pidFile: this.pidFile,
+        },
       },
       null,
       2
@@ -536,12 +598,23 @@ export class CacheKeepaliveProxy {
             this.stats.outputTokens,
         },
         cacheHitRate: this.computeCacheHitRate(),
+        pingOkRate: this.computePingOkRate(),
+        prefixChangesPerReq: parseFloat(this.computePrefixChangesPerReq().toFixed(3)),
         costEstimate: this.computeCostEstimate(),
         byModel: this.stats.byModel,
         prefixTracking: {
           currentHash: this.lastPrefixHash,
           totalChanges: this.stats.prefixChanges,
           recentChanges: this.stats.recentPrefixChanges,
+        },
+        activity: {
+          lastRequestAt: this.lastRequestAt ? new Date(this.lastRequestAt).toISOString() : null,
+          lastPingLatencyMs: this.lastPingLatencyMs,
+        },
+        paths: {
+          logFile: this.logFile,
+          statsFile: this.statsFile,
+          pidFile: this.pidFile,
         },
         statsFile: this.statsFile,
       },
