@@ -29,6 +29,8 @@ export interface ApiListResult {
 export interface CreateApiProfileResult {
   success: boolean;
   settingsFile: string;
+  promptFile?: string;
+  promptFileCreated?: boolean;
   error?: string;
 }
 

@@ -17,6 +17,10 @@ export interface ProfileConfig {
   type: 'api';
   /** settings 文件路径 (e.g., "~/.ccs/glm.settings.json") */
   settings: string;
+  /** 追加到 Claude 默认 system prompt 的内联提示词 */
+  appendSystemPrompt?: string;
+  /** 追加到 Claude 默认 system prompt 的提示词文件路径 */
+  appendSystemPromptFile?: string;
   /** 端点协议: 'anthropic' (默认), 'openai' (Chat Completions), 'openai-responses' (Responses API) */
   protocol?: 'anthropic' | 'openai' | 'openai-responses';
   /** 启用缓存保活代理（透传 + 空闲 ping 维持 prompt cache 热度） */

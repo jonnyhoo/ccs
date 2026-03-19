@@ -17,7 +17,9 @@ import { ui, warn, info } from '../utils/ui';
 import { type ExecutionOptions, type ExecutionResult, type StreamMessage } from './executor/types';
 import { StreamBuffer, formatToolVerbose } from './executor/stream-parser';
 import { buildExecutionResult } from './executor/result-aggregator';
-import { getCcsDir, getModelDisplayName } from '../utils/config-manager';
+import { getModelDisplayName, getSettingsPath } from '../utils/config-manager';
+import ProfileDetector from '../config/profile-detector';
+import { injectProfilePromptArgs } from '../utils/profile-prompt';
 
 // Re-export types for consumers
 export type { ExecutionOptions, ExecutionResult, StreamMessage } from './executor/types';
@@ -67,14 +69,12 @@ export class HeadlessExecutor {
     }
 
     // Get settings path for profile
-    const settingsPath = path.join(getCcsDir(), `${profile}.settings.json`);
-
-    // Validate settings file exists
-    if (!fs.existsSync(settingsPath)) {
-      throw new Error(
-        `Settings file not found: ${settingsPath}\nProfile "${profile}" may not be configured.`
-      );
+    const detector = new ProfileDetector();
+    const profileInfo = detector.detectProfileType(profile);
+    if (profileInfo.type !== 'settings') {
+      throw new Error(`Profile "${profile}" is not a settings-based profile`);
     }
+    const settingsPath = getSettingsPath(profileInfo.name);
 
     // Smart slash command detection and preservation
     const processedPrompt = this._processSlashCommand(enhancedPrompt);
@@ -159,8 +159,10 @@ export class HeadlessExecutor {
       }
     }
 
+    const finalArgs = injectProfilePromptArgs(profileInfo.name, args, profileInfo);
+
     if (process.env.CCS_DEBUG) {
-      console.error(info(`Claude CLI args: ${args.join(' ')}`));
+      console.error(info(`Claude CLI args: ${finalArgs.join(' ')}`));
     }
 
     // Initialize UI before spawning
@@ -168,11 +170,11 @@ export class HeadlessExecutor {
 
     // Background execution mode
     if (runInBackground) {
-      return this._spawnBackground(claudeCli, args, { cwd, profile });
+      return this._spawnBackground(claudeCli, finalArgs, { cwd, profile });
     }
 
     // Execute with spawn (blocking)
-    return this._spawnAndExecute(claudeCli, args, {
+    return this._spawnAndExecute(claudeCli, finalArgs, {
       cwd,
       profile,
       timeout,

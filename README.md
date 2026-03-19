@@ -225,6 +225,38 @@ $env:CCS_CLAUDE_PATH = "D:\Tools\Claude\claude.exe"   # Windows
 
 </details>
 
+### Profile Prompt Presets
+
+You can make `ccs <profile>` automatically append your own Claude system prompt.
+
+```yaml
+profiles:
+  codeflow:
+    type: api
+    settings: ~/.ccs/codeflow.settings.json
+    appendSystemPromptFile: ~/.ccs/prompts/codeflow.md
+```
+
+For shorter prompts, inline text also works:
+
+```yaml
+profiles:
+  codeflow:
+    type: api
+    settings: ~/.ccs/codeflow.settings.json
+    appendSystemPrompt: |
+      Always answer in Chinese.
+      Put the conclusion first, then the steps.
+```
+
+`ccs` only injects these presets when you did not already pass your own prompt flags such as `--append-system-prompt` or `--system-prompt-file`.
+
+You can also set this while creating the profile:
+
+```bash
+ccs api create codeflow --append-system-prompt-file ~/.ccs/prompts/codeflow.md
+```
+
 <details>
 <summary>Windows symlink support</summary>
 

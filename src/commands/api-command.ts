@@ -51,6 +51,8 @@ interface ApiCommandArgs {
   openai?: boolean; // kept for backward compat, maps to protocol 'openai'
   protocol?: string; // 'anthropic' | 'openai' | 'openai-responses'
   authScheme?: 'bearer';
+  appendSystemPrompt?: string;
+  appendSystemPromptFile?: string;
 }
 
 /** Parse command line arguments for api commands */
@@ -77,6 +79,10 @@ function parseArgs(args: string[]): ApiCommandArgs {
     } else if (arg === '--auth-scheme' && args[i + 1]) {
       const scheme = args[++i];
       if (scheme === 'bearer') result.authScheme = 'bearer';
+    } else if (arg === '--append-system-prompt' && args[i + 1]) {
+      result.appendSystemPrompt = args[++i];
+    } else if (arg === '--append-system-prompt-file' && args[i + 1]) {
+      result.appendSystemPromptFile = args[++i];
     } else if (arg === '--yes' || arg === '-y') {
       result.yes = true;
     } else if (!arg.startsWith('-') && !result.name) {
@@ -123,6 +129,11 @@ async function handleCreate(args: string[]): Promise<void> {
   if (apiProfileExists(name) && !parsedArgs.force) {
     console.log(fail(`API '${name}' already exists`));
     console.log(`    Use ${color('--force', 'command')} to overwrite`);
+    process.exit(1);
+  }
+
+  if (parsedArgs.appendSystemPrompt && parsedArgs.appendSystemPromptFile) {
+    console.log(fail('Use either --append-system-prompt or --append-system-prompt-file, not both'));
     process.exit(1);
   }
 
@@ -334,6 +345,23 @@ async function handleCreate(args: string[]): Promise<void> {
     if (usesBearer) authScheme = 'bearer';
   }
 
+  // Step 8: Optional profile-specific prompt preset
+  const appendSystemPrompt = parsedArgs.appendSystemPrompt;
+  let appendSystemPromptFile = parsedArgs.appendSystemPromptFile;
+  if (!appendSystemPrompt && !appendSystemPromptFile && !parsedArgs.yes) {
+    console.log('');
+    const wantsPromptPreset = await InteractivePrompt.confirm(
+      'Attach a profile-specific system prompt file?',
+      { default: false }
+    );
+    if (wantsPromptPreset) {
+      const suggestedPromptPath = `~/.ccs/prompts/${name}.md`;
+      appendSystemPromptFile = await InteractivePrompt.input('Prompt file path', {
+        default: suggestedPromptPath,
+      });
+    }
+  }
+
   // Create profile
   console.log('');
   console.log(info('Creating API profile...'));
@@ -345,7 +373,9 @@ async function handleCreate(args: string[]): Promise<void> {
     models,
     protocol,
     cacheKeepalive,
-    authScheme
+    authScheme,
+    appendSystemPrompt,
+    appendSystemPromptFile
   );
 
   if (!result.success) {
@@ -373,6 +403,14 @@ async function handleCreate(args: string[]): Promise<void> {
       `  Sonnet: ${sonnetModel}\n` +
       `  Haiku:  ${haikuModel}`;
   }
+  if (appendSystemPromptFile) {
+    infoMsg += `\nPrompt:   ${appendSystemPromptFile}`;
+    if (result.promptFileCreated) {
+      infoMsg += `\nPrompt file created: yes`;
+    }
+  } else if (appendSystemPrompt) {
+    infoMsg += `\nPrompt:   inline appendSystemPrompt configured`;
+  }
 
   console.log(infoBox(infoMsg, 'API Profile Created'));
   console.log('');
@@ -382,6 +420,11 @@ async function handleCreate(args: string[]): Promise<void> {
   console.log(header('Edit Settings'));
   console.log(`  ${dim('To modify env vars later:')}`);
   console.log(`  ${color(`nano ${result.settingsFile.replace('~', '$HOME')}`, 'command')}`);
+  if (result.promptFile) {
+    console.log('');
+    console.log(`  ${dim('To edit the profile prompt:')}`);
+    console.log(`  ${color(`nano ${result.promptFile.replace('~', '$HOME')}`, 'command')}`);
+  }
   console.log('');
 }
 
@@ -518,6 +561,12 @@ async function showHelp(): Promise<void> {
   console.log(
     `  ${color('--auth-scheme bearer', 'command')}  Use Bearer token auth (for endpoints requiring Authorization: Bearer)`
   );
+  console.log(
+    `  ${color('--append-system-prompt-file <path>', 'command')}  Attach a profile-specific system prompt file`
+  );
+  console.log(
+    `  ${color('--append-system-prompt <text>', 'command')}  Attach inline profile-specific system prompt text`
+  );
   console.log('');
   console.log(subheader('Provider Presets'));
   console.log(
@@ -549,6 +598,11 @@ async function showHelp(): Promise<void> {
   console.log('');
   console.log(`  ${dim('# Create with name')}`);
   console.log(`  ${color('ccs api create myapi', 'command')}`);
+  console.log('');
+  console.log(`  ${dim('# Create and bind a prompt file')}`);
+  console.log(
+    `  ${color('ccs api create codeflow --append-system-prompt-file ~/.ccs/prompts/codeflow.md', 'command')}`
+  );
   console.log('');
   console.log(`  ${dim('# Remove API profile')}`);
   console.log(`  ${color('ccs api remove myapi', 'command')}`);

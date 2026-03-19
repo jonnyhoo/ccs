@@ -6,6 +6,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { getCcsDir, getConfigPath, loadConfigSafe } from '../../utils/config-manager';
 import { expandPath } from '../../utils/helpers';
+import { resolveProfilePromptFilePath } from '../../utils/profile-prompt';
 import {
   loadOrCreateUnifiedConfig,
   saveUnifiedConfig,
@@ -71,6 +72,26 @@ function updateLegacyConfig(name: string): void {
   fs.renameSync(tempPath, configPath);
 }
 
+function ensureProfilePromptConfigIsValid(
+  appendSystemPrompt?: string,
+  appendSystemPromptFile?: string
+): void {
+  if (appendSystemPrompt && appendSystemPromptFile) {
+    throw new Error('Use either appendSystemPrompt or appendSystemPromptFile, not both');
+  }
+}
+
+function ensurePromptFileExists(promptFile: string): { storedPath: string; created: boolean } {
+  const resolvedPath = resolveProfilePromptFilePath(promptFile);
+  if (fs.existsSync(resolvedPath)) {
+    return { storedPath: promptFile, created: false };
+  }
+
+  fs.mkdirSync(path.dirname(resolvedPath), { recursive: true });
+  fs.writeFileSync(resolvedPath, '\n', 'utf8');
+  return { storedPath: promptFile, created: true };
+}
+
 /** Create API profile in unified config */
 function createApiProfileUnified(
   name: string,
@@ -79,11 +100,14 @@ function createApiProfileUnified(
   models: ModelMapping,
   protocol?: 'anthropic' | 'openai' | 'openai-responses',
   cacheKeepalive?: boolean,
-  authScheme?: 'bearer'
-): void {
+  authScheme?: 'bearer',
+  appendSystemPrompt?: string,
+  appendSystemPromptFile?: string
+): { promptFile?: string; promptFileCreated?: boolean } {
   const ccsDir = getCcsDir();
   const settingsFile = `${name}.settings.json`;
   const settingsPath = path.join(ccsDir, settingsFile);
+  ensureProfilePromptConfigIsValid(appendSystemPrompt, appendSystemPromptFile);
 
   const settings = {
     env: {
@@ -108,6 +132,8 @@ function createApiProfileUnified(
   const profileConfig: {
     type: 'api';
     settings: string;
+    appendSystemPrompt?: string;
+    appendSystemPromptFile?: string;
     protocol?: 'anthropic' | 'openai' | 'openai-responses';
     cacheKeepalive?: boolean;
     authScheme?: 'bearer';
@@ -124,8 +150,21 @@ function createApiProfileUnified(
   if (authScheme === 'bearer') {
     profileConfig.authScheme = 'bearer';
   }
+  if (appendSystemPrompt?.trim()) {
+    profileConfig.appendSystemPrompt = appendSystemPrompt.trim();
+  }
+  let promptFileResult: { storedPath: string; created: boolean } | undefined;
+  if (appendSystemPromptFile?.trim()) {
+    promptFileResult = ensurePromptFileExists(appendSystemPromptFile.trim());
+    profileConfig.appendSystemPromptFile = promptFileResult.storedPath;
+  }
   config.profiles[name] = profileConfig;
   saveUnifiedConfig(config);
+
+  return {
+    promptFile: promptFileResult?.storedPath,
+    promptFileCreated: promptFileResult?.created,
+  };
 }
 
 /** Create a new API profile */
@@ -136,19 +175,36 @@ export function createApiProfile(
   models: ModelMapping,
   protocol?: 'anthropic' | 'openai' | 'openai-responses',
   cacheKeepalive?: boolean,
-  authScheme?: 'bearer'
+  authScheme?: 'bearer',
+  appendSystemPrompt?: string,
+  appendSystemPromptFile?: string
 ): CreateApiProfileResult {
   try {
     const settingsFile = `~/.ccs/${name}.settings.json`;
+    ensureProfilePromptConfigIsValid(appendSystemPrompt, appendSystemPromptFile);
+    let promptResult: { promptFile?: string; promptFileCreated?: boolean } = {};
 
     if (isUnifiedMode()) {
-      createApiProfileUnified(name, baseUrl, apiKey, models, protocol, cacheKeepalive, authScheme);
+      promptResult = createApiProfileUnified(
+        name,
+        baseUrl,
+        apiKey,
+        models,
+        protocol,
+        cacheKeepalive,
+        authScheme,
+        appendSystemPrompt,
+        appendSystemPromptFile
+      );
     } else {
+      if (appendSystemPrompt || appendSystemPromptFile) {
+        throw new Error('Profile prompt presets require unified config.yaml mode');
+      }
       createSettingsFile(name, baseUrl, apiKey, models);
       updateLegacyConfig(name);
     }
 
-    return { success: true, settingsFile };
+    return { success: true, settingsFile, ...promptResult };
   } catch (error) {
     return {
       success: false,

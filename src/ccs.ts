@@ -10,6 +10,7 @@ import { getGlobalEnvConfig } from './config/unified-config-loader';
 import { fail, info, ok, dim, bold, box, initUI } from './utils/ui';
 import { ensureCliproxyIfNeeded } from './proxy/cliproxy-autostart';
 import { CacheKeepaliveManager } from './proxy/cache-keepalive-manager';
+import { injectProfilePromptArgs } from './utils/profile-prompt';
 
 // 集中错误处理
 import { handleError, runCleanup } from './errors';
@@ -643,15 +644,16 @@ async function main(): Promise<void> {
 
   try {
     const profileInfo = detector.detectProfileType(profile);
+    const effectiveArgs = injectProfilePromptArgs(profileInfo.name, remainingArgs, profileInfo);
 
     if (profileInfo.type === 'settings') {
       // GLMT: 内嵌代理
       if (profileInfo.name === 'glmt') {
-        await execClaudeWithProxy(claudeCli, profileInfo.name, remainingArgs);
+        await execClaudeWithProxy(claudeCli, profileInfo.name, effectiveArgs);
       } else if (profileInfo.protocol === 'openai') {
-        await execClaudeWithOpenAIProxy(claudeCli, profileInfo.name, remainingArgs, false);
+        await execClaudeWithOpenAIProxy(claudeCli, profileInfo.name, effectiveArgs, false);
       } else if (profileInfo.protocol === 'openai-responses') {
-        await execClaudeWithOpenAIProxy(claudeCli, profileInfo.name, remainingArgs, true);
+        await execClaudeWithOpenAIProxy(claudeCli, profileInfo.name, effectiveArgs, true);
       } else {
         // 普通 settings profile: 工具名清洗代理
         const expandedSettingsPath = getSettingsPath(profileInfo.name);
@@ -662,7 +664,7 @@ async function main(): Promise<void> {
         const settingsEnv = settings.env || {};
 
         // 缓存保活：确保 daemon 以正确 upstream 运行，重写 BASE_URL 到本地代理
-        const verbose = remainingArgs.includes('--verbose') || remainingArgs.includes('-v');
+        const verbose = effectiveArgs.includes('--verbose') || effectiveArgs.includes('-v');
         const upstreamUrl = settingsEnv.ANTHROPIC_BASE_URL || '';
         let keepalivePort: number | null = null;
         let keepaliveSnapshot: KeepaliveSnapshot | null = null;
@@ -694,7 +696,7 @@ async function main(): Promise<void> {
         await execClaudeWithToolSanitizationProxy(
           claudeCli,
           expandedSettingsPath,
-          remainingArgs,
+          effectiveArgs,
           envVars,
           keepalivePort,
           { profileName: profileInfo.name, upstreamUrl },
@@ -704,7 +706,7 @@ async function main(): Promise<void> {
       }
     } else {
       // DEFAULT: 使用 Claude 原生认证
-      execClaude(claudeCli, remainingArgs, { CCS_PROFILE_TYPE: 'default' });
+      execClaude(claudeCli, effectiveArgs, { CCS_PROFILE_TYPE: 'default' });
     }
   } catch (error) {
     const err = error as ProfileError;

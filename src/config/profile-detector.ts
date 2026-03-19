@@ -22,6 +22,10 @@ export interface ProfileDetectionResult {
   message?: string;
   /** 从 unified config 或 settings 文件加载的 env vars */
   env?: Record<string, string>;
+  /** 追加到 Claude 默认 system prompt 的内联提示词 */
+  appendSystemPrompt?: string;
+  /** 追加到 Claude 默认 system prompt 的提示词文件路径 */
+  appendSystemPromptFile?: string;
   /** API profile 的端点协议 ('anthropic' 默认, 'openai' Chat Completions, 'openai-responses' Responses API) */
   protocol?: 'anthropic' | 'openai' | 'openai-responses';
   /** 是否启用缓存保活代理 */
@@ -82,7 +86,10 @@ class ProfileDetector {
       return {
         type: 'settings',
         name: profileName,
+        settingsPath: expandPath(profile.settings),
         env: settingsEnv,
+        appendSystemPrompt: profile.appendSystemPrompt,
+        appendSystemPromptFile: profile.appendSystemPromptFile,
         protocol: profile.protocol,
         cacheKeepalive: profile.cacheKeepalive,
         authScheme: profile.authScheme,
